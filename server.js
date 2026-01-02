@@ -19,11 +19,21 @@ wss.on("connection", (ws, req) => {
   console.log("New Media Stream connection:", req.url);
   
   // Extraire les paramètres de l'URL
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const callSid = url.searchParams.get("callSid");
-  const garageId = url.searchParams.get("garageId");
-  const garageName = url.searchParams.get("garageName") || "AutoGuru";
-  const fromNumber = url.searchParams.get("fromNumber");
+  let callSid = null;
+  let garageId = null;
+  let garageName = "AutoGuru";
+  let fromNumber = null;
+  
+  if (req.url) {
+    const urlMatch = req.url.match(/\?([^#]*)/);
+    if (urlMatch) {
+      const params = new URLSearchParams(urlMatch[1]);
+      callSid = params.get("callSid");
+      garageId = params.get("garageId");
+      garageName = params.get("garageName") || "AutoGuru";
+      fromNumber = params.get("fromNumber");
+    }
+  }
   
   console.log("📞 Paramètres:", { callSid, garageId, garageName, fromNumber });
   
