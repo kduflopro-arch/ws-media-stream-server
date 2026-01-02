@@ -135,6 +135,7 @@ wss.on("connection", (ws, req) => {
         openaiWs.send(JSON.stringify({
           type: "session.update",
           session: {
+            type: "realtime",
             instructions: `Tu es l'assistant vocal intelligent du garage ${garageName || "AutoGuru"}.
 Réponds aux appels clients de manière professionnelle, rassurante et concise.
 Collecte les informations : plaque d'immatriculation, symptômes, besoin de rendez-vous.
@@ -184,9 +185,26 @@ Parle en français, sois naturel et conversationnel.`,
                   payload: mulawBase64,
                 },
               }));
+              
+              // Logger périodiquement pour debug
+              if (Math.random() < 0.01) { // ~1% des deltas
+                console.log("🔊 Audio réponse envoyé à Twilio:", {
+                  deltaLength: audioBase64.length,
+                  pcm16kLength: pcm16k.length,
+                  mulawLength: mulaw.length
+                });
+              }
             } catch (err) {
               console.error("❌ Erreur conversion/envoi audio à Twilio:", err);
             }
+          }
+          
+          if (msg.type === "response.audio_transcript.done") {
+            console.log("📝 Transcription IA:", msg.transcript);
+          }
+          
+          if (msg.type === "response.output_item.added" || msg.type === "response.output_item.done") {
+            console.log("✅ Réponse IA:", msg.type, msg.item?.type);
           }
           
           if (msg.type === "conversation.item.input_audio_transcription.completed") {
