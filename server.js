@@ -303,8 +303,9 @@ Parle en français, sois naturel et conversationnel.`,
                 audio: pcm24kBase64,
               }));
               
-              // Commit si ≥100ms (~4800 bytes à 24kHz)
-              const hasEnoughAudio = appendedBytes >= 4800;
+              // Commit si ≥150ms (marge). OpenAI peut compter différemment, 100ms pile a donné 96ms.
+              // 24kHz PCM16: 150ms = 3600 samples = 7200 bytes
+              const hasEnoughAudio = appendedBytes >= 7200;
               if (mediaCount % 5 === 0 && hasEnoughAudio) {
                 console.log(`📤 Commit buffer (frame ${mediaCount}, bytes=${appendedBytes})`);
                 openaiWs.send(JSON.stringify({
