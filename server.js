@@ -140,6 +140,9 @@ Réponds aux appels clients de manière professionnelle, rassurante et concise.
 Collecte les informations : plaque d'immatriculation, symptômes, besoin de rendez-vous.
 Parle en français, sois naturel et conversationnel.`,
             input_audio_format: "pcm16",
+            input_audio_transcription: {
+              model: "whisper-1",
+            },
             output_audio_format: "pcm16",
             input_audio_transcription: {
               model: "whisper-1",
