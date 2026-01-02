@@ -280,50 +280,72 @@ Parle en français, sois naturel et conversationnel.`,
               // Décoder base64 → μ-law
               const mulawBuffer = Buffer.from(audioBase64, "base64");
               
-              if (mediaCount === 1) {
-                console.log("🔊 Premier audio:", {
+              if (mediaCount <= 3) {
+                console.log(`🔊 Frame ${mediaCount} audio:`, {
                   mulawLength: mulawBuffer.length,
-                  mulawFirstBytes: Array.from(mulawBuffer.slice(0, 10))
+                  mulawFirstBytes: Array.from(mulawBuffer.slice(0, 5)),
+                  hasPayload: !!audioBase64,
+                  payloadLength: audioBase64.length
                 });
               }
               
               // Convertir μ-law (8kHz) → PCM16 (24kHz)
               const pcm24k = convertMulawToPcm24k(mulawBuffer);
               
-              if (mediaCount === 1) {
-                console.log("🔊 Audio converti:", {
+              if (mediaCount <= 3) {
+                console.log(`🔊 Frame ${mediaCount} converti:`, {
                   pcm24kLength: pcm24k.length,
-                  pcm24kFirstSamples: Array.from(pcm24k.slice(0, 10)),
-                  expectedLength: mulawBuffer.length * 3
+                  pcm24kFirstSamples: Array.from(pcm24k.slice(0, 5)),
+                  expectedLength: mulawBuffer.length * 3,
+                  bufferSize: pcm24k.buffer.byteLength
                 });
               }
               
               // Encoder PCM16 → base64 pour OpenAI
-              // OpenAI attend des Int16 en little-endian
-              const pcm24kBuffer = Buffer.from(pcm24k.buffer);
+              // OpenAI attend des Int16 en little-endian (Buffer.from utilise le byte order natif)
+              const pcm24kBuffer = Buffer.from(pcm24k.buffer, pcm24k.byteOffset, pcm24k.byteLength);
               const pcm24kBase64 = pcm24kBuffer.toString("base64");
               
-              openaiWs.send(JSON.stringify({
+              if (mediaCount <= 3) {
+                console.log(`🔊 Frame ${mediaCount} base64:`, {
+                  base64Length: pcm24kBase64.length,
+                  firstChars: pcm24kBase64.substring(0, 20)
+                });
+              }
+              
+              // Envoyer à OpenAI
+              const appendMsg = {
                 type: "input_audio_buffer.append",
                 audio: pcm24kBase64,
-              }));
+              };
+              
+              openaiWs.send(JSON.stringify(appendMsg));
+              
+              if (mediaCount <= 3) {
+                console.log(`✅ Frame ${mediaCount} envoyé à OpenAI`);
+              }
               
               // Déclencher la transcription périodiquement
               // À 24kHz, 100ms = 2400 échantillons = 4800 bytes
               // Chaque frame Twilio = ~160 bytes (20ms à 8kHz) = ~1440 bytes après conversion
               // On commit toutes les ~7 frames pour avoir ~100ms
               if (mediaCount % 7 === 0) {
+                console.log(`📤 Commit buffer (frame ${mediaCount})`);
                 openaiWs.send(JSON.stringify({
                   type: "input_audio_buffer.commit",
                 }));
               }
             } catch (err) {
-              console.error("❌ Erreur conversion/envoi audio à OpenAI:", err);
+              console.error(`❌ Erreur frame ${mediaCount} conversion/envoi audio à OpenAI:`, err);
+            }
+          } else {
+            if (mediaCount <= 3) {
+              console.log(`⚠️ Frame ${mediaCount}: pas de payload audio`);
             }
           }
         } else {
-          if (mediaCount === 1) {
-            console.log("⚠️ OpenAI WS pas encore connecté, état:", openaiWs?.readyState);
+          if (mediaCount <= 3) {
+            console.log(`⚠️ Frame ${mediaCount}: OpenAI WS pas connecté, état:`, openaiWs?.readyState);
           }
         }
         
