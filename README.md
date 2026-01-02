@@ -31,3 +31,4 @@ Dans “A CALL COMES IN”, pointe vers un TwiML qui démarre le stream :
 - Ce serveur est un squelette minimal (log des frames, pas de traitement).
 - Vercel ne convient pas pour WS persistants, d’où Render/Railway.
 
+# -Users-kendrikduflo-Documents-AutoGuru-ws-media-stream-server
