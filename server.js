@@ -109,6 +109,7 @@ wss.on("connection", (ws, req) => {
   console.log("📞 Paramètres extraits:", { callSid, garageId, garageName, fromNumber });
   
   let mediaCount = 0;
+  let appendedBytes = 0; // bytes ajoutés depuis le dernier commit
   let openaiWs = null;
 
   // Connecter à OpenAI Realtime API
@@ -140,12 +141,6 @@ wss.on("connection", (ws, req) => {
 Réponds aux appels clients de manière professionnelle, rassurante et concise.
 Collecte les informations : plaque d'immatriculation, symptômes, besoin de rendez-vous.
 Parle en français, sois naturel et conversationnel.`,
-            turn_detection: {
-              type: "server_vad",
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 500,
-            },
           },
         }));
       });
@@ -318,10 +313,10 @@ Parle en français, sois naturel et conversationnel.`,
               // Créer un Buffer avec les bytes dans le bon ordre (little-endian)
               const pcm16kBuffer = Buffer.allocUnsafe(pcm16k.length * 2);
               for (let i = 0; i < pcm16k.length; i++) {
-                // Écrire Int16 en little-endian
                 pcm16kBuffer.writeInt16LE(pcm16k[i], i * 2);
               }
               const pcm16kBase64 = pcm16kBuffer.toString("base64");
+              appendedBytes += pcm16kBuffer.length;
               
               if (mediaCount <= 3) {
                 console.log(`🔊 Frame ${mediaCount} base64:`, {
@@ -342,17 +337,16 @@ Parle en français, sois naturel et conversationnel.`,
                 console.log(`✅ Frame ${mediaCount} envoyé à OpenAI`);
               }
               
-              // Déclencher la transcription périodiquement
-              // À 16kHz, 100ms = 1600 échantillons = 3200 bytes
-              // Chaque frame Twilio = 20ms à 8kHz
-              // Après upsampling 2x : 20ms à 8kHz = 20ms à 16kHz (même durée, plus d'échantillons)
-              // Pour avoir 100ms, il faut 5 frames (5 * 20ms = 100ms)
-              // Mais on commit toutes les 10 frames pour être sûr d'avoir assez d'audio
-              if (mediaCount % 10 === 0) {
-                console.log(`📤 Commit buffer (frame ${mediaCount}, ~${mediaCount * 20}ms accumulés)`);
+              // Commit uniquement si on a accumulé au moins 100ms (~3200 bytes à 16kHz)
+              const hasEnoughAudio = appendedBytes >= 3200;
+              if (mediaCount % 5 === 0 && hasEnoughAudio) {
+                console.log(`📤 Commit buffer (frame ${mediaCount}, bytes=${appendedBytes})`);
                 openaiWs.send(JSON.stringify({
                   type: "input_audio_buffer.commit",
                 }));
+                appendedBytes = 0;
+              } else if (mediaCount % 5 === 0) {
+                console.log(`⏩ Skip commit (frame ${mediaCount}, bytes=${appendedBytes})`);
               }
             } catch (err) {
               console.error(`❌ Erreur frame ${mediaCount} conversion/envoi audio à OpenAI:`, err);
