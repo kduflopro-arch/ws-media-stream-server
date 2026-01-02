@@ -94,24 +94,28 @@ Parle en français, sois naturel et conversationnel.`,
         try {
           const msg = JSON.parse(data.toString());
           
+          // Logger tous les types de messages pour debug
+          if (msg.type && !msg.type.includes("delta") && !msg.type.includes("transcription")) {
+            console.log("📨 OpenAI message:", msg.type, JSON.stringify(msg).substring(0, 200));
+          }
+          
           if (msg.type === "response.audio_transcript.done") {
-            console.log("📝 Transcription:", msg.transcript);
+            console.log("📝 Transcription IA:", msg.transcript);
           }
           
           if (msg.type === "response.audio.delta") {
             // Audio de réponse d'OpenAI → envoyer à Twilio
             const audioBase64 = msg.delta;
-            const audioBuffer = Buffer.from(audioBase64, "base64");
             
-            // Convertir PCM16 → μ-law pour Twilio
-            // TODO: conversion audio format
-            // Pour l'instant, on envoie directement (Twilio accepte PCM16 dans certains cas)
+            // OpenAI envoie PCM16 (24kHz), Twilio attend μ-law (8kHz)
+            // PROBLÈME: Conversion nécessaire mais non implémentée
+            // Pour l'instant, on envoie directement (ne fonctionnera probablement pas)
             
             ws.send(JSON.stringify({
               event: "media",
               streamSid: "default",
               media: {
-                payload: audioBuffer.toString("base64"),
+                payload: audioBase64, // OpenAI envoie déjà en base64
               },
             }));
           }
@@ -120,8 +124,16 @@ Parle en français, sois naturel et conversationnel.`,
             const transcript = msg.transcript;
             console.log("🎤 Client dit:", transcript);
           }
+          
+          if (msg.type === "error") {
+            console.error("❌ Erreur OpenAI:", msg.error);
+          }
+          
+          if (msg.type === "session.created" || msg.type === "session.updated") {
+            console.log("✅ Session OpenAI configurée");
+          }
         } catch (err) {
-          console.error("Erreur parsing OpenAI message:", err);
+          console.error("❌ Erreur parsing OpenAI message:", err, data.toString().substring(0, 100));
         }
       });
 
@@ -144,13 +156,43 @@ Parle en français, sois naturel et conversationnel.`,
       
       if (msg.event === "start") {
         const streamCallSid = msg.start?.callSid;
-        console.log("🎬 Stream start:", { streamCallSid, callSid, garageId });
+        
+        // Extraire les paramètres depuis l'URL du stream (si présents dans start.customParameters)
+        // Sinon, utiliser les paramètres de l'URL WebSocket
+        const startParams = msg.start?.customParameters || {};
+        const finalCallSid = startParams.callSid || callSid || streamCallSid;
+        const finalGarageId = startParams.garageId || garageId;
+        const finalGarageName = startParams.garageName || garageName;
+        const finalFromNumber = startParams.fromNumber || fromNumber;
+        
+        console.log("🎬 Stream start:", {
+          streamCallSid,
+          callSid: finalCallSid,
+          garageId: finalGarageId,
+          garageName: finalGarageName,
+          fromNumber: finalFromNumber,
+          startMessage: JSON.stringify(msg.start).substring(0, 300)
+        });
+        
+        // Mettre à jour les variables pour utiliser dans OpenAI
+        callSid = finalCallSid;
+        garageId = finalGarageId;
+        garageName = finalGarageName;
+        fromNumber = finalFromNumber;
         
         // Connecter à OpenAI Realtime
         connectToOpenAI();
         
       } else if (msg.event === "media") {
         mediaCount += 1;
+        if (mediaCount === 1) {
+          console.log("🎤 Premier frame audio reçu:", {
+            track: msg.media?.track,
+            chunk: msg.media?.chunk,
+            timestamp: msg.media?.timestamp,
+            payloadLength: msg.media?.payload?.length
+          });
+        }
         if (mediaCount % 200 === 0) {
           console.log(`📊 Media frames: ${mediaCount}`);
         }
@@ -159,9 +201,9 @@ Parle en français, sois naturel et conversationnel.`,
         if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
           const audioBase64 = msg.media?.payload;
           if (audioBase64) {
-            // Twilio envoie en μ-law, OpenAI attend PCM16
-            // Pour l'instant, on envoie directement (OpenAI peut gérer certains formats)
-            // TODO: conversion audio format (μ-law → PCM16)
+            // Twilio envoie en μ-law (8kHz), OpenAI attend PCM16 (24kHz)
+            // PROBLÈME: Conversion nécessaire mais non implémentée
+            // Pour l'instant, on envoie directement (ne fonctionnera probablement pas)
             
             try {
               openaiWs.send(JSON.stringify({
