@@ -119,7 +119,8 @@ wss.on("connection", (ws, req) => {
     }
 
     try {
-      const openaiUrl = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
+      // Configurer le format audio dans l'URL de connexion
+      const openaiUrl = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17&input_audio_format=pcm16&output_audio_format=pcm16";
       openaiWs = new WebSocket(openaiUrl, {
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -130,37 +131,20 @@ wss.on("connection", (ws, req) => {
         console.log("✅ Connecté à OpenAI Realtime API");
         
         // Configurer la session OpenAI
+        // Note: input_audio_format et output_audio_format sont configurés dans l'URL WebSocket, pas ici
         openaiWs.send(JSON.stringify({
           type: "session.update",
           session: {
-            type: "realtime",
             instructions: `Tu es l'assistant vocal intelligent du garage ${garageName || "AutoGuru"}.
 Réponds aux appels clients de manière professionnelle, rassurante et concise.
 Collecte les informations : plaque d'immatriculation, symptômes, besoin de rendez-vous.
 Parle en français, sois naturel et conversationnel.`,
-            input_audio_format: "pcm16",
-            input_audio_transcription: {
-              model: "whisper-1",
-            },
-            output_audio_format: "pcm16",
-            input_audio_transcription: {
-              model: "whisper-1",
-            },
             turn_detection: {
               type: "server_vad",
               threshold: 0.5,
               prefix_padding_ms: 300,
               silence_duration_ms: 500,
             },
-          },
-        }));
-        
-        // Configurer la voix séparément (après session.update)
-        openaiWs.send(JSON.stringify({
-          type: "response.create",
-          response: {
-            modalities: ["audio"],
-            instructions: "Réponds en français de manière naturelle.",
           },
         }));
       });
