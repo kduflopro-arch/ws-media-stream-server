@@ -302,8 +302,13 @@ Parle en français, sois naturel et conversationnel.`,
               }
               
               // Encoder PCM16 → base64 pour OpenAI
-              // OpenAI attend des Int16 en little-endian (Buffer.from utilise le byte order natif)
-              const pcm24kBuffer = Buffer.from(pcm24k.buffer, pcm24k.byteOffset, pcm24k.byteLength);
+              // OpenAI attend des Int16 en little-endian
+              // Créer un Buffer avec les bytes dans le bon ordre (little-endian)
+              const pcm24kBuffer = Buffer.allocUnsafe(pcm24k.length * 2);
+              for (let i = 0; i < pcm24k.length; i++) {
+                // Écrire Int16 en little-endian
+                pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
+              }
               const pcm24kBase64 = pcm24kBuffer.toString("base64");
               
               if (mediaCount <= 3) {
