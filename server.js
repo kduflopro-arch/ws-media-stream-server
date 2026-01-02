@@ -14,37 +14,36 @@ for (let i = 0; i < 256; i++) {
   MULAW_DECODE_TABLE[i] = value;
 }
 
-// Rééchantillonnage simple 8kHz → 24kHz (upsampling linéaire)
-function resample8kTo24k(pcm8k) {
-  const pcm24k = new Int16Array(pcm8k.length * 3);
+// Rééchantillonnage simple 8kHz → 16kHz (upsampling linéaire)
+function resample8kTo16k(pcm8k) {
+  const pcm16k = new Int16Array(pcm8k.length * 2);
   for (let i = 0; i < pcm8k.length; i++) {
     const value = pcm8k[i];
-    // Répéter chaque échantillon 3 fois (upsampling simple)
-    pcm24k[i * 3] = value;
-    pcm24k[i * 3 + 1] = value;
-    pcm24k[i * 3 + 2] = value;
+    // Répéter chaque échantillon 2 fois (upsampling simple)
+    pcm16k[i * 2] = value;
+    pcm16k[i * 2 + 1] = value;
   }
-  return pcm24k;
+  return pcm16k;
 }
 
-// Convertir μ-law (8kHz) → PCM16 (24kHz)
-function convertMulawToPcm24k(mulawBuffer) {
+// Convertir μ-law (8kHz) → PCM16 (16kHz)
+function convertMulawToPcm16k(mulawBuffer) {
   // Décoder μ-law → PCM16 (8kHz)
   const pcm8k = new Int16Array(mulawBuffer.length);
   for (let i = 0; i < mulawBuffer.length; i++) {
     pcm8k[i] = MULAW_DECODE_TABLE[mulawBuffer[i] & 0xFF];
   }
   
-  // Rééchantillonner 8kHz → 24kHz
-  return resample8kTo24k(pcm8k);
+  // Rééchantillonner 8kHz → 16kHz
+  return resample8kTo16k(pcm8k);
 }
 
-// Convertir PCM16 (24kHz) → μ-law (8kHz)
-function convertPcm24kToMulaw(pcm24k) {
-  // Rééchantillonner 24kHz → 8kHz (downsampling simple: prendre 1 échantillon sur 3)
-  const pcm8k = new Int16Array(Math.floor(pcm24k.length / 3));
+// Convertir PCM16 (16kHz) → μ-law (8kHz)
+function convertPcm16kToMulaw(pcm16k) {
+  // Rééchantillonner 16kHz → 8kHz (downsampling simple: prendre 1 échantillon sur 2)
+  const pcm8k = new Int16Array(Math.floor(pcm16k.length / 2));
   for (let i = 0; i < pcm8k.length; i++) {
-    pcm8k[i] = pcm24k[i * 3];
+    pcm8k[i] = pcm16k[i * 2];
   }
   
   // Encoder PCM16 → μ-law
@@ -184,12 +183,12 @@ Parle en français, sois naturel et conversationnel.`,
             const audioBase64 = msg.delta;
             
             try {
-              // Décoder base64 → PCM16 (24kHz)
-              const pcm24kBuffer = Buffer.from(audioBase64, "base64");
-              const pcm24k = new Int16Array(pcm24kBuffer.buffer, pcm24kBuffer.byteOffset, pcm24kBuffer.length / 2);
+              // Décoder base64 → PCM16 (16kHz)
+              const pcm16kBuffer = Buffer.from(audioBase64, "base64");
+              const pcm16k = new Int16Array(pcm16kBuffer.buffer, pcm16kBuffer.byteOffset, pcm16kBuffer.length / 2);
               
-              // Convertir PCM16 (24kHz) → μ-law (8kHz)
-              const mulaw = convertPcm24kToMulaw(pcm24k);
+              // Convertir PCM16 (16kHz) → μ-law (8kHz)
+              const mulaw = convertPcm16kToMulaw(pcm16k);
               
               // Encoder μ-law → base64 pour Twilio
               const mulawBase64 = Buffer.from(mulaw).toString("base64");
@@ -342,9 +341,9 @@ Parle en français, sois naturel et conversationnel.`,
               }
               
               // Déclencher la transcription périodiquement
-              // À 24kHz, 100ms = 2400 échantillons = 4800 bytes
+              // À 16kHz, 100ms = 1600 échantillons = 3200 bytes
               // Chaque frame Twilio = 20ms à 8kHz
-              // Après upsampling 3x : 20ms à 8kHz = 20ms à 24kHz (même durée, plus d'échantillons)
+              // Après upsampling 2x : 20ms à 8kHz = 20ms à 16kHz (même durée, plus d'échantillons)
               // Pour avoir 100ms, il faut 5 frames (5 * 20ms = 100ms)
               // Mais on commit toutes les 10 frames pour être sûr d'avoir assez d'audio
               if (mediaCount % 10 === 0) {
