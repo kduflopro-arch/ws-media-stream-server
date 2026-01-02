@@ -17,10 +17,18 @@ const wss = new WebSocketServer({ port: PORT }, () => {
 
 wss.on("connection", (ws, req) => {
   console.log("New Media Stream connection:", req.url);
+  
+  // Extraire les paramètres de l'URL
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const callSid = url.searchParams.get("callSid");
+  const garageId = url.searchParams.get("garageId");
+  const garageName = url.searchParams.get("garageName") || "AutoGuru";
+  const fromNumber = url.searchParams.get("fromNumber");
+  
+  console.log("📞 Paramètres:", { callSid, garageId, garageName, fromNumber });
+  
   let mediaCount = 0;
   let openaiWs = null;
-  let callSid = null;
-  let garageId = null;
 
   // Connecter à OpenAI Realtime API
   async function connectToOpenAI() {
@@ -118,9 +126,8 @@ Parle en français, sois naturel et conversationnel.`,
       const msg = JSON.parse(data.toString());
       
       if (msg.event === "start") {
-        callSid = msg.start?.callSid;
-        garageId = msg.start?.parameters?.garageId;
-        console.log("🎬 Stream start:", { callSid, garageId });
+        const streamCallSid = msg.start?.callSid;
+        console.log("🎬 Stream start:", { streamCallSid, callSid, garageId });
         
         // Connecter à OpenAI Realtime
         connectToOpenAI();
