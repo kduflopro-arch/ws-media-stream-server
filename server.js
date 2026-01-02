@@ -299,39 +299,39 @@ Parle en français, sois naturel et conversationnel.`,
                 });
               }
               
-              // Convertir μ-law (8kHz) → PCM16 (24kHz)
-              const pcm24k = convertMulawToPcm24k(mulawBuffer);
+              // Convertir μ-law (8kHz) → PCM16 (16kHz)
+              const pcm16k = convertMulawToPcm16k(mulawBuffer);
               
               if (mediaCount <= 3) {
                 console.log(`🔊 Frame ${mediaCount} converti:`, {
-                  pcm24kLength: pcm24k.length,
-                  pcm24kFirstSamples: Array.from(pcm24k.slice(0, 5)),
-                  expectedLength: mulawBuffer.length * 3,
-                  bufferSize: pcm24k.buffer.byteLength
+                  pcm16kLength: pcm16k.length,
+                  pcm16kFirstSamples: Array.from(pcm16k.slice(0, 5)),
+                  expectedLength: mulawBuffer.length * 2,
+                  bufferSize: pcm16k.buffer.byteLength
                 });
               }
               
               // Encoder PCM16 → base64 pour OpenAI
               // OpenAI attend des Int16 en little-endian
               // Créer un Buffer avec les bytes dans le bon ordre (little-endian)
-              const pcm24kBuffer = Buffer.allocUnsafe(pcm24k.length * 2);
-              for (let i = 0; i < pcm24k.length; i++) {
+              const pcm16kBuffer = Buffer.allocUnsafe(pcm16k.length * 2);
+              for (let i = 0; i < pcm16k.length; i++) {
                 // Écrire Int16 en little-endian
-                pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
+                pcm16kBuffer.writeInt16LE(pcm16k[i], i * 2);
               }
-              const pcm24kBase64 = pcm24kBuffer.toString("base64");
+              const pcm16kBase64 = pcm16kBuffer.toString("base64");
               
               if (mediaCount <= 3) {
                 console.log(`🔊 Frame ${mediaCount} base64:`, {
-                  base64Length: pcm24kBase64.length,
-                  firstChars: pcm24kBase64.substring(0, 20)
+                  base64Length: pcm16kBase64.length,
+                  firstChars: pcm16kBase64.substring(0, 20)
                 });
               }
               
               // Envoyer à OpenAI
               const appendMsg = {
                 type: "input_audio_buffer.append",
-                audio: pcm24kBase64,
+                audio: pcm16kBase64,
               };
               
               openaiWs.send(JSON.stringify(appendMsg));
