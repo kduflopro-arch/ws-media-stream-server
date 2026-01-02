@@ -25,17 +25,24 @@ wss.on("connection", (ws, req) => {
   let fromNumber = null;
   
   if (req.url) {
+    console.log("🔍 URL complète:", req.url);
     const urlMatch = req.url.match(/\?([^#]*)/);
     if (urlMatch) {
-      const params = new URLSearchParams(urlMatch[1]);
+      const queryString = urlMatch[1];
+      console.log("🔍 Query string:", queryString);
+      const params = new URLSearchParams(queryString);
       callSid = params.get("callSid");
       garageId = params.get("garageId");
       garageName = params.get("garageName") || "AutoGuru";
       fromNumber = params.get("fromNumber");
+    } else {
+      console.log("⚠️ Pas de query string dans l'URL");
     }
+  } else {
+    console.log("⚠️ req.url est null");
   }
   
-  console.log("📞 Paramètres:", { callSid, garageId, garageName, fromNumber });
+  console.log("📞 Paramètres extraits:", { callSid, garageId, garageName, fromNumber });
   
   let mediaCount = 0;
   let openaiWs = null;
@@ -152,19 +159,29 @@ Parle en français, sois naturel et conversationnel.`,
         if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
           const audioBase64 = msg.media?.payload;
           if (audioBase64) {
-            // Convertir μ-law → PCM16 pour OpenAI
-            // TODO: conversion audio format
-            // Pour l'instant, on envoie directement
+            // Twilio envoie en μ-law, OpenAI attend PCM16
+            // Pour l'instant, on envoie directement (OpenAI peut gérer certains formats)
+            // TODO: conversion audio format (μ-law → PCM16)
             
-            openaiWs.send(JSON.stringify({
-              type: "input_audio_buffer.append",
-              audio: audioBase64,
-            }));
-            
-            // Déclencher la transcription
-            openaiWs.send(JSON.stringify({
-              type: "input_audio_buffer.commit",
-            }));
+            try {
+              openaiWs.send(JSON.stringify({
+                type: "input_audio_buffer.append",
+                audio: audioBase64,
+              }));
+              
+              // Déclencher la transcription périodiquement (pas à chaque frame)
+              if (mediaCount % 50 === 0) {
+                openaiWs.send(JSON.stringify({
+                  type: "input_audio_buffer.commit",
+                }));
+              }
+            } catch (err) {
+              console.error("❌ Erreur envoi audio à OpenAI:", err);
+            }
+          }
+        } else {
+          if (mediaCount === 1) {
+            console.log("⚠️ OpenAI WS pas encore connecté, état:", openaiWs?.readyState);
           }
         }
         
