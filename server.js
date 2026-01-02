@@ -106,6 +106,8 @@ wss.on("connection", (ws, req) => {
   let appendedBytes = 0; // bytes ajoutés depuis le dernier commit
   let openaiWs = null;
   let twilioStreamSid = null;
+  let speechActive = false;
+  let pendingCommit = false;
 
   // Connecter à OpenAI Realtime API
   async function connectToOpenAI() {
@@ -203,6 +205,35 @@ Parle en français, sois naturel et conversationnel.`,
           if (msg.type === "error") {
             console.error("❌ Erreur OpenAI:", msg.error);
           }
+
+          if (msg.type === "input_audio_buffer.speech_started") {
+            speechActive = true;
+            pendingCommit = false;
+            appendedBytes = 0; // on repart sur un buffer propre pour cette prise de parole
+            console.log("🟢 Speech started (OpenAI VAD):", {
+              audio_start_ms: msg.audio_start_ms,
+              item_id: msg.item_id,
+            });
+          }
+
+          if (msg.type === "input_audio_buffer.speech_stopped") {
+            speechActive = false;
+            pendingCommit = true;
+            console.log("🔴 Speech stopped (OpenAI VAD):", {
+              audio_end_ms: msg.audio_end_ms,
+              item_id: msg.item_id,
+              appendedBytes,
+            });
+          }
+
+          if (msg.type === "input_audio_buffer.committed") {
+            pendingCommit = false;
+            appendedBytes = 0;
+            console.log("✅ OpenAI buffer committed:", {
+              item_id: msg.item_id,
+              previous_item_id: msg.previous_item_id,
+            });
+          }
           
           if (msg.type === "session.created" || msg.type === "session.updated") {
             console.log("✅ Session OpenAI configurée");
@@ -299,7 +330,11 @@ Parle en français, sois naturel et conversationnel.`,
                 pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
               }
               const pcm24kBase64 = pcm24kBuffer.toString("base64");
-              appendedBytes += pcm24kBuffer.length;
+              // On envoie toujours l'audio pour que le VAD serveur OpenAI puisse détecter la parole,
+              // mais on ne compte le buffer pour commit que lorsqu'une parole est détectée.
+              if (speechActive || pendingCommit) {
+                appendedBytes += pcm24kBuffer.length;
+              }
               
               // Envoyer PCM24k à OpenAI
               openaiWs.send(JSON.stringify({
@@ -307,17 +342,21 @@ Parle en français, sois naturel et conversationnel.`,
                 audio: pcm24kBase64,
               }));
               
-              // Commit si ≥150ms (marge). OpenAI peut compter différemment, 100ms pile a donné 96ms.
+              // Commit: uniquement après speech_stopped pour éviter les commits de silence.
               // 24kHz PCM16: 150ms = 3600 samples = 7200 bytes
-              const hasEnoughAudio = appendedBytes >= 7200;
-              if (mediaCount % 5 === 0 && hasEnoughAudio) {
-                console.log(`📤 Commit buffer (frame ${mediaCount}, bytes=${appendedBytes})`);
-                openaiWs.send(JSON.stringify({
-                  type: "input_audio_buffer.commit",
-                }));
-                appendedBytes = 0;
-              } else if (mediaCount % 5 === 0) {
-                console.log(`⏩ Skip commit (frame ${mediaCount}, bytes=${appendedBytes})`);
+              if (pendingCommit) {
+                const hasEnoughAudio = appendedBytes >= 7200;
+                if (hasEnoughAudio) {
+                  console.log(`📤 Commit buffer (frame ${mediaCount}, bytes=${appendedBytes})`);
+                  openaiWs.send(JSON.stringify({
+                    type: "input_audio_buffer.commit",
+                  }));
+                  // On attend l'ack input_audio_buffer.committed pour reset (mais on reset aussi côté compteur ici)
+                  appendedBytes = 0;
+                  pendingCommit = false;
+                } else if (mediaCount % 10 === 0) {
+                  console.log(`⏩ Pending commit (bytes=${appendedBytes})`);
+                }
               }
             } catch (err) {
               console.error(`❌ Erreur frame ${mediaCount} conversion/envoi audio à OpenAI:`, err);
