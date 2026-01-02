@@ -105,6 +105,7 @@ wss.on("connection", (ws, req) => {
   let mediaCount = 0;
   let appendedBytes = 0; // bytes ajoutés depuis le dernier commit
   let openaiWs = null;
+  let twilioStreamSid = null;
 
   // Connecter à OpenAI Realtime API
   async function connectToOpenAI() {
@@ -167,7 +168,7 @@ Parle en français, sois naturel et conversationnel.`,
               
               ws.send(JSON.stringify({
                 event: "media",
-                streamSid: "default",
+                streamSid: twilioStreamSid ?? "default",
                 media: {
                   payload: mulawBase64,
                 },
@@ -175,6 +176,7 @@ Parle en français, sois naturel et conversationnel.`,
               
               if (Math.random() < 0.01) {
                 console.log("🔊 Audio réponse converti et envoyé à Twilio:", {
+                  streamSid: twilioStreamSid,
                   deltaLength: audioBase64.length,
                   pcm24kSamples: pcm24k.length,
                   mulawLength: mulaw.length,
@@ -229,6 +231,7 @@ Parle en français, sois naturel et conversationnel.`,
       
       if (msg.event === "start") {
         const streamCallSid = msg.start?.callSid;
+        twilioStreamSid = msg.start?.streamSid ?? null;
         
         // Extraire les paramètres depuis start.customParameters (passés via TwiML parameters)
         const startParams = msg.start?.customParameters || {};
@@ -239,6 +242,7 @@ Parle en français, sois naturel et conversationnel.`,
         
         console.log("🎬 Stream start:", {
           streamCallSid,
+          streamSid: twilioStreamSid,
           callSid: finalCallSid,
           garageId: finalGarageId,
           garageName: finalGarageName,
