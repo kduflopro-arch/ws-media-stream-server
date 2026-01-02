@@ -135,7 +135,6 @@ wss.on("connection", (ws, req) => {
           type: "session.update",
           session: {
             type: "realtime",
-            modalities: ["text", "audio"],
             instructions: `Tu es l'assistant vocal intelligent du garage ${garageName || "AutoGuru"}.
 Réponds aux appels clients de manière professionnelle, rassurante et concise.
 Collecte les informations : plaque d'immatriculation, symptômes, besoin de rendez-vous.
