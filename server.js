@@ -139,7 +139,6 @@ wss.on("connection", (ws, req) => {
 Réponds aux appels clients de manière professionnelle, rassurante et concise.
 Collecte les informations : plaque d'immatriculation, symptômes, besoin de rendez-vous.
 Parle en français, sois naturel et conversationnel.`,
-            voice: "nova",
             input_audio_format: "pcm16",
             output_audio_format: "pcm16",
             input_audio_transcription: {
@@ -151,6 +150,15 @@ Parle en français, sois naturel et conversationnel.`,
               prefix_padding_ms: 300,
               silence_duration_ms: 500,
             },
+          },
+        }));
+        
+        // Configurer la voix séparément (après session.update)
+        openaiWs.send(JSON.stringify({
+          type: "response.create",
+          response: {
+            modalities: ["audio"],
+            instructions: "Réponds en français de manière naturelle.",
           },
         }));
       });
