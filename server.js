@@ -280,19 +280,39 @@ Parle en français, sois naturel et conversationnel.`,
               // Décoder base64 → μ-law
               const mulawBuffer = Buffer.from(audioBase64, "base64");
               
+              if (mediaCount === 1) {
+                console.log("🔊 Premier audio:", {
+                  mulawLength: mulawBuffer.length,
+                  mulawFirstBytes: Array.from(mulawBuffer.slice(0, 10))
+                });
+              }
+              
               // Convertir μ-law (8kHz) → PCM16 (24kHz)
               const pcm24k = convertMulawToPcm24k(mulawBuffer);
               
+              if (mediaCount === 1) {
+                console.log("🔊 Audio converti:", {
+                  pcm24kLength: pcm24k.length,
+                  pcm24kFirstSamples: Array.from(pcm24k.slice(0, 10)),
+                  expectedLength: mulawBuffer.length * 3
+                });
+              }
+              
               // Encoder PCM16 → base64 pour OpenAI
-              const pcm24kBase64 = Buffer.from(pcm24k.buffer).toString("base64");
+              // OpenAI attend des Int16 en little-endian
+              const pcm24kBuffer = Buffer.from(pcm24k.buffer);
+              const pcm24kBase64 = pcm24kBuffer.toString("base64");
               
               openaiWs.send(JSON.stringify({
                 type: "input_audio_buffer.append",
                 audio: pcm24kBase64,
               }));
               
-              // Déclencher la transcription périodiquement (toutes les 100ms = ~300 frames à 24kHz)
-              if (mediaCount % 10 === 0) {
+              // Déclencher la transcription périodiquement
+              // À 24kHz, 100ms = 2400 échantillons = 4800 bytes
+              // Chaque frame Twilio = ~160 bytes (20ms à 8kHz) = ~1440 bytes après conversion
+              // On commit toutes les ~7 frames pour avoir ~100ms
+              if (mediaCount % 7 === 0) {
                 openaiWs.send(JSON.stringify({
                   type: "input_audio_buffer.commit",
                 }));
