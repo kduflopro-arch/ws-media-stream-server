@@ -2,8 +2,7 @@
 // Deploy on Render / Railway / Fly. Not for Vercel (no persistent WS).
 // Ports: Render auto-assigns process.env.PORT; locally use 8080.
 
-import { WebSocketServer } from "ws";
-import { WebSocket } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
