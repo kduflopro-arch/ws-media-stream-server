@@ -327,10 +327,12 @@ Parle en français, sois naturel et conversationnel.`,
               
               // Déclencher la transcription périodiquement
               // À 24kHz, 100ms = 2400 échantillons = 4800 bytes
-              // Chaque frame Twilio = ~160 bytes (20ms à 8kHz) = ~1440 bytes après conversion
-              // On commit toutes les ~7 frames pour avoir ~100ms
-              if (mediaCount % 7 === 0) {
-                console.log(`📤 Commit buffer (frame ${mediaCount})`);
+              // Chaque frame Twilio = 20ms à 8kHz
+              // Après upsampling 3x : 20ms à 8kHz = 20ms à 24kHz (même durée, plus d'échantillons)
+              // Pour avoir 100ms, il faut 5 frames (5 * 20ms = 100ms)
+              // Mais on commit toutes les 10 frames pour être sûr d'avoir assez d'audio
+              if (mediaCount % 10 === 0) {
+                console.log(`📤 Commit buffer (frame ${mediaCount}, ~${mediaCount * 20}ms accumulés)`);
                 openaiWs.send(JSON.stringify({
                   type: "input_audio_buffer.commit",
                 }));
