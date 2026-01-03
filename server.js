@@ -108,6 +108,62 @@ wss.on("connection", (ws, req) => {
   let twilioStreamSid = null;
   let speechActive = false;
   let pendingCommit = false;
+  // File d'attente audio vers Twilio (μ-law 8kHz). Twilio attend généralement des frames de 20ms = 160 bytes.
+  let outboundQueue = []; // Array<Buffer>
+  let outboundQueuedBytes = 0;
+
+  function enqueueOutboundMulaw(buf) {
+    if (!buf || buf.length === 0) return;
+    outboundQueue.push(buf);
+    outboundQueuedBytes += buf.length;
+  }
+
+  function sendOutboundFrames(maxFrames = 1) {
+    if (!twilioStreamSid) return;
+    let framesSent = 0;
+    while (framesSent < maxFrames && outboundQueue.length > 0) {
+      const head = outboundQueue[0];
+      if (!head || head.length === 0) {
+        outboundQueue.shift();
+        continue;
+      }
+
+      const frameSize = 160; // 20ms μ-law @ 8kHz
+      let frame;
+      if (head.length <= frameSize) {
+        frame = head;
+        outboundQueue.shift();
+      } else {
+        frame = head.subarray(0, frameSize);
+        outboundQueue[0] = head.subarray(frameSize);
+      }
+
+      outboundQueuedBytes -= frame.length;
+
+      try {
+        ws.send(JSON.stringify({
+          event: "media",
+          streamSid: twilioStreamSid,
+          media: {
+            payload: Buffer.from(frame).toString("base64"),
+          },
+        }));
+        framesSent += 1;
+      } catch (err) {
+        console.error("❌ Erreur envoi frame audio à Twilio:", err);
+        break;
+      }
+    }
+
+    if (framesSent > 0 && Math.random() < 0.02) {
+      console.log("📤 Frames audio envoyées à Twilio:", {
+        streamSid: twilioStreamSid,
+        framesSent,
+        outboundQueuedBytes,
+        queueLen: outboundQueue.length,
+      });
+    }
+  }
 
   // Connecter à OpenAI Realtime API
   async function connectToOpenAI() {
@@ -190,22 +246,16 @@ Parle en français, sois naturel et conversationnel.`,
               
               // Convertir PCM24k → μ-law 8kHz
               const mulaw = convertPcm24kToMulaw(pcm24k);
-              const mulawBase64 = Buffer.from(mulaw).toString("base64");
-              
-              ws.send(JSON.stringify({
-                event: "media",
-                streamSid: twilioStreamSid ?? "default",
-                media: {
-                  payload: mulawBase64,
-                },
-              }));
+              const mulawBuf = Buffer.from(mulaw);
+              enqueueOutboundMulaw(mulawBuf);
               
               if (Math.random() < 0.01) {
-                console.log("🔊 Audio réponse converti et envoyé à Twilio:", {
+                console.log("🔊 Audio réponse converti (enqueue) :", {
                   streamSid: twilioStreamSid,
                   deltaLength: audioBase64.length,
                   pcm24kSamples: pcm24k.length,
-                  mulawLength: mulaw.length,
+                  mulawLength: mulawBuf.length,
+                  outboundQueuedBytes,
                 });
               }
             } catch (err) {
@@ -395,6 +445,10 @@ Parle en français, sois naturel et conversationnel.`,
             console.log(`⚠️ Frame ${mediaCount}: OpenAI WS pas connecté, état:`, openaiWs?.readyState);
           }
         }
+
+        // Pacer l'audio sortant : on envoie 1 frame (20ms) par frame entrant Twilio (20ms).
+        // Cela évite d'envoyer de gros chunks que Twilio pourrait ignorer.
+        sendOutboundFrames(1);
         
       } else if (msg.event === "stop") {
         console.log("🛑 Stream stop");
