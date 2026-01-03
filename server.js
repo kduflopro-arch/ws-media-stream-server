@@ -107,7 +107,6 @@ wss.on("connection", (ws, req) => {
   let openaiWs = null;
   let twilioStreamSid = null;
   let speechActive = false;
-  let pendingCommit = false;
   // File d'attente audio vers Twilio (μ-law 8kHz). Twilio attend généralement des frames de 20ms = 160 bytes.
   let outboundQueue = []; // Array<Buffer>
   let outboundQueuedBytes = 0;
@@ -282,7 +281,6 @@ Parle en français, sois naturel et conversationnel.`,
 
           if (msg.type === "input_audio_buffer.speech_started") {
             speechActive = true;
-            pendingCommit = false;
             appendedBytes = 0; // on repart sur un buffer propre pour cette prise de parole
             console.log("🟢 Speech started (OpenAI VAD):", {
               audio_start_ms: msg.audio_start_ms,
@@ -292,16 +290,27 @@ Parle en français, sois naturel et conversationnel.`,
 
           if (msg.type === "input_audio_buffer.speech_stopped") {
             speechActive = false;
-            pendingCommit = true;
             console.log("🔴 Speech stopped (OpenAI VAD):", {
               audio_end_ms: msg.audio_end_ms,
               item_id: msg.item_id,
               appendedBytes,
             });
+            // Commit immédiat (évite les commits "vides" déclenchés plus tard)
+            // 24kHz PCM16: 150ms = 3600 samples = 7200 bytes
+            const hasEnoughAudio = appendedBytes >= 7200;
+            if (hasEnoughAudio && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+              console.log(`📤 Commit buffer (speech stopped, bytes=${appendedBytes})`);
+              openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+            } else {
+              // Trop court → on reset pour éviter commit_empty
+              if (!hasEnoughAudio) {
+                console.log(`⏩ Skip commit (speech too short, bytes=${appendedBytes})`);
+              }
+            }
+            appendedBytes = 0;
           }
 
           if (msg.type === "input_audio_buffer.committed") {
-            pendingCommit = false;
             appendedBytes = 0;
             console.log("✅ OpenAI buffer committed:", {
               item_id: msg.item_id,
@@ -406,7 +415,7 @@ Parle en français, sois naturel et conversationnel.`,
               const pcm24kBase64 = pcm24kBuffer.toString("base64");
               // On envoie toujours l'audio pour que le VAD serveur OpenAI puisse détecter la parole,
               // mais on ne compte le buffer pour commit que lorsqu'une parole est détectée.
-              if (speechActive || pendingCommit) {
+              if (speechActive) {
                 appendedBytes += pcm24kBuffer.length;
               }
               
@@ -416,22 +425,6 @@ Parle en français, sois naturel et conversationnel.`,
                 audio: pcm24kBase64,
               }));
               
-              // Commit: uniquement après speech_stopped pour éviter les commits de silence.
-              // 24kHz PCM16: 150ms = 3600 samples = 7200 bytes
-              if (pendingCommit) {
-                const hasEnoughAudio = appendedBytes >= 7200;
-                if (hasEnoughAudio) {
-                  console.log(`📤 Commit buffer (frame ${mediaCount}, bytes=${appendedBytes})`);
-                  openaiWs.send(JSON.stringify({
-                    type: "input_audio_buffer.commit",
-                  }));
-                  // On attend l'ack input_audio_buffer.committed pour reset (mais on reset aussi côté compteur ici)
-                  appendedBytes = 0;
-                  pendingCommit = false;
-                } else if (mediaCount % 10 === 0) {
-                  console.log(`⏩ Pending commit (bytes=${appendedBytes})`);
-                }
-              }
             } catch (err) {
               console.error(`❌ Erreur frame ${mediaCount} conversion/envoi audio à OpenAI:`, err);
             }
@@ -446,9 +439,11 @@ Parle en français, sois naturel et conversationnel.`,
           }
         }
 
-        // Pacer l'audio sortant : on envoie 1 frame (20ms) par frame entrant Twilio (20ms).
-        // Cela évite d'envoyer de gros chunks que Twilio pourrait ignorer.
-        sendOutboundFrames(1);
+        // Pacing audio sortant:
+        // - si backlog important, on envoie plus de frames par tick pour éviter un gros décalage
+        const backlogFrames = Math.floor(outboundQueuedBytes / 160);
+        const framesToSend = backlogFrames > 50 ? 5 : 1; // >1s de backlog → drain plus vite
+        sendOutboundFrames(framesToSend);
         
       } else if (msg.event === "stop") {
         console.log("🛑 Stream stop");
