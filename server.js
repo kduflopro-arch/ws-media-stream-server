@@ -147,19 +147,43 @@ Parle en français, sois naturel et conversationnel.`,
           const msg = JSON.parse(data.toString());
           
           // Logger tous les types de messages pour debug
-          if (msg.type && !msg.type.includes("delta") && !msg.type.includes("transcription")) {
-            console.log("📨 OpenAI message:", msg.type, JSON.stringify(msg).substring(0, 200));
+          // (On loggue aussi certains "delta" pour diagnostiquer l'audio sans spammer)
+          if (msg.type) {
+            const isDelta = msg.type.includes("delta");
+            const shouldLogDelta = isDelta && Math.random() < 0.01; // ~1%
+            if (!isDelta || shouldLogDelta) {
+              console.log(
+                "📨 OpenAI message:",
+                msg.type,
+                JSON.stringify({ keys: Object.keys(msg).slice(0, 15) }).substring(0, 200),
+              );
+            }
           }
           
           if (msg.type === "response.audio_transcript.done") {
             console.log("📝 Transcription IA:", msg.transcript);
           }
           
-          if (msg.type === "response.audio.delta") {
+          // IMPORTANT: selon les versions, le delta audio peut arriver sous:
+          // - response.audio.delta
+          // - response.output_audio.delta
+          if (msg.type === "response.audio.delta" || msg.type === "response.output_audio.delta") {
             // Audio de réponse d'OpenAI (PCM16 24kHz) → convertir en μ-law 8kHz pour Twilio
-            const audioBase64 = msg.delta;
+            const audioBase64 =
+              msg.delta ??
+              msg.audio ??
+              msg.chunk ??
+              msg?.output_audio?.delta ??
+              null;
             
             try {
+              if (!audioBase64) {
+                console.log("⚠️ Delta audio reçu sans champ utilisable:", {
+                  type: msg.type,
+                  keys: Object.keys(msg),
+                });
+                return;
+              }
               // Décoder base64 → PCM16 24kHz
               const pcm24kBuffer = Buffer.from(audioBase64, "base64");
               const pcm24k = new Int16Array(pcm24kBuffer.buffer, pcm24kBuffer.byteOffset, pcm24kBuffer.length / 2);
