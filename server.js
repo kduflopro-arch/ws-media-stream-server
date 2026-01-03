@@ -2,6 +2,7 @@
 // Deploy on Render / Railway / Fly. Not for Vercel (no persistent WS).
 // Ports: Render auto-assigns process.env.PORT; locally use 8080.
 
+import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 
 // Table de décodage μ-law → PCM16 (8kHz)
@@ -65,11 +66,30 @@ function convertPcm24kToMulaw(pcm24k) {
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-if (!OPENAI_API_KEY) {
-  console.error("⚠️ OPENAI_API_KEY non configuré !");
-}
+if (!OPENAI_API_KEY) console.error("⚠️ OPENAI_API_KEY non configuré !");
 
-const wss = new WebSocketServer({ port: PORT }, () => {
+// Serveur HTTP explicite (meilleur contrôle + endpoint /health pour garder Render "chaud")
+const server = http.createServer((req, res) => {
+  const url = req.url || "/";
+  if (url === "/health") {
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("ok");
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+  res.end("ws server");
+});
+
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 70_000;
+
+const wss = new WebSocketServer({
+  server,
+  // IMPORTANT: désactiver la compression WS pour maximiser la compatibilité et accélérer le handshake
+  perMessageDeflate: false,
+});
+
+server.listen(PORT, () => {
   console.log(`WS Media Stream server listening on :${PORT}`);
 });
 
