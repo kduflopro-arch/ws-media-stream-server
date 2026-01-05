@@ -954,7 +954,9 @@ Quand c'est pertinent, propose un rendez-vous rapidement (donne 2 créneaux simp
         const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
 
         // Réglages VAD Realtime (évite que l'IA réponde avant la fin de phrase)
-        const REALTIME_TURN_DETECTION_ENABLED = (process.env.REALTIME_TURN_DETECTION_ENABLED ?? "true").toLowerCase() === "true";
+        // IMPORTANT: certains modèles Realtime ne supportent pas `session.turn_detection` (logs: unknown_parameter).
+        // Donc désactivé par défaut; à activer seulement si tu confirmes que ton modèle l'accepte.
+        const REALTIME_TURN_DETECTION_ENABLED = (process.env.REALTIME_TURN_DETECTION_ENABLED ?? "false").toLowerCase() === "true";
         const REALTIME_TURN_SILENCE_MS = Number(process.env.REALTIME_TURN_SILENCE_MS ?? "850"); // + haut = attend plus longtemps
         const REALTIME_TURN_PREFIX_PADDING_MS = Number(process.env.REALTIME_TURN_PREFIX_PADDING_MS ?? "200");
         const REALTIME_TURN_THRESHOLD = Number(process.env.REALTIME_TURN_THRESHOLD ?? "0.45"); // 0..1
