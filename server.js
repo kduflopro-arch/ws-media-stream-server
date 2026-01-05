@@ -130,10 +130,36 @@ wss.on("connection", (ws, req) => {
   let appendedBytes = 0; // bytes ajoutés depuis le dernier commit
   let openaiWs = null;
   let twilioStreamSid = null;
+  // VAD local (Twilio ne fournit pas toujours un VAD fiable via OpenAI events)
   let speechActive = false;
+  let lastSpeechTs = 0;
+  let lastCommitAt = 0;
   // File d'attente audio vers Twilio (μ-law 8kHz). Twilio attend généralement des frames de 20ms = 160 bytes.
   let outboundQueue = []; // Array<Buffer>
   let outboundQueuedBytes = 0;
+
+  function nowMs() {
+    return Date.now();
+  }
+
+  // VAD très simple: énergie moyenne sur la frame μ-law
+  // (seuil à ajuster si besoin; 8000 = "parole" pour beaucoup de cas téléphone)
+  function isSpeechMulaw(mulawBuf) {
+    if (!mulawBuf || mulawBuf.length === 0) return false;
+    let sum = 0;
+    for (let i = 0; i < mulawBuf.length; i++) {
+      const s = MULAW_DECODE_TABLE[mulawBuf[i] & 0xff];
+      sum += Math.abs(s);
+    }
+    const avg = sum / mulawBuf.length;
+    return avg > 8000;
+  }
+
+  function createResponse() {
+    if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+    // Important: sans response.create, l'IA peut ne jamais parler même après commit.
+    openaiWs.send(JSON.stringify({ type: "response.create" }));
+  }
 
   function enqueueOutboundMulaw(buf) {
     if (!buf || buf.length === 0) return;
@@ -317,37 +343,13 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
             console.error("❌ Erreur OpenAI:", msg.error);
           }
 
+          // NOTE: On garde ces events si jamais ils arrivent, mais on ne dépend pas d'eux.
           if (msg.type === "input_audio_buffer.speech_started") {
             speechActive = true;
-            appendedBytes = 0; // on repart sur un buffer propre pour cette prise de parole
-            console.log("🟢 Speech started (OpenAI VAD):", {
-              audio_start_ms: msg.audio_start_ms,
-              item_id: msg.item_id,
-            });
+            lastSpeechTs = nowMs();
           }
-
           if (msg.type === "input_audio_buffer.speech_stopped") {
             speechActive = false;
-            console.log("🔴 Speech stopped (OpenAI VAD):", {
-              audio_end_ms: msg.audio_end_ms,
-              item_id: msg.item_id,
-              appendedBytes,
-            });
-            // Commit immédiat (évite les commits "vides" déclenchés plus tard)
-            // - g711_ulaw 8kHz: 100ms ≈ 800 bytes
-            // - pcm16 24kHz: 100ms = 2400 samples = 4800 bytes
-            const minCommitBytes = OPENAI_AUDIO_FORMAT === "g711_ulaw" ? 800 : 4800;
-            const hasEnoughAudio = appendedBytes >= minCommitBytes;
-            if (hasEnoughAudio && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
-              console.log(`📤 Commit buffer (speech stopped, bytes=${appendedBytes})`);
-              openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-            } else {
-              // Trop court → on reset pour éviter commit_empty
-              if (!hasEnoughAudio) {
-                console.log(`⏩ Skip commit (speech too short, bytes=${appendedBytes}, min=${minCommitBytes}, fmt=${OPENAI_AUDIO_FORMAT})`);
-              }
-            }
-            appendedBytes = 0;
           }
 
           if (msg.type === "input_audio_buffer.committed") {
@@ -448,7 +450,13 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               
               if (OPENAI_AUDIO_FORMAT === "g711_ulaw") {
                 // Pass-through: on append l'audio Twilio directement
-                if (speechActive) appendedBytes += mulawBuffer.length;
+                // VAD local
+                const isSpeech = isSpeechMulaw(mulawBuffer);
+                if (isSpeech) {
+                  speechActive = true;
+                  lastSpeechTs = nowMs();
+                }
+                appendedBytes += mulawBuffer.length;
                 openaiWs.send(JSON.stringify({
                   type: "input_audio_buffer.append",
                   audio: audioBase64,
@@ -463,15 +471,40 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
                   pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
                 }
                 const pcm24kBase64 = pcm24kBuffer.toString("base64");
-                // On envoie toujours l'audio pour que le VAD serveur OpenAI puisse détecter la parole,
-                // mais on ne compte le buffer pour commit que lorsqu'une parole est détectée.
-                if (speechActive) appendedBytes += pcm24kBuffer.length;
+                // VAD local basé sur μ-law
+                const isSpeech = isSpeechMulaw(mulawBuffer);
+                if (isSpeech) {
+                  speechActive = true;
+                  lastSpeechTs = nowMs();
+                }
+                appendedBytes += pcm24kBuffer.length;
 
                 // Envoyer PCM24k à OpenAI
                 openaiWs.send(JSON.stringify({
                   type: "input_audio_buffer.append",
                   audio: pcm24kBase64,
                 }));
+              }
+
+              // Commit + réponse: quand on détecte la fin de parole (silence > 350ms)
+              const minCommitBytes = OPENAI_AUDIO_FORMAT === "g711_ulaw" ? 800 : 4800; // ~100ms
+              const silenceMs = 350;
+              const coolDownMs = 250; // éviter spam commits
+              const now = nowMs();
+              const inSilence = speechActive && (now - lastSpeechTs) > silenceMs;
+              const canCommit = appendedBytes >= minCommitBytes && (now - lastCommitAt) > coolDownMs;
+              if (inSilence && canCommit) {
+                speechActive = false;
+                lastCommitAt = now;
+                console.log("📤 Commit+response (VAD local):", {
+                  bytes: appendedBytes,
+                  minCommitBytes,
+                  fmt: OPENAI_AUDIO_FORMAT,
+                  silence: now - lastSpeechTs,
+                });
+                openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+                createResponse();
+                appendedBytes = 0;
               }
               
             } catch (err) {
