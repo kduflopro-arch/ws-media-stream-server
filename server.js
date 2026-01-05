@@ -6,23 +6,51 @@ import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 
 // Table de décodage μ-law → PCM16 (8kHz)
+// + encode μ-law standard G.711 (évite les artefacts/brouillage)
 const MULAW_DECODE_TABLE = new Int16Array(256);
 for (let i = 0; i < 256; i++) {
-  let sign = (i & 0x80) ? -1 : 1;
-  let exponent = (i >> 4) & 0x07;
-  let mantissa = (i & 0x0F) | 0x10;
-  let value = sign * ((mantissa << (exponent + 2)) - (33 << 2));
-  MULAW_DECODE_TABLE[i] = value;
+  // standard μ-law decode
+  let uval = (~i) & 0xff;
+  let t = ((uval & 0x0f) << 3) + 0x84;
+  t <<= (uval & 0x70) >> 4;
+  MULAW_DECODE_TABLE[i] = (uval & 0x80) ? (0x84 - t) : (t - 0x84);
 }
 
-// Rééchantillonnage simple 8kHz → 24kHz (upsampling linéaire)
+const MULAW_BIAS = 0x84;
+const MULAW_CLIP = 32635;
+const MULAW_SEG_END = [0x1f, 0x3f, 0x7f, 0xff, 0x1ff, 0x3ff, 0x7ff, 0xfff];
+
+function mulawEncodeSample(pcm16) {
+  let sample = pcm16;
+  let sign = 0;
+  if (sample < 0) {
+    sign = 0x80;
+    sample = -sample;
+    if (sample < 0) sample = 32767;
+  }
+  if (sample > MULAW_CLIP) sample = MULAW_CLIP;
+  sample = sample + MULAW_BIAS;
+
+  // segment
+  let seg = 0;
+  while (seg < 8 && sample > MULAW_SEG_END[seg]) seg++;
+
+  // mantissa
+  const mantissa = (sample >> (seg + 3)) & 0x0f;
+  const uval = sign | (seg << 4) | mantissa;
+  return (~uval) & 0xff;
+}
+
+// Rééchantillonnage 8kHz → 24kHz (interpolation linéaire)
 function resample8kTo24k(pcm8k) {
   const pcm24k = new Int16Array(pcm8k.length * 3);
   for (let i = 0; i < pcm8k.length; i++) {
-    const value = pcm8k[i];
-    pcm24k[i * 3] = value;
-    pcm24k[i * 3 + 1] = value;
-    pcm24k[i * 3 + 2] = value;
+    const s0 = pcm8k[i];
+    const s1 = i + 1 < pcm8k.length ? pcm8k[i + 1] : s0;
+    pcm24k[i * 3] = s0;
+    // fractions 1/3 et 2/3 vers l'échantillon suivant
+    pcm24k[i * 3 + 1] = (2 * s0 + s1) / 3;
+    pcm24k[i * 3 + 2] = (s0 + 2 * s1) / 3;
   }
   return pcm24k;
 }
@@ -44,21 +72,7 @@ function convertPcm24kToMulaw(pcm24k) {
   }
   const mulaw = new Uint8Array(pcm8k.length);
   for (let i = 0; i < pcm8k.length; i++) {
-    let sample = pcm8k[i];
-    let sign = (sample >> 8) & 0x80;
-    if (sign) sample = -sample;
-    sample = sample + 0x84;
-    let exponent = 0;
-    let exp = sample >> 7;
-    if (exp > 0) {
-      exponent = 1;
-      while (exp > 1) {
-        exponent++;
-        exp >>= 1;
-      }
-    }
-    let mantissa = (sample >> (exponent + 3)) & 0x0F;
-    mulaw[i] = ~(sign | (exponent << 4) | mantissa);
+    mulaw[i] = mulawEncodeSample(pcm8k[i]);
   }
   return mulaw;
 }
@@ -144,6 +158,9 @@ wss.on("connection", (ws, req) => {
   let outboundQueuedBytes = 0;
   let hasSentInitialGreeting = false;
   let loggedFirstAudioDelta = false;
+  let outboundTimer = null;
+  let lastResponseAt = 0;
+  let awaitingUserResponse = false;
 
   function nowMs() {
     return Date.now();
@@ -417,6 +434,7 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
           if (msg.type === "input_audio_buffer.speech_started") {
             speechActive = true;
             lastSpeechTs = nowMs();
+            awaitingUserResponse = true;
           }
           if (msg.type === "input_audio_buffer.speech_stopped") {
             speechActive = false;
@@ -428,6 +446,16 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               item_id: msg.item_id,
               previous_item_id: msg.previous_item_id,
             });
+            // IMPORTANT: si OpenAI commit via son VAD, il faut déclencher une réponse ici,
+            // sinon l'IA ne répond jamais à l'utilisateur.
+            const now = nowMs();
+            const canCreate = (now - lastResponseAt) > 600;
+            if (awaitingUserResponse && canCreate) {
+              lastResponseAt = now;
+              awaitingUserResponse = false;
+              console.log("🗣️ response.create après commit (user speech).");
+              createResponse();
+            }
           }
           
           if (msg.type === "session.created" || msg.type === "session.updated") {
@@ -485,6 +513,18 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
         
         // Connecter à OpenAI Realtime
         connectToOpenAI();
+
+        // Timer d'envoi audio sortant vers Twilio (20ms). Évite les bursts et réduit les artefacts.
+        if (!outboundTimer) {
+          outboundTimer = setInterval(() => {
+            try {
+              // 1 frame = 20ms
+              sendOutboundFrames(1);
+            } catch {
+              // ignore
+            }
+          }, 20);
+        }
         
       } else if (msg.event === "media") {
         mediaCount += 1;
@@ -607,14 +647,14 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
           }
         }
 
-        // Pacing audio sortant:
-        // - si backlog important, on envoie plus de frames par tick pour éviter un gros décalage
-        const backlogFrames = Math.floor(outboundQueuedBytes / 160);
-        const framesToSend = backlogFrames > 50 ? 5 : 1; // >1s de backlog → drain plus vite
-        sendOutboundFrames(framesToSend);
+        // Le pacing sortant est géré par le timer 20ms.
         
       } else if (msg.event === "stop") {
         console.log("🛑 Stream stop");
+        if (outboundTimer) {
+          clearInterval(outboundTimer);
+          outboundTimer = null;
+        }
         if (openaiWs) {
           openaiWs.close();
         }
@@ -628,6 +668,10 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
 
   ws.on("close", () => {
     console.log("🔌 Connection closed. Media frames total:", mediaCount);
+    if (outboundTimer) {
+      clearInterval(outboundTimer);
+      outboundTimer = null;
+    }
     if (openaiWs) {
       openaiWs.close();
     }
