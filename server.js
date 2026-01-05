@@ -250,10 +250,13 @@ wss.on("connection", (ws, req) => {
   const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID ?? ""; // voice masculine (à choisir dans ElevenLabs)
   const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
   const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT ?? "pcm_16000";
+  const ELEVENLABS_OPTIMIZE_STREAMING_LATENCY = Number(process.env.ELEVENLABS_OPTIMIZE_STREAMING_LATENCY ?? "3"); // 0..4
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
   let premiumTtsLastError = null;
+  let premiumTtsQueue = []; // Array<{ text: string, interrupt: boolean }>
+  let premiumTtsDrainInFlight = false;
 
   // Option B (STT → LLM → TTS)
   const STT_MODEL = process.env.STT_MODEL ?? "whisper-1";
@@ -543,7 +546,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               if (premiumTtsInFlight) return;
               lastBackchannelAt = nowMs();
               console.log("🗣️ Backchannel:", { text: BACKCHANNEL_TEXT });
-              speakWithElevenLabs(BACKCHANNEL_TEXT, { interrupt: true });
+              enqueueElevenLabsTts(BACKCHANNEL_TEXT, { interrupt: true });
             }, BACKCHANNEL_DELAY_MS);
           }
         }
@@ -574,7 +577,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       conversationHistory.push({ role: "assistant", content: answer });
       conversationHistory = conversationHistory.slice(-HISTORY_MAX_TURNS * 2);
 
-      await speakWithElevenLabs(answer, { interrupt: true });
+      enqueueElevenLabsTts(answer, { interrupt: true });
     } catch (err) {
       console.error("❌ Erreur pipeline STT→LLM→TTS:", err);
     } finally {
@@ -582,7 +585,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
   }
 
-  async function speakWithElevenLabs(text, { interrupt = true } = {}) {
+  async function speakWithElevenLabsNow(text, { interrupt = true } = {}) {
     if (!PREMIUM_TTS_ENABLED) return;
     if (PREMIUM_TTS_PROVIDER !== "elevenlabs") return;
     if (nowMs() < premiumTtsBypassUntilMs) return;
@@ -606,7 +609,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     premiumTtsLastError = null;
 
     try {
-      const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}/stream?output_format=${encodeURIComponent(ELEVENLABS_OUTPUT_FORMAT)}`;
+      const url =
+        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}/stream` +
+        `?output_format=${encodeURIComponent(ELEVENLABS_OUTPUT_FORMAT)}` +
+        `&optimize_streaming_latency=${encodeURIComponent(String(ELEVENLABS_OPTIMIZE_STREAMING_LATENCY))}`;
       const resp = await fetch(url, {
         method: "POST",
         signal: premiumTtsAbort.signal,
@@ -666,6 +672,39 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
   }
 
+  function enqueueElevenLabsTts(text, { interrupt = true } = {}) {
+    if (!PREMIUM_TTS_ENABLED) return;
+    const clean = (text || "").trim();
+    if (!clean) return;
+
+    // Si interrupt: on coupe net et on repart avec la nouvelle phrase
+    if (interrupt) {
+      premiumTtsQueue = [];
+      try { premiumTtsAbort?.abort?.(); } catch { /* ignore */ }
+      premiumTtsAbort = new AbortController();
+      outboundQueue = [];
+      outboundQueuedBytes = 0;
+    }
+
+    premiumTtsQueue.push({ text: clean, interrupt });
+    void drainElevenLabsQueue();
+  }
+
+  async function drainElevenLabsQueue() {
+    if (premiumTtsDrainInFlight) return;
+    premiumTtsDrainInFlight = true;
+    try {
+      while (premiumTtsQueue.length > 0) {
+        const job = premiumTtsQueue.shift();
+        if (!job) continue;
+        // Interrupt a déjà été géré à l'enqueue: ici on ne re-clear pas l'audio.
+        await speakWithElevenLabsNow(job.text, { interrupt: false });
+      }
+    } finally {
+      premiumTtsDrainInFlight = false;
+    }
+  }
+
   // Énergie moyenne sur une frame μ-law (utile pour détecter silence/parole)
   function avgAbsMulaw(mulawBuf) {
     if (!mulawBuf || mulawBuf.length === 0) return false;
@@ -710,6 +749,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     REALTIME_TTS_MODE.includes("eleven") &&
     PREMIUM_TTS_ENABLED &&
     PREMIUM_TTS_PROVIDER === "elevenlabs";
+
+  // Realtime+ElevenLabs: "direct" (chunking) pour parler dès que le texte arrive
+  const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "true").toLowerCase() === "true";
+  const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "60");
+  const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "220");
 
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
@@ -862,11 +906,18 @@ Si bruit/TV: demande gentiment de se mettre au calme ("Si vous pouvez baisser la
         const neutralPersona =
           `Persona: assistant téléphonique professionnel, cordial et concis.`;
 
+        const REALTIME_INPUT_TRANSCRIPTION_ENABLED = (process.env.REALTIME_INPUT_TRANSCRIPTION_ENABLED ?? "true").toLowerCase() === "true";
+        const REALTIME_INPUT_TRANSCRIPTION_MODEL = process.env.REALTIME_INPUT_TRANSCRIPTION_MODEL ?? "whisper-1";
+        const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
+
         openaiWs.send(JSON.stringify({
           type: "session.update",
           session: {
             type: "realtime",
             instructions: `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}`,
+            ...(REALTIME_INPUT_TRANSCRIPTION_ENABLED
+              ? { input_audio_transcription: { model: REALTIME_INPUT_TRANSCRIPTION_MODEL, language: REALTIME_INPUT_TRANSCRIPTION_LANGUAGE } }
+              : {}),
           },
         }));
 
@@ -949,6 +1000,55 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           // Anti-doublon: certains events transcript peuvent arriver plusieurs fois
           if (!ws.__realtimeSpokenResponseId) ws.__realtimeSpokenResponseId = new Set();
           const spokenSet = ws.__realtimeSpokenResponseId;
+          // Etat du chunking ElevenLabs en Realtime
+          if (!ws.__realtimeElevenStateByResponseId) ws.__realtimeElevenStateByResponseId = new Map();
+          const elevenStateMap = ws.__realtimeElevenStateByResponseId;
+
+          function flushRealtimeElevenChunks(rid, final = false) {
+            if (!REALTIME_USE_ELEVEN || !REALTIME_ELEVEN_CHUNKING_ENABLED) return;
+            if (!rid) return;
+            const full = String(transcriptMap.get(rid) || "");
+            const st = elevenStateMap.get(rid) || { cursor: 0, started: false };
+            if (!full || st.cursor >= full.length) {
+              if (final) elevenStateMap.delete(rid);
+              else elevenStateMap.set(rid, st);
+              return;
+            }
+
+            let remaining = full.slice(st.cursor);
+
+            // Tant qu'on a une phrase complète (ou un gros chunk), on envoie.
+            while (remaining.length >= REALTIME_ELEVEN_CHUNK_MIN_CHARS) {
+              // Cherche une ponctuation pour couper naturellement
+              const punctMatch = remaining.slice(0, REALTIME_ELEVEN_CHUNK_MAX_CHARS).match(/[\.\!\?\…]\s|[\n\r]+/);
+              let cutIdx = -1;
+              if (punctMatch && punctMatch.index != null) {
+                cutIdx = punctMatch.index + punctMatch[0].length;
+              } else if (remaining.length >= REALTIME_ELEVEN_CHUNK_MAX_CHARS) {
+                cutIdx = REALTIME_ELEVEN_CHUNK_MAX_CHARS;
+              } else {
+                break;
+              }
+
+              const chunk = remaining.slice(0, cutIdx).trim();
+              if (chunk.length >= REALTIME_ELEVEN_CHUNK_MIN_CHARS || st.started) {
+                enqueueElevenLabsTts(chunk, { interrupt: !st.started });
+                st.started = true;
+                st.cursor += cutIdx;
+                remaining = full.slice(st.cursor);
+              } else {
+                break;
+              }
+            }
+
+            if (final) {
+              const tail = String(full.slice(st.cursor)).trim();
+              if (tail) enqueueElevenLabsTts(tail, { interrupt: !st.started });
+              elevenStateMap.delete(rid);
+            } else {
+              elevenStateMap.set(rid, st);
+            }
+          }
           
           // Logger tous les types de messages pour debug
           // (On loggue aussi certains "delta" pour diagnostiquer l'audio sans spammer)
@@ -972,12 +1072,17 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           if (msg.type === "response.created") {
             const rid = msg.response?.id ?? msg.response_id ?? null;
             if (rid) transcriptMap.set(rid, "");
+            if (rid && REALTIME_USE_ELEVEN && REALTIME_ELEVEN_CHUNKING_ENABLED) {
+              elevenStateMap.set(rid, { cursor: 0, started: false });
+            }
           }
           if (msg.type === "response.output_audio_transcript.delta" || msg.type === "response.audio_transcript.delta") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
             const delta = msg.delta ?? "";
             if (rid && typeof delta === "string") {
               transcriptMap.set(rid, (transcriptMap.get(rid) || "") + delta);
+              // Mode "direct": on commence à parler dès qu'on a assez de texte
+              flushRealtimeElevenChunks(rid, false);
             }
           }
           if (msg.type === "response.output_audio_transcript.done" || msg.type === "response.audio_transcript.done") {
@@ -991,7 +1096,13 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
                 // Couper l'audio OpenAI en file pour éviter une double-voix/percussion.
                 outboundQueue = [];
                 outboundQueuedBytes = 0;
-                speakWithElevenLabs(doneText, { interrupt: true });
+                if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
+                  // Si chunking actif, on flush le reste et on termine
+                  transcriptMap.set(rid, doneText);
+                  flushRealtimeElevenChunks(rid, true);
+                } else {
+                  enqueueElevenLabsTts(doneText, { interrupt: true });
+                }
               }
             }
           }
@@ -1185,7 +1296,7 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           if (!greetOncePerCall || !hasGreetedRecently(callSid)) {
             const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "150");
             setTimeout(() => {
-              speakWithElevenLabs(`Oui allô, bonjour. Garage ${garageName || "AutoGuru"}, bonjour, je vous écoute. Qu'est-ce qui vous amène ?`, { interrupt: true });
+              enqueueElevenLabsTts(`Oui allô, bonjour. Garage ${garageName || "AutoGuru"}, bonjour, je vous écoute. Qu'est-ce qui vous amène ?`, { interrupt: true });
               if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
             }, greetingDelayMs);
           }
@@ -1296,7 +1407,7 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
                     if (premiumTtsInFlight) return;
                     lastBackchannelAt = nowMs();
                     console.log("🗣️ Backchannel:", { text: BACKCHANNEL_TEXT });
-                    speakWithElevenLabs(BACKCHANNEL_TEXT, { interrupt: true });
+                    enqueueElevenLabsTts(BACKCHANNEL_TEXT, { interrupt: true });
                   }, BACKCHANNEL_DELAY_MS);
                 }
               }
