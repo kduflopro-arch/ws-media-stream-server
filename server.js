@@ -192,7 +192,7 @@ wss.on("connection", (ws, req) => {
   }
 
   // Détection parole côté Twilio (pour barge-in) : plus stable que les events VAD OpenAI en environnement bruyant.
-  const TWILIO_SPEECH_THRESHOLD = 2500;
+  const TWILIO_SPEECH_THRESHOLD = 4000;
   let twilioSpeechFrames = 0;
 
   function requestResponseCreate(reason) {
@@ -228,22 +228,27 @@ wss.on("connection", (ws, req) => {
 
   function enqueueOutboundMulaw(buf) {
     if (!buf || buf.length === 0) return;
-    // Garder un buffer raisonnable (~2s). Si OpenAI génère plus vite que temps réel,
-    // on drop l'audio le plus ancien (sinon ça sature et devient incompréhensible).
-    const MAX_BACKLOG_BYTES = 160 * 100; // ~2s @ 20ms
-    if (outboundQueuedBytes > MAX_BACKLOG_BYTES) {
-      while (outboundQueue.length > 0 && outboundQueuedBytes > MAX_BACKLOG_BYTES) {
+    // IMPORTANT: ne pas "drop" agressivement, sinon ça coupe les mots et ça devient inaudible.
+    // On accepte du backlog (latence) et on ne drop qu'en cas extrême (sécurité mémoire).
+    const SOFT_MAX_BACKLOG_BYTES = 160 * 500; // ~10s @ 20ms
+    const HARD_MAX_BACKLOG_BYTES = 160 * 1500; // ~30s @ 20ms
+    if (outboundQueuedBytes > HARD_MAX_BACKLOG_BYTES) {
+      // Drop uniquement si on dépasse 30s, sinon on préfère garder l'intelligibilité.
+      while (outboundQueue.length > 0 && outboundQueuedBytes > SOFT_MAX_BACKLOG_BYTES) {
         const head = outboundQueue.shift();
         if (!head) break;
         outboundQueuedBytes -= head.length;
         droppedOutboundBytes += head.length;
       }
-      if (Math.random() < 0.2) {
-        console.log("🗑️ Outbound audio drop (backlog):", {
-          outboundQueuedBytes,
-          droppedOutboundBytes,
-        });
-      }
+      console.log("🗑️ Outbound audio drop (HARD backlog):", {
+        outboundQueuedBytes,
+        droppedOutboundBytes,
+      });
+    } else if (outboundQueuedBytes > SOFT_MAX_BACKLOG_BYTES && Math.random() < 0.05) {
+      console.log("⏳ Outbound backlog (no drop):", {
+        outboundQueuedBytes,
+        approxSeconds: Math.round((outboundQueuedBytes / 160) * 0.02),
+      });
     }
     outboundQueue.push(buf);
     outboundQueuedBytes += buf.length;
@@ -596,8 +601,15 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
         if (!outboundTimer) {
           outboundTimer = setInterval(() => {
             try {
-              // 1 frame = 20ms strict (Twilio attend un pacing temps réel)
-              sendOutboundFrames(1);
+              // Pacing 20ms, avec drainage adaptatif en cas de backlog
+              // (Twilio tolère qu'on envoie un peu plus vite, ça réduit la latence sans drop).
+              const backlogFrames = Math.floor(outboundQueuedBytes / 160);
+              const framesToSend =
+                backlogFrames > 600 ? 5 : // >12s
+                backlogFrames > 300 ? 3 : // >6s
+                backlogFrames > 150 ? 2 : // >3s
+                1;
+              sendOutboundFrames(framesToSend);
             } catch {
               // ignore
             }
@@ -630,7 +642,8 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               const isUserSpeech = avg > TWILIO_SPEECH_THRESHOLD;
               if (isUserSpeech) twilioSpeechFrames += 1;
               else twilioSpeechFrames = Math.max(0, twilioSpeechFrames - 1);
-              if (responseInProgress && twilioSpeechFrames >= 2) {
+              // exiger ~80ms de parole (4 frames) pour éviter les faux positifs sur bruit
+              if (responseInProgress && twilioSpeechFrames >= 4) {
                 cancelResponseForBargeIn();
                 twilioSpeechFrames = 0;
               }
