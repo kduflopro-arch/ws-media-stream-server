@@ -61,6 +61,15 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
   - Si l’IA démarre trop tôt → `300`
   - Si c’est trop lent → `0` à `100`
 
+### `GREETING_ONCE_PER_CALL`
+- **Rôle** : empêche l’IA de répéter l’accueil si Twilio reconnecte le stream pendant **le même appel** (même `CallSid`).
+- **Défaut** : `true`
+- **Recommandé** : laisse `true` (ça règle le “bonjour” répété).
+
+### `GREETING_ONCE_TTL_MS`
+- **Rôle** : durée pendant laquelle on considère que “l’accueil a déjà été joué” pour un `CallSid`.
+- **Défaut** : `600000` (10 minutes)
+
 ---
 
 ## Variables “interruption / barge-in” (important si TV/bruit en fond)

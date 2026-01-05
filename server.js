@@ -5,6 +5,27 @@
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 
+// Empêche les "bonjour" répétés en cas de reconnexion du stream Twilio pendant le même appel.
+// Map<callSid, expiresAtMs>
+const greetedCallSidCache = new Map();
+function hasGreetedRecently(callSid) {
+  if (!callSid) return false;
+  const now = Date.now();
+  const exp = greetedCallSidCache.get(callSid);
+  if (exp && exp > now) return true;
+  if (exp && exp <= now) greetedCallSidCache.delete(callSid);
+  return false;
+}
+function markGreeted(callSid, ttlMs = 10 * 60 * 1000) {
+  if (!callSid) return;
+  greetedCallSidCache.set(callSid, Date.now() + ttlMs);
+  // limiter la taille au cas où (simple LRU-ish)
+  if (greetedCallSidCache.size > 500) {
+    const firstKey = greetedCallSidCache.keys().next().value;
+    if (firstKey) greetedCallSidCache.delete(firstKey);
+  }
+}
+
 // Table de décodage μ-law → PCM16 (8kHz)
 // + encode μ-law standard G.711 (évite les artefacts/brouillage)
 const MULAW_DECODE_TABLE = new Int16Array(256);
@@ -384,11 +405,18 @@ Si bruit/TV: demande gentiment de se mettre au calme ("Si vous pouvez baisser la
         if (!hasSentInitialGreeting) {
           hasSentInitialGreeting = true;
           const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "150");
+          const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
+          const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
           setTimeout(() => {
             try {
               if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
               // Si l'utilisateur a déjà parlé (ou parle), on skip le greeting pour éviter tout chevauchement.
               if (userHasSpoken || speechActive || awaitingUserResponse || responseInProgress) return;
+              // Éviter de rejouer l'accueil si Twilio reconnecte pendant le même CallSid
+              if (greetOncePerCall && hasGreetedRecently(callSid)) {
+                console.log("👋 Greeting ignoré (déjà joué pour ce CallSid).", { callSid });
+                return;
+              }
               openaiWs.send(JSON.stringify({
                 type: "conversation.item.create",
                 item: {
@@ -407,6 +435,7 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
               }));
               requestResponseCreate("greeting");
               console.log("👋 Greeting demandé à OpenAI (response.create).");
+              if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
             } catch (err) {
               console.error("❌ Erreur envoi greeting à OpenAI:", err);
             }
