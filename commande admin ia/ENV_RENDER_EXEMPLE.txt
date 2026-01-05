@@ -1,5 +1,5 @@
 # ===== AutoGuru WS Media Stream Server (Render) — Exemple prêt à copier =====
-# Objectif: repasser en GPT‑Realtime (Twilio ↔ OpenAI Realtime) pour une conversation fluide.
+# Objectif: GPT‑Realtime (cerveau) + ElevenLabs (voix) pour une conversation fluide ET une voix humaine.
 
 # --- Obligatoire ---
 OPENAI_API_KEY=sk-xxx
@@ -15,8 +15,16 @@ PIPELINE_MODE=realtime
 # Audio OpenAI forcé en PCM16 (évite le "brouillage" si g711_ulaw est mal interprété)
 OPENAI_AUDIO_FORMAT=pcm16
 
-# Désactive les éléments Option B (ils n'ont pas d'effet en realtime mais évite la confusion)
-PREMIUM_TTS_ENABLED=false
+# --- Voix ElevenLabs en Realtime ---
+REALTIME_TTS_MODE=elevenlabs
+PREMIUM_TTS_ENABLED=true
+PREMIUM_TTS_PROVIDER=elevenlabs
+ELEVENLABS_API_KEY=xi_xxx
+ELEVENLABS_VOICE_ID=YxrwjAKoUKULGd0g8K9Y
+ELEVENLABS_MODEL_ID=eleven_multilingual_v2
+ELEVENLABS_OUTPUT_FORMAT=pcm_16000
+
+# Backchannel OFF en realtime (sinon "Ok je vois" peut spam)
 BACKCHANNEL_ENABLED=false
 
 # Anti-interruptions TV/bruit: barge-in OFF par défaut (tu peux le réactiver si tu veux)

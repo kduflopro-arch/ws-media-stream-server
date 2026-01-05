@@ -99,6 +99,14 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
   - `gpt-realtime` : **alias accepté** (équivalent à `realtime`)
   - `stt_llm_tts` : **Option B** (VAD local → Whisper → LLM texte → ElevenLabs)
 
+### `REALTIME_TTS_MODE`
+- **Rôle** : en mode `realtime`, choisit qui “parle”.
+- **Défaut** : `openai`
+- **Valeurs** :
+  - `openai` : on utilise l’audio OpenAI Realtime (plus simple).
+  - `elevenlabs` : on **ignore l’audio OpenAI** et on fait parler **ElevenLabs** à partir du transcript Realtime (voix plus humaine).
+- **Requis pour ElevenLabs en realtime** : mettre `REALTIME_TTS_MODE=elevenlabs` **et** `PREMIUM_TTS_ENABLED=true` + clés ElevenLabs.
+
 ### `STT_MODEL`
 - **Rôle** : modèle de transcription.
 - **Défaut** : `whisper-1`

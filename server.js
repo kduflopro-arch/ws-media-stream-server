@@ -297,6 +297,7 @@ wss.on("connection", (ws, req) => {
         PIPELINE_MODE,
         PIPELINE_MODE_RAW,
         PREMIUM_TTS_ENABLED,
+        REALTIME_TTS_MODE,
         BACKCHANNEL_ENABLED,
         BACKCHANNEL_TEXT,
         LLM_MODEL,
@@ -700,6 +701,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const INPUT_SUPPRESS_WHILE_TALKING = (process.env.INPUT_SUPPRESS_WHILE_TALKING ?? "true").toLowerCase() === "true";
   const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "5"); // ~100ms d'audio sortant
 
+  // Realtime: voix
+  // - openai: utiliser l'audio renvoyé par OpenAI Realtime
+  // - elevenlabs: utiliser le transcript OpenAI Realtime et faire parler ElevenLabs
+  const REALTIME_TTS_MODE = (process.env.REALTIME_TTS_MODE ?? "openai").toLowerCase();
+  const REALTIME_USE_ELEVEN =
+    PIPELINE_MODE === "realtime" &&
+    REALTIME_TTS_MODE.includes("eleven") &&
+    PREMIUM_TTS_ENABLED &&
+    PREMIUM_TTS_PROVIDER === "elevenlabs";
+
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     // Ne pas spam: si OpenAI a déjà une réponse en cours, ou si on vient juste d'en demander une.
@@ -935,6 +946,9 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           // Map<response_id, transcript>
           if (!ws.__premiumTranscriptByResponseId) ws.__premiumTranscriptByResponseId = new Map();
           const transcriptMap = ws.__premiumTranscriptByResponseId;
+          // Anti-doublon: certains events transcript peuvent arriver plusieurs fois
+          if (!ws.__realtimeSpokenResponseId) ws.__realtimeSpokenResponseId = new Set();
+          const spokenSet = ws.__realtimeSpokenResponseId;
           
           // Logger tous les types de messages pour debug
           // (On loggue aussi certains "delta" pour diagnostiquer l'audio sans spammer)
@@ -969,9 +983,16 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           if (msg.type === "response.output_audio_transcript.done" || msg.type === "response.audio_transcript.done") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
             const doneText = (typeof msg.transcript === "string" ? msg.transcript : "") || (rid ? (transcriptMap.get(rid) || "") : "");
-            if (PREMIUM_TTS_ENABLED && doneText && doneText.trim()) {
-              // Lancer la voix premium
-              speakWithElevenLabs(doneText, { interrupt: true });
+            if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
+              // Lancer la voix premium.
+              // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
+              if (!rid || !spokenSet.has(rid)) {
+                if (rid) spokenSet.add(rid);
+                // Couper l'audio OpenAI en file pour éviter une double-voix/percussion.
+                outboundQueue = [];
+                outboundQueuedBytes = 0;
+                speakWithElevenLabs(doneText, { interrupt: true });
+              }
             }
           }
           
@@ -979,9 +1000,9 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           // - response.audio.delta
           // - response.output_audio.delta
           if (msg.type === "response.audio.delta" || msg.type === "response.output_audio.delta") {
-            // En mode premium, on ignore l'audio OpenAI (sinon double-voix),
+            // Si on utilise ElevenLabs en Realtime, on ignore complètement l'audio OpenAI (sinon doublon + backlog).
             // SAUF si ElevenLabs est en erreur (bypass) → on repasse sur OpenAI pour éviter le silence total.
-            if (PREMIUM_TTS_ENABLED && nowMs() >= premiumTtsBypassUntilMs) return;
+            if (REALTIME_USE_ELEVEN && nowMs() >= premiumTtsBypassUntilMs) return;
             const audioBase64 =
               msg.delta ??
               msg.audio ??
