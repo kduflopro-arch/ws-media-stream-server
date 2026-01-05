@@ -382,11 +382,26 @@ wss.on("connection", (ws, req) => {
     for (const item of out) {
       const content = Array.isArray(item?.content) ? item.content : [];
       for (const c of content) {
-        const t = c?.text ?? c?.transcript ?? c?.value ?? null;
+        const t = c?.text ?? c?.transcript ?? c?.value ?? c?.output_text ?? null;
         if (typeof t === "string" && t.trim()) parts.push(t.trim());
       }
     }
     return parts.join("\n").trim();
+  }
+
+  function buildPromptFromMessages(messages) {
+    // Transforme l'historique en un seul texte (robuste pour l'API Responses).
+    const lines = [];
+    for (const m of messages || []) {
+      const role = String(m?.role ?? "user");
+      const content = String(m?.content ?? "").trim();
+      if (!content) continue;
+      if (role === "system") continue;
+      const label = role === "assistant" ? "Assistant" : "Client";
+      lines.push(`${label}: ${content}`);
+    }
+    lines.push("Assistant:");
+    return lines.join("\n");
   }
 
   async function openaiLLM(messages, model) {
@@ -402,12 +417,12 @@ wss.on("connection", (ws, req) => {
     try {
       // GPT‑5: utiliser Responses API (les params et endpoints diffèrent)
       if (isGpt5) {
+        const systemMsg = (messages || []).find((m) => m?.role === "system")?.content ?? "";
+        const prompt = buildPromptFromMessages(messages);
         const body = {
           model,
-          input: messages.map((m) => ({
-            role: m.role,
-            content: [{ type: "input_text", text: String(m.content ?? "") }],
-          })),
+          input: String(prompt),
+          instructions: String(systemMsg || ""),
           // Paramètre correct côté Responses API
           max_output_tokens: LLM_MAX_TOKENS,
         };
@@ -430,7 +445,14 @@ wss.on("connection", (ws, req) => {
           err.__openai = json;
           throw err;
         }
-        return extractTextFromResponsesJson(json);
+        const text = extractTextFromResponsesJson(json);
+        if (!text) {
+          console.warn("⚠️ GPT-5 réponse vide (Responses).", {
+            keys: Object.keys(json || {}).slice(0, 20),
+            outputLen: Array.isArray(json?.output) ? json.output.length : null,
+          });
+        }
+        return text;
       }
 
       // Autres modèles: Chat Completions
@@ -477,6 +499,12 @@ wss.on("connection", (ws, req) => {
       const wav = mulaw8kToPcm16kWav(joined);
       const transcript = (await openaiTranscribeWav(wav)).trim();
       if (!transcript) return;
+      // Ignore les transcriptions trop courtes / ponctuation seule (évite "!" → tours inutiles)
+      const cleaned = transcript.replace(/[\s'’"“”]/g, "").trim();
+      if (cleaned.length < 3 || /^[\p{P}\p{S}]+$/u.test(cleaned)) {
+        console.log("🧹 STT ignoré (trop court/bruit):", { transcript });
+        return;
+      }
       console.log("🎤 STT:", transcript);
 
       // Historique (limité)
@@ -525,6 +553,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           clearTimeout(backchannelTimer);
           backchannelTimer = null;
         }
+      }
+      if (!answer) {
+        // Si GPT‑5 renvoie vide, on fallback immédiatement pour ne pas laisser l'appel “sans réponse”.
+        console.warn("⚠️ LLM réponse vide, fallback gpt-4o.");
+        console.log("🧠 LLM start (fallback-empty):", { model: "gpt-4o" });
+        answer = await openaiLLM(msgs, "gpt-4o");
+        console.log("🧠 LLM done (fallback-empty):", { model: "gpt-4o", chars: answer?.length ?? 0 });
       }
       if (!answer) return;
       conversationHistory.push({ role: "assistant", content: answer });
