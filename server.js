@@ -243,6 +243,18 @@ wss.on("connection", (ws, req) => {
   let droppedOutboundBytes = 0;
   // Debug VAD local (ne doit PAS impacter la logique OpenAI)
   let localDbgSpeechActive = false;
+
+  // Empêcher l'assistant de parler pendant que le client parle (évite “il ne m’a pas laissé finir”).
+  // On s'appuie sur un VAD local très simple (énergie μ-law).
+  const OUTPUT_WAIT_FOR_USER_SILENCE = (process.env.OUTPUT_WAIT_FOR_USER_SILENCE ?? "true").toLowerCase() === "true";
+  const OUTPUT_USER_SPEECH_THRESHOLD = Number(process.env.OUTPUT_USER_SPEECH_THRESHOLD ?? "2800");
+  const OUTPUT_USER_SPEECH_FRAMES = Number(process.env.OUTPUT_USER_SPEECH_FRAMES ?? "6"); // ~120ms
+  const OUTPUT_USER_SILENCE_THRESHOLD = Number(process.env.OUTPUT_USER_SILENCE_THRESHOLD ?? "1100");
+  const OUTPUT_USER_SILENCE_FRAMES = Number(process.env.OUTPUT_USER_SILENCE_FRAMES ?? "18"); // ~360ms
+  let outUserSpeechFrames = 0;
+  let outUserSilenceFrames = 0;
+  let outUserSpeaking = false;
+  let pendingSpeakQueue = []; // textes ElevenLabs en attente pendant que le client parle
   
   // Mode "voix premium" (TTS externe). Si activé, on ignore l'audio OpenAI et on lit une voix premium via TTS.
   const PREMIUM_TTS_ENABLED = (process.env.PREMIUM_TTS_ENABLED ?? "false").toLowerCase() === "true";
@@ -707,6 +719,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const clean = (text || "").trim();
     if (!clean) return;
 
+    // Si le client parle, on retarde la réponse (sinon ça parle par-dessus).
+    if (OUTPUT_WAIT_FOR_USER_SILENCE && outUserSpeaking) {
+      if (interrupt) pendingSpeakQueue = [];
+      pendingSpeakQueue.push(clean);
+      return;
+    }
+
     // Si interrupt: on coupe net et on repart avec la nouvelle phrase
     if (interrupt) {
       premiumTtsQueue = [];
@@ -960,14 +979,6 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
         const REALTIME_INPUT_TRANSCRIPTION_MODEL = process.env.REALTIME_INPUT_TRANSCRIPTION_MODEL ?? "whisper-1";
         const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
 
-        // Réglages VAD Realtime (évite que l'IA réponde avant la fin de phrase)
-        // IMPORTANT: certains modèles Realtime ne supportent pas `session.turn_detection` (logs: unknown_parameter).
-        // Donc désactivé par défaut; à activer seulement si tu confirmes que ton modèle l'accepte.
-        const REALTIME_TURN_DETECTION_ENABLED = (process.env.REALTIME_TURN_DETECTION_ENABLED ?? "false").toLowerCase() === "true";
-        const REALTIME_TURN_SILENCE_MS = Number(process.env.REALTIME_TURN_SILENCE_MS ?? "850"); // + haut = attend plus longtemps
-        const REALTIME_TURN_PREFIX_PADDING_MS = Number(process.env.REALTIME_TURN_PREFIX_PADDING_MS ?? "200");
-        const REALTIME_TURN_THRESHOLD = Number(process.env.REALTIME_TURN_THRESHOLD ?? "0.45"); // 0..1
-
         const sessionUpdate = {
           type: "session.update",
           session: {
@@ -987,15 +998,6 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
         // Stocke pour fallback en cas de unknown_parameter (session.update partiellement appliquée)
         ws.__sessionInstructions = String(sessionUpdate.session.instructions || "");
 
-        if (REALTIME_TURN_DETECTION_ENABLED) {
-          // Peut varier selon les versions; si OpenAI renvoie unknown_parameter, on fallback sans.
-          sessionUpdate.session.turn_detection = {
-            type: "server_vad",
-            threshold: REALTIME_TURN_THRESHOLD,
-            prefix_padding_ms: REALTIME_TURN_PREFIX_PADDING_MS,
-            silence_duration_ms: REALTIME_TURN_SILENCE_MS,
-          };
-        }
         openaiWs.send(JSON.stringify(sessionUpdate));
 
         // IMPORTANT: faire parler l'IA tout de suite (valide le chemin audio Twilio <- OpenAI),
@@ -1527,6 +1529,43 @@ But: être naturel et mettre le client en confiance.`,
             }
           }
           return;
+        }
+
+        // VAD local "output": détecter si le client parle pour retarder la réponse (realtime + elevenlabs)
+        try {
+          const audioBase64ForVad = msg.media?.payload;
+          if (audioBase64ForVad) {
+            const mulawForVad = Buffer.from(audioBase64ForVad, "base64");
+            const avg = avgAbsMulaw(mulawForVad);
+            const isSpeech = avg > OUTPUT_USER_SPEECH_THRESHOLD;
+            const isSilence = avg < OUTPUT_USER_SILENCE_THRESHOLD;
+
+            if (isSpeech) {
+              outUserSpeechFrames += 1;
+              outUserSilenceFrames = 0;
+            } else if (isSilence) {
+              outUserSilenceFrames += 1;
+              outUserSpeechFrames = Math.max(0, outUserSpeechFrames - 1);
+            } else {
+              outUserSpeechFrames = Math.max(0, outUserSpeechFrames - 1);
+              outUserSilenceFrames = Math.max(0, outUserSilenceFrames - 1);
+            }
+
+            if (!outUserSpeaking && outUserSpeechFrames >= OUTPUT_USER_SPEECH_FRAMES) {
+              outUserSpeaking = true;
+            }
+            if (outUserSpeaking && outUserSilenceFrames >= OUTPUT_USER_SILENCE_FRAMES) {
+              outUserSpeaking = false;
+              // Dès que le client se tait, on vide la file d'attente ElevenLabs (sans couper l'audio si déjà en cours).
+              if (pendingSpeakQueue.length > 0) {
+                const toSpeak = pendingSpeakQueue.join(" ");
+                pendingSpeakQueue = [];
+                enqueueElevenLabsTts(toSpeak, { interrupt: false });
+              }
+            }
+          }
+        } catch {
+          // ignore
         }
 
         // Mode Realtime: Audio de Twilio (μ-law 8kHz) → conversion μ-law 8kHz → PCM16 24kHz (OpenAI input_audio_format=pcm16)
