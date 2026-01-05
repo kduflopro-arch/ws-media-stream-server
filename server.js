@@ -142,6 +142,8 @@ wss.on("connection", (ws, req) => {
   // File d'attente audio vers Twilio (μ-law 8kHz). Twilio attend généralement des frames de 20ms = 160 bytes.
   let outboundQueue = []; // Array<Buffer>
   let outboundQueuedBytes = 0;
+  let hasSentInitialGreeting = false;
+  let loggedFirstAudioDelta = false;
 
   function nowMs() {
     return Date.now();
@@ -166,6 +168,13 @@ wss.on("connection", (ws, req) => {
 
   function enqueueOutboundMulaw(buf) {
     if (!buf || buf.length === 0) return;
+    // Limiter le backlog: si on accumule trop, on préfère drop pour éviter un gros décalage (ou une saturation Twilio).
+    const MAX_BACKLOG_BYTES = 160 * 200; // ~4s @ 20ms frames
+    if (outboundQueuedBytes > MAX_BACKLOG_BYTES) {
+      outboundQueue = [];
+      outboundQueuedBytes = 0;
+      console.log("🧹 Outbound backlog purgé (trop grand).");
+    }
     outboundQueue.push(buf);
     outboundQueuedBytes += buf.length;
   }
@@ -255,6 +264,35 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
           },
         }));
 
+        // IMPORTANT: faire parler l'IA tout de suite (valide le chemin audio Twilio <- OpenAI),
+        // même si le client n'a pas encore parlé / même si le VAD n'a pas commit.
+        if (!hasSentInitialGreeting) {
+          hasSentInitialGreeting = true;
+          setTimeout(() => {
+            try {
+              if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+              openaiWs.send(JSON.stringify({
+                type: "conversation.item.create",
+                item: {
+                  type: "message",
+                  role: "user",
+                  content: [
+                    {
+                      type: "input_text",
+                      text:
+                        "Commence l'appel: dis bonjour, présente-toi comme l'assistant du garage, puis demande en une phrase comment tu peux aider.",
+                    },
+                  ],
+                },
+              }));
+              openaiWs.send(JSON.stringify({ type: "response.create" }));
+              console.log("👋 Greeting demandé à OpenAI (response.create).");
+            } catch (err) {
+              console.error("❌ Erreur envoi greeting à OpenAI:", err);
+            }
+          }, 600); // laisse le temps au <Say> Twilio de finir
+        }
+
         // Flush des frames reçues avant l'ouverture OpenAI
         if (preOpenFrames.length > 0) {
           const flushedBytes = preOpenBytes;
@@ -334,6 +372,16 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               const mulaw = convertPcm24kToMulaw(pcm24k);
               const mulawBuf = Buffer.from(mulaw);
               enqueueOutboundMulaw(mulawBuf);
+
+              if (!loggedFirstAudioDelta) {
+                loggedFirstAudioDelta = true;
+                console.log("🔈 Premier delta audio OpenAI -> Twilio:", {
+                  pcmBytes: pcm24kBuffer.length,
+                  pcmSamples: pcm24k.length,
+                  mulawBytes: mulawBuf.length,
+                  outboundQueuedBytes,
+                });
+              }
               
               if (Math.random() < 0.01) {
                 console.log("🔊 Audio réponse converti (enqueue) :", {
