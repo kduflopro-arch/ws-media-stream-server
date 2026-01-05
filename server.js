@@ -372,12 +372,21 @@ wss.on("connection", (ws, req) => {
 
   async function openaiChat(messages, model) {
     // Certains modèles (ex: gpt-5) n'acceptent pas `max_tokens` et demandent `max_completion_tokens`.
+    // Et certains n'acceptent pas `temperature` (ils n'autorisent que la valeur par défaut).
     const body = {
       model,
-      temperature: LLM_TEMPERATURE,
       messages,
     };
-    if (String(model).toLowerCase().includes("gpt-5")) {
+    const isGpt5 = String(model).toLowerCase().includes("gpt-5");
+    // Par défaut on n'envoie temperature que si on est sûr que le modèle l'accepte.
+    // (Nos logs montrent que gpt-5 refuse temperature != 1)
+    if (!isGpt5) {
+      body.temperature = LLM_TEMPERATURE;
+    } else {
+      // Si l'utilisateur force explicitement 1, on peut l'envoyer, sinon on omet.
+      if (Number(LLM_TEMPERATURE) === 1) body.temperature = 1;
+    }
+    if (isGpt5) {
       body.max_completion_tokens = LLM_MAX_TOKENS;
     } else {
       body.max_tokens = LLM_MAX_TOKENS;
