@@ -252,6 +252,11 @@ wss.on("connection", (ws, req) => {
   const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
   const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT ?? "pcm_16000";
   const ELEVENLABS_OPTIMIZE_STREAMING_LATENCY = Number(process.env.ELEVENLABS_OPTIMIZE_STREAMING_LATENCY ?? "3"); // 0..4
+  // Voice tuning (réduit l'accent "anglais" + rend plus naturel selon les voix)
+  const ELEVENLABS_STABILITY = Number(process.env.ELEVENLABS_STABILITY ?? "0.55"); // 0..1
+  const ELEVENLABS_SIMILARITY_BOOST = Number(process.env.ELEVENLABS_SIMILARITY_BOOST ?? "0.85"); // 0..1
+  const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE ?? "0.35"); // 0..1
+  const ELEVENLABS_USE_SPEAKER_BOOST = (process.env.ELEVENLABS_USE_SPEAKER_BOOST ?? "true").toLowerCase() === "true";
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
@@ -625,6 +630,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         body: JSON.stringify({
           text: clean,
           model_id: ELEVENLABS_MODEL_ID,
+          voice_settings: {
+            stability: Math.max(0, Math.min(1, ELEVENLABS_STABILITY)),
+            similarity_boost: Math.max(0, Math.min(1, ELEVENLABS_SIMILARITY_BOOST)),
+            style: Math.max(0, Math.min(1, ELEVENLABS_STYLE)),
+            use_speaker_boost: ELEVENLABS_USE_SPEAKER_BOOST,
+          },
         }),
       });
       if (!resp.ok || !resp.body) {
