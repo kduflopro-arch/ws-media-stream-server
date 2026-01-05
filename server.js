@@ -739,6 +739,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // Anti-écho: si l'IA parle, on peut ignorer l'audio entrant pour éviter que la TV/retour audio déclenche un nouveau tour.
   const INPUT_SUPPRESS_WHILE_TALKING = (process.env.INPUT_SUPPRESS_WHILE_TALKING ?? "true").toLowerCase() === "true";
   const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "5"); // ~100ms d'audio sortant
+  // Si le client parle fort/clair, on laisse passer même si l'assistant parle (améliore la compréhension, sans activer le barge-in).
+  const INPUT_SUPPRESS_OVERRIDE_THRESHOLD = Number(process.env.INPUT_SUPPRESS_OVERRIDE_THRESHOLD ?? "9000");
 
   // Realtime: voix
   // - openai: utiliser l'audio renvoyé par OpenAI Realtime
@@ -752,8 +754,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
   // Realtime+ElevenLabs: "direct" (chunking) pour parler dès que le texte arrive
   const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "true").toLowerCase() === "true";
-  const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "60");
-  const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "220");
+  // Valeurs par défaut plus "stables" (moins de requêtes ElevenLabs ⇒ moins de coupures).
+  const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "120");
+  const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "360");
 
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
@@ -891,14 +894,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const rawGarageName = String(garageName || "AutoGuru").trim();
         const garageLabel = /^garage\b/i.test(rawGarageName) ? rawGarageName : `Garage ${rawGarageName}`;
 
-        const baseInstructions = `Tu es l'assistant vocal de ${garageLabel}.
+        const baseInstructions = `Tu es le standard téléphonique de ${garageLabel}.
 Tu réponds à des appels téléphoniques.
-Objectif: comprendre la demande et proposer une solution ou un rendez-vous.
+Objectif: comprendre le problème du véhicule, rassurer, et proposer un rendez-vous.
 Contraintes: phrases courtes, une question à la fois, ton naturel.`;
 
         const mechanicPersona =
-          `Persona: tu es un mécanicien expérimenté et sympa (pas un robot).
-Tu parles comme au téléphone: chaleureux, direct, rassurant.
+          `Persona: tu es un mécanicien expérimenté, très humain et sympa (pas un robot).
+Tu parles comme au téléphone: chaleureux, direct, rassurant, avec de petites formules naturelles ("d'accord", "ok", "très bien").
 Tu peux utiliser un vocabulaire simple de garage (freins, embrayage, vidange, bruit, voyant…),
 mais tu expliques toujours simplement.
 Tu vouvoies par défaut, tu peux tutoyer seulement si le client tutoie.
@@ -908,23 +911,38 @@ Si bruit/TV: demande gentiment de se mettre au calme ("Si vous pouvez baisser la
 Objectif business: donner envie de prendre rendez-vous.
 Quand c'est pertinent, propose un rendez-vous rapidement (donne 2 créneaux simples) et explique le bénéfice ("comme ça on regarde ça ensemble et on vous dit exactement").`;
 
+        const hardConstraints =
+          `IMPORTANT:
+- Tu es un garage auto. Tu parles UNIQUEMENT de véhicules/diagnostic/rendez-vous.
+- Si le client dit "j'ai un problème", tu poses des questions sur le véhicule (bruit/voyant/démarrage/freinage) et tu proposes un RDV.
+- Ne dis JAMAIS: "ce que vous avez sur le cœur" / "dans la tête" / conseils psychologiques.`;
+
         const neutralPersona =
           `Persona: assistant téléphonique professionnel, cordial et concis.`;
 
-        const REALTIME_INPUT_TRANSCRIPTION_ENABLED = (process.env.REALTIME_INPUT_TRANSCRIPTION_ENABLED ?? "true").toLowerCase() === "true";
+        // IMPORTANT: sur notre modèle Realtime actuel, `session.input_audio_transcription` n'est PAS supporté
+        // (Render logs: unknown_parameter). On le désactive par défaut.
+        const REALTIME_INPUT_TRANSCRIPTION_ENABLED = (process.env.REALTIME_INPUT_TRANSCRIPTION_ENABLED ?? "false").toLowerCase() === "true";
         const REALTIME_INPUT_TRANSCRIPTION_MODEL = process.env.REALTIME_INPUT_TRANSCRIPTION_MODEL ?? "whisper-1";
         const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
 
-        openaiWs.send(JSON.stringify({
+        const sessionUpdate = {
           type: "session.update",
           session: {
             type: "realtime",
             instructions: `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}`,
-            ...(REALTIME_INPUT_TRANSCRIPTION_ENABLED
-              ? { input_audio_transcription: { model: REALTIME_INPUT_TRANSCRIPTION_MODEL, language: REALTIME_INPUT_TRANSCRIPTION_LANGUAGE } }
-              : {}),
           },
-        }));
+        };
+        if (REALTIME_INPUT_TRANSCRIPTION_ENABLED) {
+          sessionUpdate.session.input_audio_transcription = {
+            model: REALTIME_INPUT_TRANSCRIPTION_MODEL,
+            language: REALTIME_INPUT_TRANSCRIPTION_LANGUAGE,
+          };
+        }
+        // On ajoute des contraintes fortes (évite les réponses "hors sujet" type coach de vie).
+        sessionUpdate.session.instructions =
+          `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${hardConstraints}`;
+        openaiWs.send(JSON.stringify(sessionUpdate));
 
         // IMPORTANT: faire parler l'IA tout de suite (valide le chemin audio Twilio <- OpenAI),
         // même si le client n'a pas encore parlé / même si le VAD n'a pas commit.
@@ -1462,7 +1480,7 @@ But: être naturel et mettre le client en confiance.`,
                 premiumTtsInFlight ||
                 assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
               const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsTalking && !BARGE_IN_ENABLED;
-              if (suppressInputNow) return;
+              if (suppressInputNow && avg < INPUT_SUPPRESS_OVERRIDE_THRESHOLD) return;
               
               if (mediaCount <= 3) {
                 console.log(`🔊 Frame ${mediaCount} audio (μ-law):`, {
