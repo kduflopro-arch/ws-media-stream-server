@@ -239,6 +239,9 @@ wss.on("connection", (ws, req) => {
   const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
   const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT ?? "pcm_16000";
   let premiumTtsAbort = null;
+  let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
+  let premiumTtsInFlight = false;
+  let premiumTtsLastError = null;
 
   function nowMs() {
     return Date.now();
@@ -247,6 +250,7 @@ wss.on("connection", (ws, req) => {
   async function speakWithElevenLabs(text) {
     if (!PREMIUM_TTS_ENABLED) return;
     if (PREMIUM_TTS_PROVIDER !== "elevenlabs") return;
+    if (nowMs() < premiumTtsBypassUntilMs) return;
     if (!ELEVENLABS_API_KEY || !ELEVENLABS_VOICE_ID) {
       console.error("❌ PREMIUM_TTS activé mais ELEVENLABS_API_KEY/ELEVENLABS_VOICE_ID manquants.");
       return;
@@ -259,6 +263,8 @@ wss.on("connection", (ws, req) => {
     premiumTtsAbort = new AbortController();
     outboundQueue = [];
     outboundQueuedBytes = 0;
+    premiumTtsInFlight = true;
+    premiumTtsLastError = null;
 
     try {
       const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}/stream?output_format=${encodeURIComponent(ELEVENLABS_OUTPUT_FORMAT)}`;
@@ -277,7 +283,11 @@ wss.on("connection", (ws, req) => {
       });
       if (!resp.ok || !resp.body) {
         const errText = await resp.text().catch(() => "");
-        console.error("❌ ElevenLabs TTS error:", { status: resp.status, body: errText.slice(0, 300) });
+        premiumTtsLastError = { status: resp.status, body: errText.slice(0, 500) };
+        console.error("❌ ElevenLabs TTS error:", premiumTtsLastError);
+        // Fallback: laisser passer l'audio OpenAI pendant 5 minutes (sinon silence total)
+        premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000;
+        console.warn("↩️ Fallback premium: bypass audio OpenAI activé (5 min).");
         return;
       }
 
@@ -302,6 +312,11 @@ wss.on("connection", (ws, req) => {
     } catch (err) {
       if (String(err?.name) === "AbortError") return;
       console.error("❌ Erreur ElevenLabs TTS:", err);
+      premiumTtsLastError = { message: String(err?.message ?? err) };
+      premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000;
+      console.warn("↩️ Fallback premium: bypass audio OpenAI activé (5 min).");
+    } finally {
+      premiumTtsInFlight = false;
     }
   }
 
@@ -616,8 +631,9 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           // - response.audio.delta
           // - response.output_audio.delta
           if (msg.type === "response.audio.delta" || msg.type === "response.output_audio.delta") {
-            // En mode premium, on ignore l'audio OpenAI (sinon double-voix).
-            if (PREMIUM_TTS_ENABLED) return;
+            // En mode premium, on ignore l'audio OpenAI (sinon double-voix),
+            // SAUF si ElevenLabs est en erreur (bypass) → on repasse sur OpenAI pour éviter le silence total.
+            if (PREMIUM_TTS_ENABLED && nowMs() >= premiumTtsBypassUntilMs) return;
             const audioBase64 =
               msg.delta ??
               msg.audio ??
