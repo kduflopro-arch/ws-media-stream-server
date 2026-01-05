@@ -4,27 +4,27 @@
 
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
-
-// Empêche les "bonjour" répétés en cas de reconnexion du stream Twilio pendant le même appel.
-// Map<callSid, expiresAtMs>
-const greetedCallSidCache = new Map();
-function hasGreetedRecently(callSid) {
-  if (!callSid) return false;
-  const now = Date.now();
-  const exp = greetedCallSidCache.get(callSid);
-  if (exp && exp > now) return true;
-  if (exp && exp <= now) greetedCallSidCache.delete(callSid);
-  return false;
-}
-function markGreeted(callSid, ttlMs = 10 * 60 * 1000) {
-  if (!callSid) return;
-  greetedCallSidCache.set(callSid, Date.now() + ttlMs);
-  // limiter la taille au cas où (simple LRU-ish)
-  if (greetedCallSidCache.size > 500) {
-    const firstKey = greetedCallSidCache.keys().next().value;
-    if (firstKey) greetedCallSidCache.delete(firstKey);
-  }
-}
+ 
+ // Empêche les "bonjour" répétés en cas de reconnexion du stream Twilio pendant le même appel.
+ // Map<callSid, expiresAtMs>
+ const greetedCallSidCache = new Map();
+ function hasGreetedRecently(callSid) {
+   if (!callSid) return false;
+   const now = Date.now();
+   const exp = greetedCallSidCache.get(callSid);
+   if (exp && exp > now) return true;
+   if (exp && exp <= now) greetedCallSidCache.delete(callSid);
+   return false;
+ }
+ function markGreeted(callSid, ttlMs = 10 * 60 * 1000) {
+   if (!callSid) return;
+   greetedCallSidCache.set(callSid, Date.now() + ttlMs);
+   // Limiter la taille au cas où (simple LRU-ish)
+   if (greetedCallSidCache.size > 500) {
+     const firstKey = greetedCallSidCache.keys().next().value;
+     if (firstKey) greetedCallSidCache.delete(firstKey);
+   }
+ }
 
 // Table de décodage μ-law → PCM16 (8kHz)
 // + encode μ-law standard G.711 (évite les artefacts/brouillage)
