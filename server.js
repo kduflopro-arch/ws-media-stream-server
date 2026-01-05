@@ -383,6 +383,7 @@ Si bruit/TV: demande gentiment de se mettre au calme ("Si vous pouvez baisser la
         // même si le client n'a pas encore parlé / même si le VAD n'a pas commit.
         if (!hasSentInitialGreeting) {
           hasSentInitialGreeting = true;
+          const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "150");
           setTimeout(() => {
             try {
               if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
@@ -398,7 +399,7 @@ Si bruit/TV: demande gentiment de se mettre au calme ("Si vous pouvez baisser la
                       type: "input_text",
                       text:
                         `Commence l'appel comme un mécanicien au téléphone, très humain.
-Dis: "Oui allô, bonjour !" puis "Garage ${garageName || "AutoGuru"}, c'est le mécano, je vous écoute."
+Dis: "Oui allô, bonjour !" puis "Garage ${garageName || "AutoGuru"}, bonjour, je vous écoute."
 Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
                     },
                   ],
@@ -409,7 +410,7 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
             } catch (err) {
               console.error("❌ Erreur envoi greeting à OpenAI:", err);
             }
-          }, 600); // laisse le temps au <Say> Twilio de finir
+          }, greetingDelayMs);
         }
 
         // Flush des frames reçues avant l'ouverture OpenAI
@@ -639,7 +640,9 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
         // Connecter à OpenAI Realtime
         connectToOpenAI();
 
-        // Timer d'envoi audio sortant vers Twilio (20ms). Évite les bursts et réduit les artefacts.
+        // Timer d'envoi audio sortant vers Twilio (20ms).
+        // IMPORTANT: si OpenAI génère l'audio en rafales, le backlog grimpe vite et l'appelant croit que "ça ne répond plus".
+        // On draine plus vite dès ~2–3 secondes de retard pour garder une latence acceptable.
         if (!outboundTimer) {
           outboundTimer = setInterval(() => {
             try {
@@ -647,8 +650,9 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
               // (Twilio tolère qu'on envoie un peu plus vite, ça réduit la latence sans drop).
               const backlogFrames = Math.floor(outboundQueuedBytes / 160);
               const framesToSend =
-                backlogFrames > 600 ? 3 : // >12s
-                backlogFrames > 300 ? 2 : // >6s
+                backlogFrames > 800 ? 4 : // >16s
+                backlogFrames > 300 ? 3 : // >6s
+                backlogFrames > 120 ? 2 : // >2.4s
                 1;
               sendOutboundFrames(framesToSend);
             } catch {

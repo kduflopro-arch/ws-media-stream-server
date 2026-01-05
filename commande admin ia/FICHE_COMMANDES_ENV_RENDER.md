@@ -52,6 +52,17 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 
 ---
 
+## Variables “accueil / latence”
+
+### `GREETING_DELAY_MS`
+- **Rôle** : délai (ms) avant que l’IA lance son “Oui allô, bonjour…” après connexion.
+- **Défaut** : `150`
+- **Conseils** :
+  - Si l’IA démarre trop tôt → `300`
+  - Si c’est trop lent → `0` à `100`
+
+---
+
 ## Variables “interruption / barge-in” (important si TV/bruit en fond)
 
 > Si tu as la TV en fond, le barge-in peut provoquer des **coupures** (l’IA pense que tu l’interromps).
