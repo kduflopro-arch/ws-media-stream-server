@@ -65,6 +65,10 @@ function convertPcm24kToMulaw(pcm24k) {
 
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// Format audio Realtime côté OpenAI.
+// Reco Twilio: audio µ-law 8kHz (G.711 u-law). Si OpenAI est configuré en g711_ulaw, on peut faire du "pass-through"
+// (pas de resample/convert), ce qui améliore fortement la qualité et la latence.
+const OPENAI_AUDIO_FORMAT = (process.env.OPENAI_AUDIO_FORMAT || "g711_ulaw").toLowerCase();
 
 if (!OPENAI_API_KEY) console.error("⚠️ OPENAI_API_KEY non configuré !");
 
@@ -192,8 +196,12 @@ wss.on("connection", (ws, req) => {
     }
 
     try {
-      // Configurer le format audio dans l'URL de connexion (PCM16 par défaut 24kHz)
-      const openaiUrl = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17&input_audio_format=pcm16&output_audio_format=pcm16";
+      // Configurer le format audio dans l'URL de connexion.
+      // - g711_ulaw: recommandé avec Twilio Media Streams (µ-law 8kHz) → meilleure qualité (pas de conversion)
+      // - pcm16: fallback si besoin
+      const openaiUrl = `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17&input_audio_format=${encodeURIComponent(
+        OPENAI_AUDIO_FORMAT,
+      )}&output_audio_format=${encodeURIComponent(OPENAI_AUDIO_FORMAT)}`;
       openaiWs = new WebSocket(openaiUrl, {
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -212,7 +220,7 @@ wss.on("connection", (ws, req) => {
             instructions: `Tu es l'assistant vocal intelligent du garage ${garageName || "AutoGuru"}.
 Réponds aux appels clients de manière professionnelle, rassurante et concise.
 Collecte les informations : plaque d'immatriculation, symptômes, besoin de rendez-vous.
-Parle en français, sois naturel et conversationnel.`,
+Parle en français, à l'oral, avec des phrases courtes et naturelles (comme au téléphone).`,
           },
         }));
       });
@@ -243,7 +251,6 @@ Parle en français, sois naturel et conversationnel.`,
           // - response.audio.delta
           // - response.output_audio.delta
           if (msg.type === "response.audio.delta" || msg.type === "response.output_audio.delta") {
-            // Audio de réponse d'OpenAI (PCM16 24kHz) → convertir en μ-law 8kHz pour Twilio
             const audioBase64 =
               msg.delta ??
               msg.audio ??
@@ -259,21 +266,29 @@ Parle en français, sois naturel et conversationnel.`,
                 });
                 return;
               }
-              // Décoder base64 → PCM16 24kHz
-              const pcm24kBuffer = Buffer.from(audioBase64, "base64");
-              const pcm24k = new Int16Array(pcm24kBuffer.buffer, pcm24kBuffer.byteOffset, pcm24kBuffer.length / 2);
-              
-              // Convertir PCM24k → μ-law 8kHz
-              const mulaw = convertPcm24kToMulaw(pcm24k);
-              const mulawBuf = Buffer.from(mulaw);
-              enqueueOutboundMulaw(mulawBuf);
+
+              // Si OpenAI sort déjà en g711_ulaw, on peut renvoyer tel quel à Twilio (meilleure qualité).
+              if (OPENAI_AUDIO_FORMAT === "g711_ulaw") {
+                const mulawBuf = Buffer.from(audioBase64, "base64");
+                enqueueOutboundMulaw(mulawBuf);
+              } else {
+                // Fallback: OpenAI (PCM16 24kHz) → convertir en μ-law 8kHz pour Twilio
+                const pcm24kBuffer = Buffer.from(audioBase64, "base64");
+                const pcm24k = new Int16Array(
+                  pcm24kBuffer.buffer,
+                  pcm24kBuffer.byteOffset,
+                  pcm24kBuffer.length / 2,
+                );
+                const mulaw = convertPcm24kToMulaw(pcm24k);
+                const mulawBuf = Buffer.from(mulaw);
+                enqueueOutboundMulaw(mulawBuf);
+              }
               
               if (Math.random() < 0.01) {
                 console.log("🔊 Audio réponse converti (enqueue) :", {
                   streamSid: twilioStreamSid,
                   deltaLength: audioBase64.length,
-                  pcm24kSamples: pcm24k.length,
-                  mulawLength: mulawBuf.length,
+                  format: OPENAI_AUDIO_FORMAT,
                   outboundQueuedBytes,
                 });
               }
@@ -316,15 +331,17 @@ Parle en français, sois naturel et conversationnel.`,
               appendedBytes,
             });
             // Commit immédiat (évite les commits "vides" déclenchés plus tard)
-            // 24kHz PCM16: 150ms = 3600 samples = 7200 bytes
-            const hasEnoughAudio = appendedBytes >= 7200;
+            // - g711_ulaw 8kHz: 100ms ≈ 800 bytes
+            // - pcm16 24kHz: 100ms = 2400 samples = 4800 bytes
+            const minCommitBytes = OPENAI_AUDIO_FORMAT === "g711_ulaw" ? 800 : 4800;
+            const hasEnoughAudio = appendedBytes >= minCommitBytes;
             if (hasEnoughAudio && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
               console.log(`📤 Commit buffer (speech stopped, bytes=${appendedBytes})`);
               openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
             } else {
               // Trop court → on reset pour éviter commit_empty
               if (!hasEnoughAudio) {
-                console.log(`⏩ Skip commit (speech too short, bytes=${appendedBytes})`);
+                console.log(`⏩ Skip commit (speech too short, bytes=${appendedBytes}, min=${minCommitBytes}, fmt=${OPENAI_AUDIO_FORMAT})`);
               }
             }
             appendedBytes = 0;
@@ -408,7 +425,9 @@ Parle en français, sois naturel et conversationnel.`,
           console.log(`📊 Media frames: ${mediaCount}`);
         }
         
-        // Audio de Twilio (μ-law 8kHz) → convertir en PCM16 24kHz pour OpenAI (input_audio_format=pcm16)
+        // Audio de Twilio (μ-law 8kHz).
+        // - Si OpenAI est en g711_ulaw: pass-through (aucune conversion)
+        // - Sinon: conversion μ-law 8kHz → PCM16 24kHz (input_audio_format=pcm16)
         if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
           const audioBase64 = msg.media?.payload;
           if (audioBase64) {
@@ -424,26 +443,33 @@ Parle en français, sois naturel et conversationnel.`,
                 });
               }
               
-              // Convertir μ-law 8kHz → PCM16 24kHz
-              const pcm24k = convertMulawToPcm24k(mulawBuffer);
-              
-              // Buffer little-endian
-              const pcm24kBuffer = Buffer.allocUnsafe(pcm24k.length * 2);
-              for (let i = 0; i < pcm24k.length; i++) {
-                pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
+              if (OPENAI_AUDIO_FORMAT === "g711_ulaw") {
+                // Pass-through: on append l'audio Twilio directement
+                if (speechActive) appendedBytes += mulawBuffer.length;
+                openaiWs.send(JSON.stringify({
+                  type: "input_audio_buffer.append",
+                  audio: audioBase64,
+                }));
+              } else {
+                // Convertir μ-law 8kHz → PCM16 24kHz
+                const pcm24k = convertMulawToPcm24k(mulawBuffer);
+
+                // Buffer little-endian
+                const pcm24kBuffer = Buffer.allocUnsafe(pcm24k.length * 2);
+                for (let i = 0; i < pcm24k.length; i++) {
+                  pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
+                }
+                const pcm24kBase64 = pcm24kBuffer.toString("base64");
+                // On envoie toujours l'audio pour que le VAD serveur OpenAI puisse détecter la parole,
+                // mais on ne compte le buffer pour commit que lorsqu'une parole est détectée.
+                if (speechActive) appendedBytes += pcm24kBuffer.length;
+
+                // Envoyer PCM24k à OpenAI
+                openaiWs.send(JSON.stringify({
+                  type: "input_audio_buffer.append",
+                  audio: pcm24kBase64,
+                }));
               }
-              const pcm24kBase64 = pcm24kBuffer.toString("base64");
-              // On envoie toujours l'audio pour que le VAD serveur OpenAI puisse détecter la parole,
-              // mais on ne compte le buffer pour commit que lorsqu'une parole est détectée.
-              if (speechActive) {
-                appendedBytes += pcm24kBuffer.length;
-              }
-              
-              // Envoyer PCM24k à OpenAI
-              openaiWs.send(JSON.stringify({
-                type: "input_audio_buffer.append",
-                audio: pcm24kBase64,
-              }));
               
             } catch (err) {
               console.error(`❌ Erreur frame ${mediaCount} conversion/envoi audio à OpenAI:`, err);
