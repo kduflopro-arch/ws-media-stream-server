@@ -22,6 +22,12 @@ const MULAW_CLIP = 32635;
 // 0xFF .. 0x7FFF (sinon l'encode part en vrille et Twilio entend du "brouillage")
 const MULAW_SEG_END = [0xFF, 0x1FF, 0x3FF, 0x7FF, 0xFFF, 0x1FFF, 0x3FFF, 0x7FFF];
 
+function clamp16(x) {
+  if (x > 32767) return 32767;
+  if (x < -32768) return -32768;
+  return x;
+}
+
 function mulawEncodeSample(pcm16) {
   let sample = pcm16;
   let sign = 0;
@@ -73,12 +79,15 @@ function convertPcm24kToMulaw(pcm24k) {
   // Prendre uniquement 1 sample sur 3 crée des artefacts (son "brouillé"/métallique).
   const outLen = Math.floor(pcm24k.length / 3);
   const mulaw = new Uint8Array(outLen);
+  // Gain sortie (améliore l'intelligibilité en téléphonie). Ajustable par env.
+  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.25");
   for (let i = 0; i < outLen; i++) {
     const a = pcm24k[i * 3];
     const b = pcm24k[i * 3 + 1];
     const c = pcm24k[i * 3 + 2];
     const avg = (a + b + c) / 3;
-    mulaw[i] = mulawEncodeSample(avg | 0);
+    const gained = clamp16((avg * outputGain) | 0);
+    mulaw[i] = mulawEncodeSample(gained);
   }
   return mulaw;
 }
@@ -203,7 +212,13 @@ wss.on("connection", (ws, req) => {
     if ((now - lastResponseCreateRequestedAt) < 600) return;
     lastResponseCreateRequestedAt = now;
     try {
-      openaiWs.send(JSON.stringify({ type: "response.create" }));
+      // Optionnel: forcer une voix si supporté (ne rien envoyer si pas configuré).
+      const voice = process.env.OPENAI_VOICE?.trim();
+      if (voice) {
+        openaiWs.send(JSON.stringify({ type: "response.create", response: { voice } }));
+      } else {
+        openaiWs.send(JSON.stringify({ type: "response.create" }));
+      }
       if (reason) console.log("🗣️ response.create envoyé:", { reason });
     } catch (err) {
       console.error("❌ Erreur response.create:", err);
@@ -333,6 +348,8 @@ wss.on("connection", (ws, req) => {
 Réponds aux appels clients de manière professionnelle, rassurante et concise.
 Collecte les informations : plaque d'immatriculation, symptômes, besoin de rendez-vous.
 Parle en français, à l'oral, avec des phrases courtes et naturelles (comme au téléphone).
+Rythme: parle un peu plus lentement qu'en chat, avec de petites pauses naturelles.
+Ton: chaleureux, calme, pas robotique. Évite de répéter "bonjour" ou des phrases inutiles.
 Évite les listes et le jargon. Pose une seule question à la fois.
 Si l'audio est mauvais ou si tu n'es pas sûr, demande de répéter calmement.
 Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque AB-123-CD »).`,
