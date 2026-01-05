@@ -66,9 +66,10 @@ function convertPcm24kToMulaw(pcm24k) {
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 // Format audio Realtime côté OpenAI.
-// Reco Twilio: audio µ-law 8kHz (G.711 u-law). Si OpenAI est configuré en g711_ulaw, on peut faire du "pass-through"
-// (pas de resample/convert), ce qui améliore fortement la qualité et la latence.
-const OPENAI_AUDIO_FORMAT = (process.env.OPENAI_AUDIO_FORMAT || "g711_ulaw").toLowerCase();
+// IMPORTANT: en pratique, OpenAI Realtime renvoie très souvent du PCM16 même si on demande g711_ulaw,
+// et envoyer du PCM16 à Twilio comme si c'était du μ-law produit un "brouillage" extrêmement fort.
+// On sécurise donc par défaut en PCM16.
+const OPENAI_AUDIO_FORMAT = (process.env.OPENAI_AUDIO_FORMAT || "pcm16").toLowerCase();
 
 if (!OPENAI_API_KEY) console.error("⚠️ OPENAI_API_KEY non configuré !");
 
@@ -225,11 +226,9 @@ wss.on("connection", (ws, req) => {
 
     try {
       // Configurer le format audio dans l'URL de connexion.
-      // - g711_ulaw: recommandé avec Twilio Media Streams (µ-law 8kHz) → meilleure qualité (pas de conversion)
-      // - pcm16: fallback si besoin
-      const openaiUrl = `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17&input_audio_format=${encodeURIComponent(
-        OPENAI_AUDIO_FORMAT,
-      )}&output_audio_format=${encodeURIComponent(OPENAI_AUDIO_FORMAT)}`;
+      // On force PCM16 pour éviter tout mismatch de format en sortie (sinon Twilio joue du bruit).
+      const openaiUrl =
+        "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17&input_audio_format=pcm16&output_audio_format=pcm16";
       openaiWs = new WebSocket(openaiUrl, {
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -238,6 +237,7 @@ wss.on("connection", (ws, req) => {
 
       openaiWs.on("open", () => {
         console.log("✅ Connecté à OpenAI Realtime API");
+        console.log("🎛️ OpenAI audio format (forced):", { input: "pcm16", output: "pcm16" });
         
         // Configurer la session OpenAI
         // Note: input_audio_format et output_audio_format sont configurés dans l'URL WebSocket, pas ici
@@ -261,17 +261,22 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
           console.log("⏩ Flush pre-open frames -> OpenAI:", {
             frames: preOpenFrames.length,
             bytes: flushedBytes,
-            fmt: OPENAI_AUDIO_FORMAT,
+            fmt: "pcm16",
           });
           for (const f of preOpenFrames) {
+            // f.audioBase64 est du μ-law (Twilio). Convertir en PCM16 24kHz avant d'append.
+            const mulawBuffer = Buffer.from(f.audioBase64, "base64");
+            const pcm24k = convertMulawToPcm24k(mulawBuffer);
+            const pcm24kBuffer = Buffer.allocUnsafe(pcm24k.length * 2);
+            for (let i = 0; i < pcm24k.length; i++) {
+              pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
+            }
             openaiWs.send(JSON.stringify({
               type: "input_audio_buffer.append",
-              audio: f.audioBase64,
+              audio: pcm24kBuffer.toString("base64"),
             }));
+            appendedBytes += pcm24kBuffer.length;
           }
-          // IMPORTANT: ces bytes ont déjà été append côté OpenAI, donc il faut aussi les compter
-          // pour pouvoir commit ensuite (sinon l'IA ne répond jamais si l'utilisateur parle trop tôt).
-          appendedBytes += flushedBytes;
           preOpenFrames = [];
           preOpenBytes = 0;
         }
@@ -319,28 +324,22 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
                 return;
               }
 
-              // Si OpenAI sort déjà en g711_ulaw, on peut renvoyer tel quel à Twilio (meilleure qualité).
-              if (OPENAI_AUDIO_FORMAT === "g711_ulaw") {
-                const mulawBuf = Buffer.from(audioBase64, "base64");
-                enqueueOutboundMulaw(mulawBuf);
-              } else {
-                // Fallback: OpenAI (PCM16 24kHz) → convertir en μ-law 8kHz pour Twilio
-                const pcm24kBuffer = Buffer.from(audioBase64, "base64");
-                const pcm24k = new Int16Array(
-                  pcm24kBuffer.buffer,
-                  pcm24kBuffer.byteOffset,
-                  pcm24kBuffer.length / 2,
-                );
-                const mulaw = convertPcm24kToMulaw(pcm24k);
-                const mulawBuf = Buffer.from(mulaw);
-                enqueueOutboundMulaw(mulawBuf);
-              }
+              // OpenAI sort en PCM16 24kHz → convertir en μ-law 8kHz pour Twilio
+              const pcm24kBuffer = Buffer.from(audioBase64, "base64");
+              const pcm24k = new Int16Array(
+                pcm24kBuffer.buffer,
+                pcm24kBuffer.byteOffset,
+                pcm24kBuffer.length / 2,
+              );
+              const mulaw = convertPcm24kToMulaw(pcm24k);
+              const mulawBuf = Buffer.from(mulaw);
+              enqueueOutboundMulaw(mulawBuf);
               
               if (Math.random() < 0.01) {
                 console.log("🔊 Audio réponse converti (enqueue) :", {
                   streamSid: twilioStreamSid,
                   deltaLength: audioBase64.length,
-                  format: OPENAI_AUDIO_FORMAT,
+                  format: "pcm16->mulaw",
                   outboundQueuedBytes,
                 });
               }
@@ -453,9 +452,7 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
           console.log(`📊 Media frames: ${mediaCount}`);
         }
         
-        // Audio de Twilio (μ-law 8kHz).
-        // - Si OpenAI est en g711_ulaw: pass-through (aucune conversion)
-        // - Sinon: conversion μ-law 8kHz → PCM16 24kHz (input_audio_format=pcm16)
+        // Audio de Twilio (μ-law 8kHz) → conversion μ-law 8kHz → PCM16 24kHz (OpenAI input_audio_format=pcm16)
         if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
           const audioBase64 = msg.media?.payload;
           if (audioBase64) {
@@ -497,52 +494,39 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
                 });
               }
 
-              if (OPENAI_AUDIO_FORMAT === "g711_ulaw") {
-                // Pass-through: on append l'audio Twilio directement
-                appendedBytes += mulawBuffer.length;
-                openaiWs.send(JSON.stringify({
-                  type: "input_audio_buffer.append",
-                  audio: audioBase64,
-                }));
-              } else {
-                // Convertir μ-law 8kHz → PCM16 24kHz
-                const pcm24k = convertMulawToPcm24k(mulawBuffer);
+              // Convertir μ-law 8kHz → PCM16 24kHz
+              const pcm24k = convertMulawToPcm24k(mulawBuffer);
 
-                // Buffer little-endian
-                const pcm24kBuffer = Buffer.allocUnsafe(pcm24k.length * 2);
-                for (let i = 0; i < pcm24k.length; i++) {
-                  pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
-                }
-                const pcm24kBase64 = pcm24kBuffer.toString("base64");
-                appendedBytes += pcm24kBuffer.length;
-
-                // Envoyer PCM24k à OpenAI
-                openaiWs.send(JSON.stringify({
-                  type: "input_audio_buffer.append",
-                  audio: pcm24kBase64,
-                }));
+              // Buffer little-endian
+              const pcm24kBuffer = Buffer.allocUnsafe(pcm24k.length * 2);
+              for (let i = 0; i < pcm24k.length; i++) {
+                pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
               }
+              const pcm24kBase64 = pcm24kBuffer.toString("base64");
+              appendedBytes += pcm24kBuffer.length;
+
+              // Envoyer PCM24k à OpenAI
+              openaiWs.send(JSON.stringify({
+                type: "input_audio_buffer.append",
+                audio: pcm24kBase64,
+              }));
 
               // Commit + réponse:
               // - si on a accumulé assez d'audio ET qu'on a du silence stable (~400ms)
-              // - ou en fallback, toutes les ~2s si rien ne déclenche (pour éviter "aucune réponse")
-              const minCommitBytes = OPENAI_AUDIO_FORMAT === "g711_ulaw" ? 800 : 4800; // ~100ms
+              const minCommitBytes = 4800; // 100ms @ 24kHz PCM16
               const coolDownMs = 350;
-              const forceEveryMs = 2000;
               const now = nowMs();
               const silenceStable = silenceFrames >= 20; // ~20 * 20ms = 400ms
               const canCommit = appendedBytes >= minCommitBytes && (now - lastCommitAt) > coolDownMs;
-              const forceCommit = appendedBytes >= (minCommitBytes * 3) && (now - lastCommitAt) > forceEveryMs;
-              if ((silenceStable && speechActive && canCommit) || (forceCommit && canCommit)) {
+              if (silenceStable && speechActive && canCommit) {
                 speechActive = false;
                 silenceFrames = 0;
                 lastCommitAt = now;
                 console.log("📤 Commit+response:", {
                   bytes: appendedBytes,
                   minCommitBytes,
-                  fmt: OPENAI_AUDIO_FORMAT,
+                  fmt: "pcm16",
                   silenceStable,
-                  forceCommit,
                 });
                 openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
                 createResponse();
