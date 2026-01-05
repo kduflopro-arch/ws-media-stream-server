@@ -4,6 +4,7 @@
 
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
+import { Readable } from "stream";
  
  // Empêche les "bonjour" répétés en cas de reconnexion du stream Twilio pendant le même appel.
  // Map<callSid, expiresAtMs>
@@ -113,6 +114,28 @@ function convertPcm24kToMulaw(pcm24k) {
   return mulaw;
 }
 
+// Convertir PCM16 (16kHz) → μ-law (8kHz) par blocs 20ms:
+// 20ms @16kHz = 320 samples = 640 bytes → downsample 2:1 → 160 samples → 160 bytes μ-law
+function convertPcm16kBlockToMulaw(pcm16kBlockBuf) {
+  // Attendu: 640 bytes (320 samples)
+  const sampleCount = Math.floor(pcm16kBlockBuf.length / 2);
+  const pcm16k = new Int16Array(sampleCount);
+  for (let i = 0; i < sampleCount; i++) {
+    pcm16k[i] = pcm16kBlockBuf.readInt16LE(i * 2);
+  }
+  const outLen = Math.floor(pcm16k.length / 2);
+  const mulaw = new Uint8Array(outLen);
+  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.25");
+  for (let i = 0; i < outLen; i++) {
+    const a = pcm16k[i * 2];
+    const b = pcm16k[i * 2 + 1];
+    const avg = (a + b) / 2;
+    const gained = clamp16((avg * outputGain) | 0);
+    mulaw[i] = mulawEncodeSample(gained);
+  }
+  return Buffer.from(mulaw);
+}
+
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 // Format audio Realtime côté OpenAI.
@@ -207,9 +230,79 @@ wss.on("connection", (ws, req) => {
   let droppedOutboundBytes = 0;
   // Debug VAD local (ne doit PAS impacter la logique OpenAI)
   let localDbgSpeechActive = false;
+  
+  // Mode "voix premium" (TTS externe). Si activé, on ignore l'audio OpenAI et on lit une voix premium via TTS.
+  const PREMIUM_TTS_ENABLED = (process.env.PREMIUM_TTS_ENABLED ?? "false").toLowerCase() === "true";
+  const PREMIUM_TTS_PROVIDER = (process.env.PREMIUM_TTS_PROVIDER ?? "elevenlabs").toLowerCase();
+  const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY ?? "";
+  const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID ?? ""; // voice masculine (à choisir dans ElevenLabs)
+  const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
+  const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT ?? "pcm_16000";
+  let premiumTtsAbort = null;
 
   function nowMs() {
     return Date.now();
+  }
+
+  async function speakWithElevenLabs(text) {
+    if (!PREMIUM_TTS_ENABLED) return;
+    if (PREMIUM_TTS_PROVIDER !== "elevenlabs") return;
+    if (!ELEVENLABS_API_KEY || !ELEVENLABS_VOICE_ID) {
+      console.error("❌ PREMIUM_TTS activé mais ELEVENLABS_API_KEY/ELEVENLABS_VOICE_ID manquants.");
+      return;
+    }
+    const clean = (text || "").trim();
+    if (!clean) return;
+
+    // Stopper toute synthèse en cours et couper l'audio en file
+    try { premiumTtsAbort?.abort?.(); } catch { /* ignore */ }
+    premiumTtsAbort = new AbortController();
+    outboundQueue = [];
+    outboundQueuedBytes = 0;
+
+    try {
+      const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}/stream?output_format=${encodeURIComponent(ELEVENLABS_OUTPUT_FORMAT)}`;
+      const resp = await fetch(url, {
+        method: "POST",
+        signal: premiumTtsAbort.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "xi-api-key": ELEVENLABS_API_KEY,
+          "Accept": "application/octet-stream",
+        },
+        body: JSON.stringify({
+          text: clean,
+          model_id: ELEVENLABS_MODEL_ID,
+        }),
+      });
+      if (!resp.ok || !resp.body) {
+        const errText = await resp.text().catch(() => "");
+        console.error("❌ ElevenLabs TTS error:", { status: resp.status, body: errText.slice(0, 300) });
+        return;
+      }
+
+      // On suppose un flux PCM16 LE @ 16kHz (pcm_16000) → on convertit en frames μ-law 8kHz de 20ms (160 bytes).
+      // Buffer bytes pour alignement + blocs 640 bytes.
+      const nodeStream = Readable.fromWeb(resp.body);
+      let pcmBuf = Buffer.alloc(0);
+
+      for await (const chunk of nodeStream) {
+        if (!chunk || chunk.length === 0) continue;
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        pcmBuf = Buffer.concat([pcmBuf, buf]);
+        while (pcmBuf.length >= 640) {
+          const block = pcmBuf.subarray(0, 640);
+          pcmBuf = pcmBuf.subarray(640);
+          const mulawFrame = convertPcm16kBlockToMulaw(block); // 160 bytes
+          enqueueOutboundMulaw(mulawFrame);
+        }
+      }
+      // Drop remainder (<20ms) to keep pacing stable.
+      console.log("🎙️ ElevenLabs TTS terminé.", { chars: clean.length });
+    } catch (err) {
+      if (String(err?.name) === "AbortError") return;
+      console.error("❌ Erreur ElevenLabs TTS:", err);
+    }
   }
 
   // Énergie moyenne sur une frame μ-law (utile pour détecter silence/parole)
@@ -475,6 +568,10 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
       openaiWs.on("message", (data) => {
         try {
           const msg = JSON.parse(data.toString());
+          // Stockage du texte de réponse (pour mode TTS premium)
+          // Map<response_id, transcript>
+          if (!ws.__premiumTranscriptByResponseId) ws.__premiumTranscriptByResponseId = new Map();
+          const transcriptMap = ws.__premiumTranscriptByResponseId;
           
           // Logger tous les types de messages pour debug
           // (On loggue aussi certains "delta" pour diagnostiquer l'audio sans spammer)
@@ -494,10 +591,33 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
             console.log("📝 Transcription IA:", msg.transcript);
           }
           
+          // Transcripts de sortie (utile pour TTS premium)
+          if (msg.type === "response.created") {
+            const rid = msg.response?.id ?? msg.response_id ?? null;
+            if (rid) transcriptMap.set(rid, "");
+          }
+          if (msg.type === "response.output_audio_transcript.delta" || msg.type === "response.audio_transcript.delta") {
+            const rid = msg.response_id ?? msg.response?.id ?? null;
+            const delta = msg.delta ?? "";
+            if (rid && typeof delta === "string") {
+              transcriptMap.set(rid, (transcriptMap.get(rid) || "") + delta);
+            }
+          }
+          if (msg.type === "response.output_audio_transcript.done" || msg.type === "response.audio_transcript.done") {
+            const rid = msg.response_id ?? msg.response?.id ?? null;
+            const doneText = (typeof msg.transcript === "string" ? msg.transcript : "") || (rid ? (transcriptMap.get(rid) || "") : "");
+            if (PREMIUM_TTS_ENABLED && doneText && doneText.trim()) {
+              // Lancer la voix premium
+              speakWithElevenLabs(doneText);
+            }
+          }
+          
           // IMPORTANT: selon les versions, le delta audio peut arriver sous:
           // - response.audio.delta
           // - response.output_audio.delta
           if (msg.type === "response.audio.delta" || msg.type === "response.output_audio.delta") {
+            // En mode premium, on ignore l'audio OpenAI (sinon double-voix).
+            if (PREMIUM_TTS_ENABLED) return;
             const audioBase64 =
               msg.delta ??
               msg.audio ??
@@ -548,7 +668,7 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
             }
           }
           
-          if (msg.type === "response.audio_transcript.done") {
+          if (msg.type === "response.audio_transcript.done" || msg.type === "response.output_audio_transcript.done") {
             console.log("📝 Transcription IA:", msg.transcript);
           }
           

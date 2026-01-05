@@ -53,6 +53,39 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 
 ---
 
+## Solution premium (voix masculine ultra naturelle)
+
+> Objectif : garder OpenAI pour comprendre/répondre, mais faire la **voix** via un TTS premium (ex: ElevenLabs).
+> Ça apporte l’intonation/émotion qui manque souvent en Realtime.
+
+### `PREMIUM_TTS_ENABLED`
+- **Rôle** : active le mode premium (remplace l’audio OpenAI par une voix TTS).
+- **Défaut** : `false`
+- **Valeurs** : `true` / `false`
+
+### `PREMIUM_TTS_PROVIDER`
+- **Rôle** : provider de TTS premium.
+- **Défaut** : `elevenlabs`
+- **Valeurs** : `elevenlabs`
+
+### `ELEVENLABS_API_KEY`
+- **Rôle** : clé API ElevenLabs.
+- **Obligatoire si premium** : oui.
+
+### `ELEVENLABS_VOICE_ID`
+- **Rôle** : ID de la voix (choisir une **voix masculine FR** côté ElevenLabs).
+- **Obligatoire si premium** : oui.
+
+### `ELEVENLABS_MODEL_ID`
+- **Rôle** : modèle ElevenLabs (qualité/latence).
+- **Défaut** : `eleven_multilingual_v2`
+
+### `ELEVENLABS_OUTPUT_FORMAT`
+- **Rôle** : format audio de sortie demandé à ElevenLabs.
+- **Défaut** : `pcm_16000` (plus simple à convertir en μ-law 8kHz pour Twilio)
+
+---
+
 ## Variables “persona / style” (rendre l’IA comme un mécanicien)
 
 ### `ASSISTANT_PERSONA`
