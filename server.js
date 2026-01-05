@@ -18,7 +18,9 @@ for (let i = 0; i < 256; i++) {
 
 const MULAW_BIAS = 0x84;
 const MULAW_CLIP = 32635;
-const MULAW_SEG_END = [0x1f, 0x3f, 0x7f, 0xff, 0x1ff, 0x3ff, 0x7ff, 0xfff];
+// Bornes de segments G.711 μ-law (pour PCM16 après bias) :
+// 0xFF .. 0x7FFF (sinon l'encode part en vrille et Twilio entend du "brouillage")
+const MULAW_SEG_END = [0xFF, 0x1FF, 0x3FF, 0x7FF, 0xFFF, 0x1FFF, 0x3FFF, 0x7FFF];
 
 function mulawEncodeSample(pcm16) {
   let sample = pcm16;
@@ -34,6 +36,7 @@ function mulawEncodeSample(pcm16) {
   // segment
   let seg = 0;
   while (seg < 8 && sample > MULAW_SEG_END[seg]) seg++;
+  if (seg > 7) seg = 7;
 
   // mantissa
   const mantissa = (sample >> (seg + 3)) & 0x0f;
