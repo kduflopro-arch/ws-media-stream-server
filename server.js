@@ -153,6 +153,7 @@ wss.on("connection", (ws, req) => {
   let bytesSinceSpeechStart = 0;
   let responseInProgress = false;
   let activeResponseId = null;
+  let pendingResponse = false;
   // Buffer des frames Twilio reçues avant que OpenAI WS soit "open"
   let preOpenFrames = []; // Array<{ audioBase64: string, mulawLen: number, ts: number }>
   let preOpenBytes = 0;
@@ -180,9 +181,11 @@ wss.on("connection", (ws, req) => {
     return sum / mulawBuf.length;
   }
 
-  function createResponse() {
+  function maybeCreateResponse() {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     if (responseInProgress) return;
+    if (!pendingResponse) return;
+    pendingResponse = false;
     // Important: sans response.create, l'IA peut ne jamais parler même après commit.
     responseInProgress = true; // optimiste, sera confirmé par response.created
     openaiWs.send(JSON.stringify({ type: "response.create" }));
@@ -309,6 +312,8 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
           setTimeout(() => {
             try {
               if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+              // Si l'utilisateur parle déjà, ne pas lancer le greeting (sinon chevauchement)
+              if (speechActive || awaitingUserResponse) return;
               openaiWs.send(JSON.stringify({
                 type: "conversation.item.create",
                 item: {
@@ -323,7 +328,8 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
                   ],
                 },
               }));
-              openaiWs.send(JSON.stringify({ type: "response.create" }));
+              pendingResponse = true;
+              maybeCreateResponse();
               console.log("👋 Greeting demandé à OpenAI (response.create).");
             } catch (err) {
               console.error("❌ Erreur envoi greeting à OpenAI:", err);
@@ -462,20 +468,9 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
           }
           if (msg.type === "input_audio_buffer.speech_stopped") {
             speechActive = false;
-            // Commit uniquement si on a assez d'audio depuis le début de parole
-            const minCommitBytes = 4800; // 100ms @ 24kHz PCM16
-            if (bytesSinceSpeechStart >= minCommitBytes && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
-              console.log("📤 Commit (OpenAI VAD speech_stopped):", {
-                bytesSinceSpeechStart,
-                minCommitBytes,
-              });
-              openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-            } else {
-              console.log("⏩ Skip commit (speech too short):", {
-                bytesSinceSpeechStart,
-                minCommitBytes,
-              });
-            }
+            // IMPORTANT:
+            // Ne PAS envoyer input_audio_buffer.commit côté client : OpenAI fait déjà l'auto-commit via son VAD
+            // (sinon on déclenche commit_empty en boucle).
           }
 
           if (msg.type === "input_audio_buffer.committed") {
@@ -484,15 +479,16 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               item_id: msg.item_id,
               previous_item_id: msg.previous_item_id,
             });
-            // IMPORTANT: si OpenAI commit via son VAD, il faut déclencher une réponse ici,
-            // sinon l'IA ne répond jamais à l'utilisateur.
+            // IMPORTANT: déclencher une réponse uniquement via une file "pending" pour éviter
+            // les réponses concurrentes (conversation_already_has_active_response).
             const now = nowMs();
-            const canCreate = (now - lastResponseAt) > 600;
-            if (awaitingUserResponse && canCreate) {
+            const canRequest = (now - lastResponseAt) > 600;
+            if (awaitingUserResponse && canRequest) {
               lastResponseAt = now;
               awaitingUserResponse = false;
-              console.log("🗣️ response.create après commit (user speech).");
-              createResponse();
+              pendingResponse = true;
+              console.log("🗣️ response.create demandé après commit (user speech).");
+              maybeCreateResponse();
             }
           }
 
@@ -504,6 +500,8 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
           if (msg.type === "response.done") {
             responseInProgress = false;
             activeResponseId = null;
+            // S'il y a une réponse en attente, on la démarre maintenant
+            maybeCreateResponse();
           }
           
           if (msg.type === "session.created" || msg.type === "session.updated") {
