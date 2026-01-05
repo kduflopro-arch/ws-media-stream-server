@@ -205,6 +205,8 @@ wss.on("connection", (ws, req) => {
   let lastResponseAt = 0;
   let awaitingUserResponse = false;
   let droppedOutboundBytes = 0;
+  // Debug VAD local (ne doit PAS impacter la logique OpenAI)
+  let localDbgSpeechActive = false;
 
   function nowMs() {
     return Date.now();
@@ -228,8 +230,9 @@ wss.on("connection", (ws, req) => {
   let twilioSpeechFrames = 0;
 
   // Noise gate / VAD local pour l'INPUT (évite que la TV/bruit déclenche des réponses automatiques).
-  // Par défaut activé.
-  const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? "true").toLowerCase() === "true";
+  // IMPORTANT: en pratique, trop agressif peut faire "l'IA ne répond pas".
+  // Donc par défaut on l'active seulement si la variable Render est explicitement à true.
+  const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? "false").toLowerCase() === "true";
   const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "2500");
   const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "6"); // ~120ms
   const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "1200");
@@ -736,18 +739,18 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
               const isSpeechDbg = avgLocal > INPUT_SPEECH_THRESHOLD;
               const isSilenceDbg = avgLocal < INPUT_SILENCE_THRESHOLD;
               if (isSpeechDbg) {
-                speechActive = true;
-                lastSpeechTs = nowMs();
+                localDbgSpeechActive = true;
                 silenceFrames = 0;
               } else if (isSilenceDbg) {
                 silenceFrames += 1;
+                if (silenceFrames >= INPUT_SILENCE_FRAMES) localDbgSpeechActive = false;
               } else {
                 silenceFrames = Math.max(0, silenceFrames - 1);
               }
               if (mediaCount % 200 === 0) {
                 console.log("🎚️ VAD (debug):", {
                   avgAbs: Math.round(avgLocal),
-                  speechActive,
+                  speechActive: localDbgSpeechActive,
                   silenceFrames,
                   appendedBytes,
                   fmt: OPENAI_AUDIO_FORMAT,

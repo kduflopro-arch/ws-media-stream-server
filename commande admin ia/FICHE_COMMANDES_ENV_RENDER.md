@@ -128,7 +128,7 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 
 ### `INPUT_GATE_ENABLED`
 - **Rôle** : active/désactive le filtrage d’entrée (ne pas envoyer le bruit à OpenAI).
-- **Défaut** : `true`
+- **Défaut** : `false` (plus fiable : évite “l’IA ne répond pas”)
 - **Valeurs** : `true` / `false`
 
 ### `INPUT_SPEECH_THRESHOLD`
