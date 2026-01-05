@@ -206,6 +206,19 @@ wss.on("connection", (ws, req) => {
   const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "12"); // ~240ms (12 * 20ms)
   let twilioSpeechFrames = 0;
 
+  // Noise gate / VAD local pour l'INPUT (évite que la TV/bruit déclenche des réponses automatiques).
+  // Par défaut activé.
+  const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? "true").toLowerCase() === "true";
+  const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "2500");
+  const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "6"); // ~120ms
+  const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "1200");
+  const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? "20"); // ~400ms
+  let inputSpeechFrames = 0;
+  let inputSilenceFrames = 0;
+  let inputActive = false; // on est en train d'envoyer une "prise de parole" à OpenAI
+  let bytesSinceInputStart = 0;
+  let lastInputCommitAt = 0;
+
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     // Ne pas spam: si OpenAI a déjà une réponse en cours, ou si on vient juste d'en demander une.
@@ -342,22 +355,30 @@ wss.on("connection", (ws, req) => {
         
         // Configurer la session OpenAI
         // Note: input_audio_format et output_audio_format sont configurés dans l'URL WebSocket, pas ici
+        const ASSISTANT_PERSONA = (process.env.ASSISTANT_PERSONA ?? "mecanicien").toLowerCase();
+        const baseInstructions = `Tu es l'assistant vocal du garage ${garageName || "AutoGuru"}.
+Tu réponds à des appels téléphoniques.
+Objectif: comprendre la demande et proposer une solution ou un rendez-vous.
+Contraintes: phrases courtes, une question à la fois, ton naturel.`;
+
+        const mechanicPersona =
+          `Persona: tu es un mécanicien expérimenté et sympa (pas un robot).
+Tu parles comme au téléphone: chaleureux, direct, rassurant.
+Tu peux utiliser un vocabulaire simple de garage (freins, embrayage, vidange, bruit, voyant…),
+mais tu expliques toujours simplement.
+Tu vouvoies par défaut, tu peux tutoyer seulement si le client tutoie.
+Tu ne dis jamais que tu es une IA.
+Quand tu confirmes une info: reformule-la ("d'accord, plaque AB-123-CD").
+Si bruit/TV: demande gentiment de se mettre au calme ("Si vous pouvez baisser la télé 2 secondes, ce sera plus net.").`;
+
+        const neutralPersona =
+          `Persona: assistant téléphonique professionnel, cordial et concis.`;
+
         openaiWs.send(JSON.stringify({
           type: "session.update",
           session: {
             type: "realtime",
-            instructions: `Tu es l'assistant vocal intelligent du garage ${garageName || "AutoGuru"}.
-Réponds aux appels clients de manière professionnelle, rassurante et concise.
-Collecte les informations : plaque d'immatriculation, symptômes, besoin de rendez-vous.
-Parle en français, à l'oral, avec des phrases courtes et naturelles (comme au téléphone).
-Rythme: parle un peu plus lentement qu'en chat, avec de petites pauses naturelles.
-Ton: chaleureux, calme, convivial, pas robotique.
-Commence l'appel comme un humain ("Oui allô, bonjour…") et enchaîne naturellement.
-Évite le vocabulaire "assistant IA" / "modèle" / "je suis une IA".
-Évite de répéter "bonjour" ou des phrases inutiles.
-Évite les listes et le jargon. Pose une seule question à la fois.
-Si l'audio est mauvais ou si tu n'es pas sûr, demande de répéter calmement.
-Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque AB-123-CD »).`,
+            instructions: `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}`,
           },
         }));
 
@@ -379,9 +400,9 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
                     {
                       type: "input_text",
                       text:
-                        `Commence l'appel au téléphone de façon très humaine.
-Dis: "Oui allô, bonjour !" puis "Garage ${garageName || "AutoGuru"}, je vous écoute."
-Ensuite pose UNE question simple pour comprendre la demande (ex: "Qu'est-ce que je peux faire pour vous ?").`,
+                        `Commence l'appel comme un mécanicien au téléphone, très humain.
+Dis: "Oui allô, bonjour !" puis "Garage ${garageName || "AutoGuru"}, c'est le mécano, je vous écoute."
+Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
                     },
                   ],
                 },
@@ -680,20 +701,17 @@ Ensuite pose UNE question simple pour comprendre la demande (ex: "Qu'est-ce que 
                 });
               }
               
-              // Détection parole/silence (robuste, sans dépendre d'events OpenAI)
+              // Détection parole/silence (debug)
               const avgLocal = avg;
-              const speechThreshold = 2200;
-              const silenceThreshold = 1200;
-              const isSpeech = avgLocal > speechThreshold;
-              const isSilence = avgLocal < silenceThreshold;
-              if (isSpeech) {
+              const isSpeechDbg = avgLocal > INPUT_SPEECH_THRESHOLD;
+              const isSilenceDbg = avgLocal < INPUT_SILENCE_THRESHOLD;
+              if (isSpeechDbg) {
                 speechActive = true;
                 lastSpeechTs = nowMs();
                 silenceFrames = 0;
-              } else if (isSilence) {
+              } else if (isSilenceDbg) {
                 silenceFrames += 1;
               } else {
-                // zone intermédiaire: on ne compte pas comme silence strict
                 silenceFrames = Math.max(0, silenceFrames - 1);
               }
               if (mediaCount % 200 === 0) {
@@ -716,15 +734,53 @@ Ensuite pose UNE question simple pour comprendre la demande (ex: "Qu'est-ce que 
               }
               const pcm24kBase64 = pcm24kBuffer.toString("base64");
               appendedBytes += pcm24kBuffer.length;
-              if (speechActive) {
-                bytesSinceSpeechStart += pcm24kBuffer.length;
-              }
 
-              // Envoyer PCM24k à OpenAI
-              openaiWs.send(JSON.stringify({
-                type: "input_audio_buffer.append",
-                audio: pcm24kBase64,
-              }));
+              // INPUT gate: n'envoie vers OpenAI que quand on a de la parole confirmée.
+              if (!INPUT_GATE_ENABLED) {
+                openaiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcm24kBase64 }));
+              } else {
+                const isSpeech = avgLocal > INPUT_SPEECH_THRESHOLD;
+                const isSilence = avgLocal < INPUT_SILENCE_THRESHOLD;
+                if (isSpeech) {
+                  inputSpeechFrames += 1;
+                  inputSilenceFrames = 0;
+                } else if (isSilence) {
+                  inputSilenceFrames += 1;
+                  inputSpeechFrames = Math.max(0, inputSpeechFrames - 1);
+                } else {
+                  // zone intermédiaire
+                  inputSpeechFrames = Math.max(0, inputSpeechFrames - 1);
+                  inputSilenceFrames = Math.max(0, inputSilenceFrames - 1);
+                }
+
+                // Démarrage prise de parole après N frames de parole
+                if (!inputActive && inputSpeechFrames >= INPUT_SPEECH_FRAMES) {
+                  inputActive = true;
+                  bytesSinceInputStart = 0;
+                }
+
+                if (inputActive) {
+                  openaiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcm24kBase64 }));
+                  bytesSinceInputStart += pcm24kBuffer.length;
+                }
+
+                // Fin de prise de parole: silence stable
+                if (inputActive && inputSilenceFrames >= INPUT_SILENCE_FRAMES) {
+                  const now = nowMs();
+                  const minCommitBytes = 4800; // 100ms @ 24kHz PCM16
+                  const canCommit = (now - lastInputCommitAt) > 300;
+                  if (canCommit && bytesSinceInputStart >= minCommitBytes) {
+                    lastInputCommitAt = now;
+                    openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+                    requestResponseCreate("local_vad_commit");
+                  }
+                  // reset fenêtre
+                  inputActive = false;
+                  inputSpeechFrames = 0;
+                  inputSilenceFrames = 0;
+                  bytesSinceInputStart = 0;
+                }
+              }
 
               // IMPORTANT: On ne commit PAS ici (ça crée des commits concurrents et des réponses qui se chevauchent).
               // Le commit est déclenché par input_audio_buffer.speech_stopped (VAD OpenAI).

@@ -42,6 +42,19 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 
 ---
 
+## Variables “persona / style” (rendre l’IA comme un mécanicien)
+
+### `ASSISTANT_PERSONA`
+- **Rôle** : choisit le style global de communication (script + vocabulaire).
+- **Défaut** : `mecanicien`
+- **Valeurs** :
+  - `mecanicien` : ton garage, humain, rassurant, vocabulaire simple de mécanique
+  - `neutre` : assistant pro, plus “standard”
+- **Exemple** :
+  - `ASSISTANT_PERSONA=mecanicien`
+
+---
+
 ## Variables “interruption / barge-in” (important si TV/bruit en fond)
 
 > Si tu as la TV en fond, le barge-in peut provoquer des **coupures** (l’IA pense que tu l’interromps).
@@ -88,6 +101,41 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 - **Statut** : **ignorée** (le serveur force `pcm16` en entrée/sortie Realtime pour éviter le “brouillage”).
 - **Pourquoi** : sur nos tests, demander `g711_ulaw` a mené à des mismatches audio (Twilio jouait du bruit).
 - **Action** : ne pas utiliser pour l’instant.
+
+---
+
+## Variables “anti-TV / anti-bruit” (évite que l’IA réponde toute seule)
+
+> Si tu as une TV en fond, sans filtre l’API peut détecter de la “parole” et **répondre sans que tu parles**.
+> Le serveur inclut maintenant un **noise gate** (VAD local) configurable.
+
+### `INPUT_GATE_ENABLED`
+- **Rôle** : active/désactive le filtrage d’entrée (ne pas envoyer le bruit à OpenAI).
+- **Défaut** : `true`
+- **Valeurs** : `true` / `false`
+
+### `INPUT_SPEECH_THRESHOLD`
+- **Rôle** : seuil au-dessus duquel on considère que l’audio est “parole” côté Twilio.
+- **Défaut** : `2500`
+- **Conseils** :
+  - Si la TV déclenche encore → **augmente** : `3500` → `5000`
+  - Si tu dois parler très fort → **baisse** : `1800`
+
+### `INPUT_SPEECH_FRAMES`
+- **Rôle** : nombre de frames (20ms) de “parole” consécutives avant de démarrer une prise de parole.
+- **Défaut** : `6` (~120ms)
+- **Conseils** :
+  - Plus strict (anti TV) → `10` (~200ms)
+
+### `INPUT_SILENCE_THRESHOLD`
+- **Rôle** : seuil en dessous duquel on considère “silence”.
+- **Défaut** : `1200`
+
+### `INPUT_SILENCE_FRAMES`
+- **Rôle** : nombre de frames de silence (20ms) avant de “clôturer” une prise de parole et faire un commit.
+- **Défaut** : `20` (~400ms)
+- **Conseils** :
+  - Si ça coupe trop vite → `30` (~600ms)
 
 ---
 
