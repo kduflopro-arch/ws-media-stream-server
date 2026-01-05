@@ -277,6 +277,25 @@ wss.on("connection", (ws, req) => {
   let sttInFlight = false;
   let conversationHistory = []; // Array<{role:'user'|'assistant', content:string}>
 
+  function logPipelineConfigOnce(prefix = "⚙️ Config") {
+    try {
+      console.log(prefix, {
+        PIPELINE_MODE,
+        PREMIUM_TTS_ENABLED,
+        BACKCHANNEL_ENABLED,
+        BACKCHANNEL_TEXT,
+        LLM_MODEL,
+        STT_MODEL,
+        STT_LANGUAGE,
+        // indicateurs utiles de latence
+        STT_SILENCE_FRAMES,
+        STT_MIN_AUDIO_MS,
+      });
+    } catch {
+      // ignore
+    }
+  }
+
   function nowMs() {
     return Date.now();
   }
@@ -992,6 +1011,9 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
         garageId = finalGarageId;
         garageName = finalGarageName;
         fromNumber = finalFromNumber;
+
+        // Toujours logguer la config au démarrage d'un stream pour diagnostiquer Render env vs code path.
+        logPipelineConfigOnce("⚙️ Pipeline actif");
         
         // Démarrage selon mode pipeline
         if (PIPELINE_MODE === "stt_llm_tts") {
@@ -1103,6 +1125,7 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
             if (durMs >= STT_MIN_AUDIO_MS) {
               // Backchannel très court pour réduire la "latence perçue"
               if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED) {
+                console.log("🗣️ Backchannel:", { text: BACKCHANNEL_TEXT });
                 speakWithElevenLabs(BACKCHANNEL_TEXT, { interrupt: true });
               }
               runSttLlmTtsTurn();
