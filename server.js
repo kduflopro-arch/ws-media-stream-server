@@ -888,7 +888,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         // Configurer la session OpenAI
         // Note: input_audio_format et output_audio_format sont configurés dans l'URL WebSocket, pas ici
         const ASSISTANT_PERSONA = (process.env.ASSISTANT_PERSONA ?? "mecanicien").toLowerCase();
-        const baseInstructions = `Tu es l'assistant vocal du garage ${garageName || "AutoGuru"}.
+        const rawGarageName = String(garageName || "AutoGuru").trim();
+        const garageLabel = /^garage\b/i.test(rawGarageName) ? rawGarageName : `Garage ${rawGarageName}`;
+
+        const baseInstructions = `Tu es l'assistant vocal de ${garageLabel}.
 Tu réponds à des appels téléphoniques.
 Objectif: comprendre la demande et proposer une solution ou un rendez-vous.
 Contraintes: phrases courtes, une question à la fois, ton naturel.`;
@@ -901,7 +904,9 @@ mais tu expliques toujours simplement.
 Tu vouvoies par défaut, tu peux tutoyer seulement si le client tutoie.
 Tu ne dis jamais que tu es une IA.
 Quand tu confirmes une info: reformule-la ("d'accord, plaque AB-123-CD").
-Si bruit/TV: demande gentiment de se mettre au calme ("Si vous pouvez baisser la télé 2 secondes, ce sera plus net.").`;
+Si bruit/TV: demande gentiment de se mettre au calme ("Si vous pouvez baisser la télé 2 secondes, ce sera plus net.").
+Objectif business: donner envie de prendre rendez-vous.
+Quand c'est pertinent, propose un rendez-vous rapidement (donne 2 créneaux simples) et explique le bénéfice ("comme ça on regarde ça ensemble et on vous dit exactement").`;
 
         const neutralPersona =
           `Persona: assistant téléphonique professionnel, cordial et concis.`;
@@ -948,8 +953,9 @@ Si bruit/TV: demande gentiment de se mettre au calme ("Si vous pouvez baisser la
                       type: "input_text",
                       text:
                         `Commence l'appel comme un mécanicien au téléphone, très humain.
-Dis: "Oui allô, bonjour !" puis "Garage ${garageName || "AutoGuru"}, bonjour, je vous écoute."
-Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
+Dis: "Oui allô, bonjour !" puis "${garageLabel}, bonjour, je vous écoute."
+Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?").
+But: être naturel et mettre le client en confiance.`,
                     },
                   ],
                 },
@@ -1025,13 +1031,18 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
               if (punctMatch && punctMatch.index != null) {
                 cutIdx = punctMatch.index + punctMatch[0].length;
               } else if (remaining.length >= REALTIME_ELEVEN_CHUNK_MAX_CHARS) {
-                cutIdx = REALTIME_ELEVEN_CHUNK_MAX_CHARS;
+                // fallback: couper près d'un espace pour éviter de casser des mots
+                const window = remaining.slice(0, REALTIME_ELEVEN_CHUNK_MAX_CHARS);
+                const lastSpace = window.lastIndexOf(" ");
+                cutIdx = lastSpace > 40 ? lastSpace : REALTIME_ELEVEN_CHUNK_MAX_CHARS;
               } else {
                 break;
               }
 
               const chunk = remaining.slice(0, cutIdx).trim();
               if (chunk.length >= REALTIME_ELEVEN_CHUNK_MIN_CHARS || st.started) {
+                // Dès qu'on commence à parler sur ce response_id, on le marque pour éviter les doublons.
+                spokenSet.add(rid);
                 enqueueElevenLabsTts(chunk, { interrupt: !st.started });
                 st.started = true;
                 st.cursor += cutIdx;
@@ -1043,7 +1054,10 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
 
             if (final) {
               const tail = String(full.slice(st.cursor)).trim();
-              if (tail) enqueueElevenLabsTts(tail, { interrupt: !st.started });
+              if (tail) {
+                spokenSet.add(rid);
+                enqueueElevenLabsTts(tail, { interrupt: !st.started });
+              }
               elevenStateMap.delete(rid);
             } else {
               elevenStateMap.set(rid, st);
@@ -1091,18 +1105,14 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
               // Lancer la voix premium.
               // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
-              if (!rid || !spokenSet.has(rid)) {
+              if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
+                // Si chunking actif, on flush le reste et on termine SANS couper l'audio déjà en cours.
+                transcriptMap.set(rid, doneText);
+                flushRealtimeElevenChunks(rid, true);
+              } else if (!rid || !spokenSet.has(rid)) {
                 if (rid) spokenSet.add(rid);
-                // Couper l'audio OpenAI en file pour éviter une double-voix/percussion.
-                outboundQueue = [];
-                outboundQueuedBytes = 0;
-                if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
-                  // Si chunking actif, on flush le reste et on termine
-                  transcriptMap.set(rid, doneText);
-                  flushRealtimeElevenChunks(rid, true);
-                } else {
-                  enqueueElevenLabsTts(doneText, { interrupt: true });
-                }
+                // Ici (sans chunking), on démarre la synthèse en une fois.
+                enqueueElevenLabsTts(doneText, { interrupt: true });
               }
             }
           }
@@ -1296,7 +1306,12 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           if (!greetOncePerCall || !hasGreetedRecently(callSid)) {
             const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "150");
             setTimeout(() => {
-              enqueueElevenLabsTts(`Oui allô, bonjour. Garage ${garageName || "AutoGuru"}, bonjour, je vous écoute. Qu'est-ce qui vous amène ?`, { interrupt: true });
+              const rawName = String(garageName || "AutoGuru").trim();
+              const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
+              enqueueElevenLabsTts(
+                `Oui allô, bonjour ! ${label}, bonjour, je vous écoute. Qu'est-ce qui vous amène ?`,
+                { interrupt: true },
+              );
               if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
             }, greetingDelayMs);
           }
