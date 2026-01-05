@@ -218,6 +218,7 @@ wss.on("connection", (ws, req) => {
   let inputActive = false; // on est en train d'envoyer une "prise de parole" à OpenAI
   let bytesSinceInputStart = 0;
   let lastInputCommitAt = 0;
+  const LOCAL_COMMIT_ENABLED = (process.env.LOCAL_COMMIT_ENABLED ?? "false").toLowerCase() === "true";
 
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
@@ -227,13 +228,9 @@ wss.on("connection", (ws, req) => {
     if ((now - lastResponseCreateRequestedAt) < 600) return;
     lastResponseCreateRequestedAt = now;
     try {
-      // Optionnel: forcer une voix si supporté (ne rien envoyer si pas configuré).
-      const voice = process.env.OPENAI_VOICE?.trim();
-      if (voice) {
-        openaiWs.send(JSON.stringify({ type: "response.create", response: { voice } }));
-      } else {
-        openaiWs.send(JSON.stringify({ type: "response.create" }));
-      }
+      // IMPORTANT: `response.voice` n'est pas accepté (erreur: unknown_parameter) sur notre modèle Realtime actuel.
+      // Donc on n'envoie PAS de paramètre voice ici.
+      openaiWs.send(JSON.stringify({ type: "response.create" }));
       if (reason) console.log("🗣️ response.create envoyé:", { reason });
     } catch (err) {
       console.error("❌ Erreur response.create:", err);
@@ -769,7 +766,8 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
                   const now = nowMs();
                   const minCommitBytes = 4800; // 100ms @ 24kHz PCM16
                   const canCommit = (now - lastInputCommitAt) > 300;
-                  if (canCommit && bytesSinceInputStart >= minCommitBytes) {
+                  // Par défaut, on NE commit pas côté client (OpenAI auto-commit). Ça évite commit_empty et réponses fantômes.
+                  if (LOCAL_COMMIT_ENABLED && canCommit && bytesSinceInputStart >= minCommitBytes) {
                     lastInputCommitAt = now;
                     openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
                     requestResponseCreate("local_vad_commit");

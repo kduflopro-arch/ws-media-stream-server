@@ -32,13 +32,10 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 ## Variables “voix & naturel”
 
 ### `OPENAI_VOICE`
-- **Rôle** : choisit la **voix TTS** côté OpenAI (quand supporté).
-- **Défaut** : *(vide)* → on laisse OpenAI choisir la voix par défaut.
-- **Conseils** :
-  - Si une voix est “plus humaine” pour toi, fixe-la ici.
-  - Si tu observes une erreur côté OpenAI après ajout, supprime la variable (ou vide la valeur).
-- **Exemple** :
-  - `OPENAI_VOICE=alloy`
+- **Statut** : **à utiliser uniquement si ça ne génère pas d’erreur**.
+- **Note** : sur certains modèles Realtime, tenter de fixer la voix via un champ de requête peut provoquer :
+  `Unknown parameter: 'response.voice'`.
+- **Action** : si tu vois cette erreur, **supprime `OPENAI_VOICE`** et on fixera la voix autrement (ou via un autre provider TTS).
 
 ---
 
@@ -136,6 +133,15 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 - **Défaut** : `20` (~400ms)
 - **Conseils** :
   - Si ça coupe trop vite → `30` (~600ms)
+
+---
+
+## Variables avancées (debug)
+
+### `LOCAL_COMMIT_ENABLED`
+- **Rôle** : autorise le serveur à envoyer `input_audio_buffer.commit` lui-même (au lieu de laisser OpenAI auto-commit).
+- **Défaut** : `false`
+- **Attention** : peut réintroduire `commit_empty` si mal réglé.
 
 ---
 
