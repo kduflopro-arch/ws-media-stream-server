@@ -102,7 +102,8 @@ function convertPcm24kToMulaw(pcm24k) {
   const outLen = Math.floor(pcm24k.length / 3);
   const mulaw = new Uint8Array(outLen);
   // Gain sortie (améliore l'intelligibilité en téléphonie). Ajustable par env.
-  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.25");
+  // IMPORTANT: 1.25 a tendance à clipper et fatigue l'oreille en téléphonie.
+  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.0");
   for (let i = 0; i < outLen; i++) {
     const a = pcm24k[i * 3];
     const b = pcm24k[i * 3 + 1];
@@ -125,7 +126,7 @@ function convertPcm16kBlockToMulaw(pcm16kBlockBuf) {
   }
   const outLen = Math.floor(pcm16k.length / 2);
   const mulaw = new Uint8Array(outLen);
-  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.25");
+  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.0");
   for (let i = 0; i < outLen; i++) {
     const a = pcm16k[i * 2];
     const b = pcm16k[i * 2 + 1];
@@ -636,26 +637,41 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         return;
       }
 
-      // On suppose un flux PCM16 LE @ 16kHz (pcm_16000) → on convertit en frames μ-law 8kHz de 20ms (160 bytes).
-      // Buffer bytes pour alignement + blocs 640 bytes.
+      // Formats ElevenLabs possibles:
+      // - pcm_16000 (par défaut): PCM16 LE @ 16kHz → conversion vers μ-law 8kHz
+      // - ulaw_8000: μ-law @ 8kHz → on peut envoyer directement à Twilio (meilleure stabilité + moins de CPU)
       const nodeStream = Readable.fromWeb(resp.body);
       let pcmBuf = Buffer.alloc(0);
       const maxBacklogSeconds = Number(process.env.ELEVENLABS_MAX_BACKLOG_SECONDS ?? "3");
       const maxBacklogBytes = Math.max(160 * 50, Math.floor(8000 * maxBacklogSeconds)); // 8k bytes/sec (μ-law 8kHz)
 
+      const outFmt = String(ELEVENLABS_OUTPUT_FORMAT || "").toLowerCase();
+      const isUlaw8k = outFmt.includes("ulaw_8000") || outFmt.includes("mulaw_8000") || outFmt.includes("g711_ulaw");
+
       for await (const chunk of nodeStream) {
         if (!chunk || chunk.length === 0) continue;
         const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         pcmBuf = Buffer.concat([pcmBuf, buf]);
-        while (pcmBuf.length >= 640) {
-          const block = pcmBuf.subarray(0, 640);
-          pcmBuf = pcmBuf.subarray(640);
-          const mulawFrame = convertPcm16kBlockToMulaw(block); // 160 bytes
-          enqueueOutboundMulaw(mulawFrame);
-          // IMPORTANT: éviter de pousser l'audio trop vite (Twilio peut drop / couper si on burst).
-          // On applique un throttle basé sur le backlog réel.
-          while (outboundQueuedBytes > maxBacklogBytes) {
-            await sleep(20);
+        if (isUlaw8k) {
+          // 20ms @ 8kHz μ-law = 160 bytes
+          while (pcmBuf.length >= 160) {
+            const frame = pcmBuf.subarray(0, 160);
+            pcmBuf = pcmBuf.subarray(160);
+            enqueueOutboundMulaw(frame);
+            while (outboundQueuedBytes > maxBacklogBytes) {
+              await sleep(20);
+            }
+          }
+        } else {
+          // pcm_16000: 20ms @ 16kHz PCM16 = 320 samples = 640 bytes
+          while (pcmBuf.length >= 640) {
+            const block = pcmBuf.subarray(0, 640);
+            pcmBuf = pcmBuf.subarray(640);
+            const mulawFrame = convertPcm16kBlockToMulaw(block); // 160 bytes
+            enqueueOutboundMulaw(mulawFrame);
+            while (outboundQueuedBytes > maxBacklogBytes) {
+              await sleep(20);
+            }
           }
         }
       }
@@ -926,6 +942,12 @@ Quand c'est pertinent, propose un rendez-vous rapidement (donne 2 créneaux simp
         const REALTIME_INPUT_TRANSCRIPTION_MODEL = process.env.REALTIME_INPUT_TRANSCRIPTION_MODEL ?? "whisper-1";
         const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
 
+        // Réglages VAD Realtime (évite que l'IA réponde avant la fin de phrase)
+        const REALTIME_TURN_DETECTION_ENABLED = (process.env.REALTIME_TURN_DETECTION_ENABLED ?? "true").toLowerCase() === "true";
+        const REALTIME_TURN_SILENCE_MS = Number(process.env.REALTIME_TURN_SILENCE_MS ?? "850"); // + haut = attend plus longtemps
+        const REALTIME_TURN_PREFIX_PADDING_MS = Number(process.env.REALTIME_TURN_PREFIX_PADDING_MS ?? "200");
+        const REALTIME_TURN_THRESHOLD = Number(process.env.REALTIME_TURN_THRESHOLD ?? "0.45"); // 0..1
+
         const sessionUpdate = {
           type: "session.update",
           session: {
@@ -942,6 +964,18 @@ Quand c'est pertinent, propose un rendez-vous rapidement (donne 2 créneaux simp
         // On ajoute des contraintes fortes (évite les réponses "hors sujet" type coach de vie).
         sessionUpdate.session.instructions =
           `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${hardConstraints}`;
+        // Stocke pour fallback en cas de unknown_parameter (session.update partiellement appliquée)
+        ws.__sessionInstructions = String(sessionUpdate.session.instructions || "");
+
+        if (REALTIME_TURN_DETECTION_ENABLED) {
+          // Peut varier selon les versions; si OpenAI renvoie unknown_parameter, on fallback sans.
+          sessionUpdate.session.turn_detection = {
+            type: "server_vad",
+            threshold: REALTIME_TURN_THRESHOLD,
+            prefix_padding_ms: REALTIME_TURN_PREFIX_PADDING_MS,
+            silence_duration_ms: REALTIME_TURN_SILENCE_MS,
+          };
+        }
         openaiWs.send(JSON.stringify(sessionUpdate));
 
         // IMPORTANT: faire parler l'IA tout de suite (valide le chemin audio Twilio <- OpenAI),
@@ -1207,6 +1241,28 @@ But: être naturel et mettre le client en confiance.`,
           
           if (msg.type === "error") {
             console.error("❌ Erreur OpenAI:", msg.error);
+            // Auto-fix: si un param de session n'est pas supporté, on renvoie une session.update minimale
+            // pour éviter un comportement "bizarre" (instructions partiellement appliquées).
+            const errParam = String(msg?.error?.param ?? "");
+            const errCode = String(msg?.error?.code ?? "");
+            if (errCode === "unknown_parameter" && errParam.startsWith("session.")) {
+              if (!ws.__didSessionFallback) {
+                ws.__didSessionFallback = true;
+                console.warn("↩️ Fallback session.update (minimal) après unknown_parameter:", { errParam });
+                try {
+                  // Ne renvoyer que les instructions (déjà calculées et stockées côté ws)
+                  const instr = String(ws.__sessionInstructions || "");
+                  if (instr && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+                    openaiWs.send(JSON.stringify({
+                      type: "session.update",
+                      session: { type: "realtime", instructions: instr },
+                    }));
+                  }
+                } catch (e) {
+                  console.error("❌ Fallback session.update échoué:", e);
+                }
+              }
+            }
           }
 
           // NOTE: On garde ces events si jamais ils arrivent, mais on ne dépend pas d'eux.
