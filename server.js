@@ -201,7 +201,9 @@ wss.on("connection", (ws, req) => {
   }
 
   // Détection parole côté Twilio (pour barge-in) : plus stable que les events VAD OpenAI en environnement bruyant.
-  const TWILIO_SPEECH_THRESHOLD = 4000;
+  const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "false").toLowerCase() === "true";
+  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "5500");
+  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "12"); // ~240ms (12 * 20ms)
   let twilioSpeechFrames = 0;
 
   function requestResponseCreate(reason) {
@@ -349,7 +351,10 @@ Réponds aux appels clients de manière professionnelle, rassurante et concise.
 Collecte les informations : plaque d'immatriculation, symptômes, besoin de rendez-vous.
 Parle en français, à l'oral, avec des phrases courtes et naturelles (comme au téléphone).
 Rythme: parle un peu plus lentement qu'en chat, avec de petites pauses naturelles.
-Ton: chaleureux, calme, pas robotique. Évite de répéter "bonjour" ou des phrases inutiles.
+Ton: chaleureux, calme, convivial, pas robotique.
+Commence l'appel comme un humain ("Oui allô, bonjour…") et enchaîne naturellement.
+Évite le vocabulaire "assistant IA" / "modèle" / "je suis une IA".
+Évite de répéter "bonjour" ou des phrases inutiles.
 Évite les listes et le jargon. Pose une seule question à la fois.
 Si l'audio est mauvais ou si tu n'es pas sûr, demande de répéter calmement.
 Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque AB-123-CD »).`,
@@ -374,7 +379,9 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
                     {
                       type: "input_text",
                       text:
-                        "Commence l'appel: dis bonjour, présente-toi comme l'assistant du garage, puis demande en une phrase comment tu peux aider.",
+                        `Commence l'appel au téléphone de façon très humaine.
+Dis: "Oui allô, bonjour !" puis "Garage ${garageName || "AutoGuru"}, je vous écoute."
+Ensuite pose UNE question simple pour comprendre la demande (ex: "Qu'est-ce que je peux faire pour vous ?").`,
                     },
                   ],
                 },
@@ -622,9 +629,8 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               // (Twilio tolère qu'on envoie un peu plus vite, ça réduit la latence sans drop).
               const backlogFrames = Math.floor(outboundQueuedBytes / 160);
               const framesToSend =
-                backlogFrames > 600 ? 5 : // >12s
-                backlogFrames > 300 ? 3 : // >6s
-                backlogFrames > 150 ? 2 : // >3s
+                backlogFrames > 600 ? 3 : // >12s
+                backlogFrames > 300 ? 2 : // >6s
                 1;
               sendOutboundFrames(framesToSend);
             } catch {
@@ -659,8 +665,8 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               const isUserSpeech = avg > TWILIO_SPEECH_THRESHOLD;
               if (isUserSpeech) twilioSpeechFrames += 1;
               else twilioSpeechFrames = Math.max(0, twilioSpeechFrames - 1);
-              // exiger ~80ms de parole (4 frames) pour éviter les faux positifs sur bruit
-              if (responseInProgress && twilioSpeechFrames >= 4) {
+              // IMPORTANT: si TV/bruit en fond, le barge-in coupe sans arrêt. On le désactive par défaut.
+              if (BARGE_IN_ENABLED && responseInProgress && twilioSpeechFrames >= BARGE_IN_FRAMES) {
                 cancelResponseForBargeIn();
                 twilioSpeechFrames = 0;
               }
