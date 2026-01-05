@@ -136,15 +136,15 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 
 ### `BACKCHANNEL_DELAY_MS`
 - **Rôle** : délai avant de jouer le backchannel (si la réponse tarde).
-- **Défaut** : `250`
+- **Défaut** : `1500`
 
 ### `BACKCHANNEL_MIN_INTERVAL_MS`
 - **Rôle** : anti-spam backchannel (min. entre deux).
-- **Défaut** : `8000`
+- **Défaut** : `20000`
 
 ### `LLM_TIMEOUT_MS`
 - **Rôle** : timeout (ms) sur l’appel LLM (évite “aucune réponse” si le modèle bloque).
-- **Défaut** : `9000`
+- **Défaut** : `15000` *(GPT‑5 peut nécessiter plus ; on force un minimum côté serveur)*
 
 ---
 

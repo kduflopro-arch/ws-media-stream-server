@@ -265,11 +265,13 @@ wss.on("connection", (ws, req) => {
   const HISTORY_MAX_TURNS = Number(process.env.HISTORY_MAX_TURNS ?? "8");
   const BACKCHANNEL_ENABLED = (process.env.BACKCHANNEL_ENABLED ?? "true").toLowerCase() === "true";
   const BACKCHANNEL_TEXT = process.env.BACKCHANNEL_TEXT ?? "D'accord, je note…";
-  const BACKCHANNEL_DELAY_MS = Number(process.env.BACKCHANNEL_DELAY_MS ?? "250");
-  const BACKCHANNEL_MIN_INTERVAL_MS = Number(process.env.BACKCHANNEL_MIN_INTERVAL_MS ?? "8000");
-  const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? "9000");
+  const BACKCHANNEL_DELAY_MS = Number(process.env.BACKCHANNEL_DELAY_MS ?? "1500");
+  const BACKCHANNEL_MIN_INTERVAL_MS = Number(process.env.BACKCHANNEL_MIN_INTERVAL_MS ?? "20000");
+  // Timeout global (ms). GPT‑5 peut être plus lent: on ajuste dynamiquement (voir openaiLLM).
+  const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? "15000");
   let backchannelTimer = null;
   let lastBackchannelAt = 0;
+  let llmInFlight = false;
   // Realtime latency tuning
   const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "400");
   const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "250");
@@ -390,7 +392,12 @@ wss.on("connection", (ws, req) => {
   async function openaiLLM(messages, model) {
     const isGpt5 = String(model).toLowerCase().includes("gpt-5");
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+    // GPT‑5 peut dépasser 12s en prod; on donne un budget plus large pour éviter le fallback permanent.
+    const timeoutMs = isGpt5 ? Math.max(45_000, LLM_TIMEOUT_MS) : LLM_TIMEOUT_MS;
+    if (isGpt5) {
+      console.log("⏱️ LLM timeout (gpt-5):", { timeoutMs });
+    }
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       // GPT‑5: utiliser Responses API (les params et endpoints diffèrent)
@@ -487,6 +494,22 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
       let answer = "";
       try {
+        llmInFlight = true;
+        // Backchannel intelligent: uniquement si le LLM n'a pas répondu après un délai.
+        if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED) {
+          const now = nowMs();
+          const canPlay = (now - lastBackchannelAt) >= BACKCHANNEL_MIN_INTERVAL_MS;
+          if (canPlay) {
+            if (backchannelTimer) clearTimeout(backchannelTimer);
+            backchannelTimer = setTimeout(() => {
+              if (!llmInFlight) return;
+              if (premiumTtsInFlight) return;
+              lastBackchannelAt = nowMs();
+              console.log("🗣️ Backchannel:", { text: BACKCHANNEL_TEXT });
+              speakWithElevenLabs(BACKCHANNEL_TEXT, { interrupt: true });
+            }, BACKCHANNEL_DELAY_MS);
+          }
+        }
         console.log("🧠 LLM start:", { model: LLM_MODEL });
         answer = await openaiLLM(msgs, LLM_MODEL);
         console.log("🧠 LLM done:", { model: LLM_MODEL, chars: answer?.length ?? 0 });
@@ -496,16 +519,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         console.log("🧠 LLM start (fallback):", { model: "gpt-4o" });
         answer = await openaiLLM(msgs, "gpt-4o");
         console.log("🧠 LLM done (fallback):", { model: "gpt-4o", chars: answer?.length ?? 0 });
+      } finally {
+        llmInFlight = false;
+        if (backchannelTimer) {
+          clearTimeout(backchannelTimer);
+          backchannelTimer = null;
+        }
       }
       if (!answer) return;
       conversationHistory.push({ role: "assistant", content: answer });
       conversationHistory = conversationHistory.slice(-HISTORY_MAX_TURNS * 2);
 
-      // Si un backchannel est en attente, on l'annule (on a une vraie réponse à lire)
-      if (backchannelTimer) {
-        clearTimeout(backchannelTimer);
-        backchannelTimer = null;
-      }
       await speakWithElevenLabs(answer, { interrupt: true });
     } catch (err) {
       console.error("❌ Erreur pipeline STT→LLM→TTS:", err);
