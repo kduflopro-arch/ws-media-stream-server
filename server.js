@@ -134,6 +134,9 @@ wss.on("connection", (ws, req) => {
   let speechActive = false;
   let lastSpeechTs = 0;
   let lastCommitAt = 0;
+  // Buffer des frames Twilio reçues avant que OpenAI WS soit "open"
+  let preOpenFrames = []; // Array<{ audioBase64: string, mulawLen: number, ts: number }>
+  let preOpenBytes = 0;
   // File d'attente audio vers Twilio (μ-law 8kHz). Twilio attend généralement des frames de 20ms = 160 bytes.
   let outboundQueue = []; // Array<Buffer>
   let outboundQueuedBytes = 0;
@@ -143,7 +146,7 @@ wss.on("connection", (ws, req) => {
   }
 
   // VAD très simple: énergie moyenne sur la frame μ-law
-  // (seuil à ajuster si besoin; 8000 = "parole" pour beaucoup de cas téléphone)
+  // (seuil à ajuster si besoin; 8000 était trop strict en pratique → on descend)
   function isSpeechMulaw(mulawBuf) {
     if (!mulawBuf || mulawBuf.length === 0) return false;
     let sum = 0;
@@ -152,7 +155,8 @@ wss.on("connection", (ws, req) => {
       sum += Math.abs(s);
     }
     const avg = sum / mulawBuf.length;
-    return avg > 8000;
+    // Sur ligne téléphonique, un seuil ~1500-3000 marche souvent mieux qu'un seuil très élevé.
+    return avg > 2200;
   }
 
   function createResponse() {
@@ -252,6 +256,23 @@ Si l'audio est mauvais ou si tu n'es pas sûr, demande de répéter calmement.
 Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque AB-123-CD »).`,
           },
         }));
+
+        // Flush des frames reçues avant l'ouverture OpenAI
+        if (preOpenFrames.length > 0) {
+          console.log("⏩ Flush pre-open frames -> OpenAI:", {
+            frames: preOpenFrames.length,
+            bytes: preOpenBytes,
+            fmt: OPENAI_AUDIO_FORMAT,
+          });
+          for (const f of preOpenFrames) {
+            openaiWs.send(JSON.stringify({
+              type: "input_audio_buffer.append",
+              audio: f.audioBase64,
+            }));
+          }
+          preOpenFrames = [];
+          preOpenBytes = 0;
+        }
       });
 
       openaiWs.on("message", (data) => {
@@ -516,7 +537,19 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
             }
           }
         } else {
-          if (mediaCount <= 3) {
+          // OpenAI WS pas encore prêt: bufferiser quelques frames pour éviter de perdre le début de phrase.
+          const audioBase64 = msg.media?.payload;
+          if (audioBase64) {
+            // Conserver ~1 seconde max
+            const mulawLen = 160;
+            preOpenFrames.push({ audioBase64, mulawLen, ts: nowMs() });
+            preOpenBytes += mulawLen;
+            while (preOpenFrames.length > 50) {
+              preOpenFrames.shift();
+              preOpenBytes = Math.max(0, preOpenBytes - mulawLen);
+            }
+          }
+          if (mediaCount <= 5) {
             console.log(`⚠️ Frame ${mediaCount}: OpenAI WS pas connecté, état:`, openaiWs?.readyState);
           }
         }
