@@ -265,6 +265,10 @@ wss.on("connection", (ws, req) => {
   const HISTORY_MAX_TURNS = Number(process.env.HISTORY_MAX_TURNS ?? "8");
   const BACKCHANNEL_ENABLED = (process.env.BACKCHANNEL_ENABLED ?? "true").toLowerCase() === "true";
   const BACKCHANNEL_TEXT = process.env.BACKCHANNEL_TEXT ?? "D'accord, je note…";
+  const BACKCHANNEL_DELAY_MS = Number(process.env.BACKCHANNEL_DELAY_MS ?? "250");
+  const BACKCHANNEL_MIN_INTERVAL_MS = Number(process.env.BACKCHANNEL_MIN_INTERVAL_MS ?? "8000");
+  let backchannelTimer = null;
+  let lastBackchannelAt = 0;
   // Realtime latency tuning
   const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "400");
   const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "250");
@@ -367,18 +371,25 @@ wss.on("connection", (ws, req) => {
   }
 
   async function openaiChat(messages, model) {
+    // Certains modèles (ex: gpt-5) n'acceptent pas `max_tokens` et demandent `max_completion_tokens`.
+    const body = {
+      model,
+      temperature: LLM_TEMPERATURE,
+      messages,
+    };
+    if (String(model).toLowerCase().includes("gpt-5")) {
+      body.max_completion_tokens = LLM_MAX_TOKENS;
+    } else {
+      body.max_tokens = LLM_MAX_TOKENS;
+    }
+
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
-      body: JSON.stringify({
-        model,
-        temperature: LLM_TEMPERATURE,
-        max_tokens: LLM_MAX_TOKENS,
-        messages,
-      }),
+      body: JSON.stringify(body),
     });
     const json = await resp.json().catch(() => ({}));
     if (!resp.ok) {
@@ -432,6 +443,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       conversationHistory.push({ role: "assistant", content: answer });
       conversationHistory = conversationHistory.slice(-HISTORY_MAX_TURNS * 2);
 
+      // Si un backchannel est en attente, on l'annule (on a une vraie réponse à lire)
+      if (backchannelTimer) {
+        clearTimeout(backchannelTimer);
+        backchannelTimer = null;
+      }
       await speakWithElevenLabs(answer, { interrupt: true });
     } catch (err) {
       console.error("❌ Erreur pipeline STT→LLM→TTS:", err);
@@ -1123,10 +1139,20 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
             sttSpeechFrames = 0;
             sttSilenceFrames = 0;
             if (durMs >= STT_MIN_AUDIO_MS) {
-              // Backchannel très court pour réduire la "latence perçue"
+              // Backchannel intelligent (moins souvent + seulement si la réponse tarde)
               if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED) {
-                console.log("🗣️ Backchannel:", { text: BACKCHANNEL_TEXT });
-                speakWithElevenLabs(BACKCHANNEL_TEXT, { interrupt: true });
+                const now = nowMs();
+                const canPlay = (now - lastBackchannelAt) >= BACKCHANNEL_MIN_INTERVAL_MS;
+                if (canPlay) {
+                  if (backchannelTimer) clearTimeout(backchannelTimer);
+                  backchannelTimer = setTimeout(() => {
+                    // Si une réponse est déjà en cours (TTS), ne pas rajouter un "ok je note"
+                    if (premiumTtsInFlight) return;
+                    lastBackchannelAt = nowMs();
+                    console.log("🗣️ Backchannel:", { text: BACKCHANNEL_TEXT });
+                    speakWithElevenLabs(BACKCHANNEL_TEXT, { interrupt: true });
+                  }, BACKCHANNEL_DELAY_MS);
+                }
               }
               runSttLlmTtsTurn();
             } else {

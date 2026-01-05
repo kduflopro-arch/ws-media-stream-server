@@ -134,6 +134,14 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 - **Rôle** : texte du backchannel.
 - **Défaut** : `D'accord, je note…`
 
+### `BACKCHANNEL_DELAY_MS`
+- **Rôle** : délai avant de jouer le backchannel (si la réponse tarde).
+- **Défaut** : `250`
+
+### `BACKCHANNEL_MIN_INTERVAL_MS`
+- **Rôle** : anti-spam backchannel (min. entre deux).
+- **Défaut** : `8000`
+
 ---
 
 ## Tuning latence (Realtime)
