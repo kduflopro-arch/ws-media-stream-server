@@ -29,6 +29,20 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 
 ---
 
+## Valeurs recommandées (baseline stable à copier/coller)
+
+> Objectif : **arrêter les “l’IA ne répond pas”** et limiter les coupures dues au bruit/TV.
+
+- `INPUT_GATE_ENABLED=false`
+- `BARGE_IN_ENABLED=false`
+- `GREETING_DELAY_MS=150`
+- `GREETING_ONCE_PER_CALL=true`
+- `GREETING_ONCE_TTL_MS=600000`
+- `OUTPUT_GAIN=1.25`
+- `LOCAL_COMMIT_ENABLED=false`
+
+---
+
 ## Variables “voix & naturel”
 
 ### `OPENAI_VOICE`
