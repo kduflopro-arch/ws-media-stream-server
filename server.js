@@ -972,6 +972,12 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
 - Tu ne confirmes jamais un rendez-vous à une autre période que celle demandée. Si tu as un doute, tu demandes confirmation.
 - Ne dis JAMAIS: "ce que vous avez sur le cœur" / "dans la tête" / conseils psychologiques.`;
 
+        const variationGuidelines =
+          `Variation:
+- Varie tes formulations et ton accueil (évite les répétitions mot pour mot).
+- Tu peux alterner "Bonjour", "Salut", "Oui allô", mais reste professionnel.
+- N'enchaîne pas deux fois "Garage X, bonjour" dans la même phrase.`;
+
         const neutralPersona =
           `Persona: assistant téléphonique professionnel, cordial et concis.`;
 
@@ -996,11 +1002,22 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
         }
         // On ajoute des contraintes fortes (évite les réponses "hors sujet" type coach de vie).
         sessionUpdate.session.instructions =
-          `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${hardConstraints}`;
+          `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}`;
         // Stocke pour fallback en cas de unknown_parameter (session.update partiellement appliquée)
         ws.__sessionInstructions = String(sessionUpdate.session.instructions || "");
 
         openaiWs.send(JSON.stringify(sessionUpdate));
+
+        function pickGreetingText(label) {
+          const greetings = [
+            `Oui allô, bonjour ! Ici ${label}. Je vous écoute. Qu'est-ce qui vous amène ?`,
+            `Bonjour ! ${label} à l'appareil. Dites-moi, qu'est-ce qui se passe avec votre voiture ?`,
+            `Oui bonjour, ${label}. Pas de souci, expliquez-moi ce qu'il y a sur le véhicule.`,
+            `Bonjour, vous êtes bien chez ${label}. Je vous écoute, c'est quoi le souci ?`,
+            `${label}, bonjour ! Je vous écoute. C'est un bruit, un voyant, ou un problème au démarrage ?`,
+          ];
+          return greetings[Math.floor(Math.random() * greetings.length)];
+        }
 
         // IMPORTANT: faire parler l'IA tout de suite (valide le chemin audio Twilio <- OpenAI),
         // même si le client n'a pas encore parlé / même si le VAD n'a pas commit.
@@ -1029,8 +1046,9 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
                       type: "input_text",
                       text:
                         `Commence l'appel comme un mécanicien au téléphone, très humain.
-Dis: "Oui allô, bonjour !" puis "${garageLabel}, bonjour, je vous écoute."
-Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?").
+Voici une suggestion d'accueil (tu peux la dire telle quelle, sans la répéter deux fois):
+"${pickGreetingText(garageLabel)}"
+Ensuite: pose UNE question simple si besoin.
 But: être naturel et mettre le client en confiance.`,
                     },
                   ],
@@ -1406,8 +1424,15 @@ But: être naturel et mettre le client en confiance.`,
             setTimeout(() => {
               const rawName = String(garageName || "AutoGuru").trim();
               const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
+              const variations = [
+                `Oui allô, bonjour ! Ici ${label}. Je vous écoute. Qu'est-ce qui vous amène ?`,
+                `Bonjour ! ${label}. Dites-moi, c'est quoi le souci sur la voiture ?`,
+                `Oui bonjour, ${label}. Je vous écoute, qu'est-ce qui se passe ?`,
+                `Bonjour, vous êtes bien chez ${label}. Je vous écoute.`,
+              ];
+              const greeting = variations[Math.floor(Math.random() * variations.length)];
               enqueueElevenLabsTts(
-                `Oui allô, bonjour ! ${label}, bonjour, je vous écoute. Qu'est-ce qui vous amène ?`,
+                greeting,
                 { interrupt: true },
               );
               if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
