@@ -86,6 +86,48 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 
 ---
 
+## Option B (recommandée) — STT → GPT (texte) → ElevenLabs (voix)
+
+> Objectif : améliorer **la compréhension** (STT téléphonie) et le **texte** (LLM plus puissant), tout en gardant la voix ElevenLabs.
+> Mode conseillé si tu dis “il ne comprend pas ce que je dis”.
+
+### `PIPELINE_MODE`
+- **Rôle** : choisit le pipeline.
+- **Défaut** : `realtime`
+- **Valeurs** :
+  - `realtime` : OpenAI Realtime (audio) + (option) ElevenLabs voix
+  - `stt_llm_tts` : **Option B** (VAD local → Whisper → LLM texte → ElevenLabs)
+
+### `STT_MODEL`
+- **Rôle** : modèle de transcription.
+- **Défaut** : `whisper-1`
+
+### `STT_LANGUAGE`
+- **Rôle** : langue de transcription.
+- **Défaut** : `fr`
+
+### `LLM_MODEL`
+- **Rôle** : modèle “cerveau” (texte). Tu peux mettre `gpt-5` si ton compte y a accès.
+- **Défaut** : `gpt-4o`
+- **Note** : si `gpt-5` n’est pas disponible, le serveur **fallback** sur `gpt-4o`.
+
+### `LLM_TEMPERATURE`
+- **Rôle** : créativité / naturel.
+- **Défaut** : `0.4`
+
+### `LLM_MAX_TOKENS`
+- **Rôle** : longueur max des réponses.
+- **Défaut** : `220`
+
+### VAD STT (détection de fin de phrase)
+- **`STT_SPEECH_THRESHOLD`** (défaut `2200`)
+- **`STT_SPEECH_FRAMES`** (défaut `6` ≈ 120ms)
+- **`STT_SILENCE_THRESHOLD`** (défaut `1200`)
+- **`STT_SILENCE_FRAMES`** (défaut `18` ≈ 360ms)
+- **`STT_MIN_AUDIO_MS`** (défaut `400`)
+
+---
+
 ## Variables “persona / style” (rendre l’IA comme un mécanicien)
 
 ### `ASSISTANT_PERSONA`

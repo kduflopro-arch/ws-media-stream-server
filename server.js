@@ -146,6 +146,11 @@ const OPENAI_AUDIO_FORMAT = (process.env.OPENAI_AUDIO_FORMAT || "pcm16").toLower
 
 if (!OPENAI_API_KEY) console.error("⚠️ OPENAI_API_KEY non configuré !");
 
+// Mode pipeline:
+// - realtime (historique): Twilio ↔ OpenAI Realtime (audio) (+ éventuellement ElevenLabs voix)
+// - stt_llm_tts (Option B): VAD local → STT (Whisper) → LLM (texte) → TTS (ElevenLabs)
+const PIPELINE_MODE = (process.env.PIPELINE_MODE ?? "realtime").toLowerCase();
+
 // Serveur HTTP explicite (meilleur contrôle + endpoint /health pour garder Render "chaud")
 const server = http.createServer((req, res) => {
   const url = req.url || "/";
@@ -243,12 +248,169 @@ wss.on("connection", (ws, req) => {
   let premiumTtsInFlight = false;
   let premiumTtsLastError = null;
 
+  // Option B (STT → LLM → TTS)
+  const STT_MODEL = process.env.STT_MODEL ?? "whisper-1";
+  const STT_LANGUAGE = process.env.STT_LANGUAGE ?? "fr";
+  const LLM_MODEL = process.env.LLM_MODEL ?? "gpt-4o";
+  const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0.4");
+  const LLM_MAX_TOKENS = Number(process.env.LLM_MAX_TOKENS ?? "220");
+  const STT_SPEECH_THRESHOLD = Number(process.env.STT_SPEECH_THRESHOLD ?? "2200");
+  const STT_SPEECH_FRAMES = Number(process.env.STT_SPEECH_FRAMES ?? "6"); // ~120ms
+  const STT_SILENCE_THRESHOLD = Number(process.env.STT_SILENCE_THRESHOLD ?? "1200");
+  const STT_SILENCE_FRAMES = Number(process.env.STT_SILENCE_FRAMES ?? "18"); // ~360ms
+  const STT_MIN_AUDIO_MS = Number(process.env.STT_MIN_AUDIO_MS ?? "400");
+  const HISTORY_MAX_TURNS = Number(process.env.HISTORY_MAX_TURNS ?? "8");
+  let sttSpeechFrames = 0;
+  let sttSilenceFrames = 0;
+  let sttActive = false;
+  let sttBytes = 0;
+  let sttStartedAt = 0;
+  let sttMulawChunks = []; // Array<Buffer>
+  let sttInFlight = false;
+  let conversationHistory = []; // Array<{role:'user'|'assistant', content:string}>
+
   function nowMs() {
     return Date.now();
   }
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function resample8kTo16k(pcm8k) {
+    // x2 avec interpolation linéaire simple
+    const out = new Int16Array(pcm8k.length * 2);
+    for (let i = 0; i < pcm8k.length; i++) {
+      const s0 = pcm8k[i];
+      const s1 = i + 1 < pcm8k.length ? pcm8k[i + 1] : s0;
+      out[i * 2] = s0;
+      out[i * 2 + 1] = ((s0 + s1) / 2) | 0;
+    }
+    return out;
+  }
+
+  function mulaw8kToPcm16kWav(mulawBuf) {
+    // Decode μ-law -> PCM 8k
+    const pcm8k = new Int16Array(mulawBuf.length);
+    for (let i = 0; i < mulawBuf.length; i++) {
+      pcm8k[i] = MULAW_DECODE_TABLE[mulawBuf[i] & 0xff];
+    }
+    const pcm16k = resample8kTo16k(pcm8k);
+
+    const dataSize = pcm16k.length * 2;
+    const wav = Buffer.alloc(44 + dataSize);
+    wav.write("RIFF", 0);
+    wav.writeUInt32LE(36 + dataSize, 4);
+    wav.write("WAVE", 8);
+    wav.write("fmt ", 12);
+    wav.writeUInt32LE(16, 16); // PCM
+    wav.writeUInt16LE(1, 20); // format
+    wav.writeUInt16LE(1, 22); // channels
+    wav.writeUInt32LE(16000, 24); // sample rate
+    wav.writeUInt32LE(16000 * 2, 28); // byte rate
+    wav.writeUInt16LE(2, 32); // block align
+    wav.writeUInt16LE(16, 34); // bits
+    wav.write("data", 36);
+    wav.writeUInt32LE(dataSize, 40);
+    for (let i = 0; i < pcm16k.length; i++) {
+      wav.writeInt16LE(pcm16k[i], 44 + i * 2);
+    }
+    return wav;
+  }
+
+  async function openaiTranscribeWav(wavBuffer) {
+    const form = new FormData();
+    form.append("model", STT_MODEL);
+    form.append("language", STT_LANGUAGE);
+    form.append("response_format", "json");
+    form.append("file", new Blob([wavBuffer], { type: "audio/wav" }), "audio.wav");
+
+    const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: form,
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(`STT error ${resp.status}: ${JSON.stringify(json).slice(0, 300)}`);
+    }
+    return (json.text ?? "").toString();
+  }
+
+  async function openaiChat(messages, model) {
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: LLM_TEMPERATURE,
+        max_tokens: LLM_MAX_TOKENS,
+        messages,
+      }),
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const msg = JSON.stringify(json).slice(0, 400);
+      const err = new Error(`LLM error ${resp.status}: ${msg}`);
+      err.__openai = json;
+      throw err;
+    }
+    const content = json?.choices?.[0]?.message?.content ?? "";
+    return String(content || "").trim();
+  }
+
+  async function runSttLlmTtsTurn() {
+    if (sttInFlight) return;
+    if (!OPENAI_API_KEY) return;
+    if (!PREMIUM_TTS_ENABLED) {
+      console.warn("⚠️ PIPELINE_MODE=stt_llm_tts mais PREMIUM_TTS_ENABLED=false (pas de voix).");
+    }
+    const joined = sttMulawChunks.length ? Buffer.concat(sttMulawChunks) : Buffer.alloc(0);
+    sttMulawChunks = [];
+    sttBytes = 0;
+    sttInFlight = true;
+    try {
+      const wav = mulaw8kToPcm16kWav(joined);
+      const transcript = (await openaiTranscribeWav(wav)).trim();
+      if (!transcript) return;
+      console.log("🎤 STT:", transcript);
+
+      // Historique (limité)
+      conversationHistory.push({ role: "user", content: transcript });
+      conversationHistory = conversationHistory.slice(-HISTORY_MAX_TURNS * 2);
+
+      const system = `Tu es le standard téléphonique d'un garage. Français (France).
+Réponses très naturelles, chaleureuses, courtes, avec une intonation humaine (sans mentionner l'IA).
+Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel.`;
+
+      const msgs = [
+        { role: "system", content: system },
+        ...conversationHistory.map((m) => ({ role: m.role, content: m.content })),
+      ];
+
+      let answer = "";
+      try {
+        answer = await openaiChat(msgs, LLM_MODEL);
+      } catch (err) {
+        // Fallback si le modèle demandé (ex: gpt-5) n'est pas disponible
+        console.error("❌ LLM primary failed, fallback to gpt-4o:", String(err?.message ?? err));
+        answer = await openaiChat(msgs, "gpt-4o");
+      }
+      if (!answer) return;
+      conversationHistory.push({ role: "assistant", content: answer });
+      conversationHistory = conversationHistory.slice(-HISTORY_MAX_TURNS * 2);
+
+      await speakWithElevenLabs(answer);
+    } catch (err) {
+      console.error("❌ Erreur pipeline STT→LLM→TTS:", err);
+    } finally {
+      sttInFlight = false;
+    }
   }
 
   async function speakWithElevenLabs(text) {
@@ -819,8 +981,22 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
         garageName = finalGarageName;
         fromNumber = finalFromNumber;
         
-        // Connecter à OpenAI Realtime
-        connectToOpenAI();
+        // Démarrage selon mode pipeline
+        if (PIPELINE_MODE === "stt_llm_tts") {
+          // Greeting direct via TTS premium (évite le Realtime)
+          const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
+          const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
+          if (!greetOncePerCall || !hasGreetedRecently(callSid)) {
+            const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "150");
+            setTimeout(() => {
+              speakWithElevenLabs(`Oui allô, bonjour. Garage ${garageName || "AutoGuru"}, bonjour, je vous écoute. Qu'est-ce qui vous amène ?`);
+              if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+            }, greetingDelayMs);
+          }
+        } else {
+          // Connecter à OpenAI Realtime (mode historique)
+          connectToOpenAI();
+        }
 
         // Timer d'envoi audio sortant vers Twilio (20ms).
         // IMPORTANT: si OpenAI génère l'audio en rafales, le backlog grimpe vite et l'appelant croit que "ça ne répond plus".
@@ -857,7 +1033,64 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           console.log(`📊 Media frames: ${mediaCount}`);
         }
         
-        // Audio de Twilio (μ-law 8kHz) → conversion μ-law 8kHz → PCM16 24kHz (OpenAI input_audio_format=pcm16)
+        // Mode Option B: VAD local → buffer → STT→LLM→TTS
+        if (PIPELINE_MODE === "stt_llm_tts") {
+          const audioBase64 = msg.media?.payload;
+          if (!audioBase64) return;
+          const mulawBuffer = Buffer.from(audioBase64, "base64");
+
+          // Ne pas capturer pendant que l'assistant parle (anti-écho/TV)
+          const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
+          const assistantIsTalking =
+            responseInProgress ||
+            premiumTtsInFlight ||
+            assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
+          if (INPUT_SUPPRESS_WHILE_TALKING && assistantIsTalking) return;
+
+          const avg = avgAbsMulaw(mulawBuffer);
+          const isSpeech = avg > STT_SPEECH_THRESHOLD;
+          const isSilence = avg < STT_SILENCE_THRESHOLD;
+
+          if (isSpeech) {
+            sttSpeechFrames += 1;
+            sttSilenceFrames = 0;
+          } else if (isSilence) {
+            sttSilenceFrames += 1;
+            sttSpeechFrames = Math.max(0, sttSpeechFrames - 1);
+          } else {
+            sttSpeechFrames = Math.max(0, sttSpeechFrames - 1);
+            sttSilenceFrames = Math.max(0, sttSilenceFrames - 1);
+          }
+
+          if (!sttActive && sttSpeechFrames >= STT_SPEECH_FRAMES) {
+            sttActive = true;
+            sttStartedAt = nowMs();
+            sttMulawChunks = [];
+            sttBytes = 0;
+          }
+
+          if (sttActive) {
+            sttMulawChunks.push(mulawBuffer);
+            sttBytes += mulawBuffer.length;
+          }
+
+          // Fin de phrase: silence stable
+          if (sttActive && sttSilenceFrames >= STT_SILENCE_FRAMES) {
+            const durMs = nowMs() - sttStartedAt;
+            sttActive = false;
+            sttSpeechFrames = 0;
+            sttSilenceFrames = 0;
+            if (durMs >= STT_MIN_AUDIO_MS) {
+              runSttLlmTtsTurn();
+            } else {
+              sttMulawChunks = [];
+              sttBytes = 0;
+            }
+          }
+          return;
+        }
+
+        // Mode Realtime: Audio de Twilio (μ-law 8kHz) → conversion μ-law 8kHz → PCM16 24kHz (OpenAI input_audio_format=pcm16)
         if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
           const audioBase64 = msg.media?.payload;
           if (audioBase64) {
@@ -1014,9 +1247,7 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           clearInterval(outboundTimer);
           outboundTimer = null;
         }
-        if (openaiWs) {
-          openaiWs.close();
-        }
+        if (openaiWs) openaiWs.close();
       } else {
         console.log("ℹ️ Other event:", msg.event);
       }
