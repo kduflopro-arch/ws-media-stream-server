@@ -252,18 +252,22 @@ wss.on("connection", (ws, req) => {
   const STT_MODEL = process.env.STT_MODEL ?? "whisper-1";
   const STT_LANGUAGE = process.env.STT_LANGUAGE ?? "fr";
   const LLM_MODEL = process.env.LLM_MODEL ?? "gpt-4o";
-  const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0.4");
-  const LLM_MAX_TOKENS = Number(process.env.LLM_MAX_TOKENS ?? "220");
+  // Réglages "fast-by-default" pour réduire la latence perçue
+  const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0.3");
+  const LLM_MAX_TOKENS = Number(process.env.LLM_MAX_TOKENS ?? "160");
   const STT_SPEECH_THRESHOLD = Number(process.env.STT_SPEECH_THRESHOLD ?? "2200");
   const STT_SPEECH_FRAMES = Number(process.env.STT_SPEECH_FRAMES ?? "6"); // ~120ms
   // IMPORTANT: trop agressif => coupe la phrase dès une micro-pause.
   // On baisse le seuil de "silence" et on augmente la durée de silence requise.
   const STT_SILENCE_THRESHOLD = Number(process.env.STT_SILENCE_THRESHOLD ?? "900");
-  const STT_SILENCE_FRAMES = Number(process.env.STT_SILENCE_FRAMES ?? "22"); // ~440ms
-  const STT_MIN_AUDIO_MS = Number(process.env.STT_MIN_AUDIO_MS ?? "450");
+  const STT_SILENCE_FRAMES = Number(process.env.STT_SILENCE_FRAMES ?? "18"); // ~360ms
+  const STT_MIN_AUDIO_MS = Number(process.env.STT_MIN_AUDIO_MS ?? "350");
   const HISTORY_MAX_TURNS = Number(process.env.HISTORY_MAX_TURNS ?? "8");
   const BACKCHANNEL_ENABLED = (process.env.BACKCHANNEL_ENABLED ?? "true").toLowerCase() === "true";
   const BACKCHANNEL_TEXT = process.env.BACKCHANNEL_TEXT ?? "D'accord, je note…";
+  // Realtime latency tuning
+  const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "400");
+  const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "250");
   let sttSpeechFrames = 0;
   let sttSilenceFrames = 0;
   let sttActive = false;
@@ -541,7 +545,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Ne pas spam: si OpenAI a déjà une réponse en cours, ou si on vient juste d'en demander une.
     const now = nowMs();
     if (responseInProgress) return;
-    if ((now - lastResponseCreateRequestedAt) < 600) return;
+    if ((now - lastResponseCreateRequestedAt) < RESPONSE_CREATE_DEBOUNCE_MS) return;
     lastResponseCreateRequestedAt = now;
     try {
       // IMPORTANT: `response.voice` n'est pas accepté (erreur: unknown_parameter) sur notre modèle Realtime actuel.
@@ -921,7 +925,7 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
                 if (responseInProgress) return;
                 if (lastResponseCreatedAt >= lastCommittedAt) return;
                 requestResponseCreate("watchdog_after_commit");
-              }, 400);
+              }, WATCHDOG_AFTER_COMMIT_MS);
             }
           }
 
@@ -1083,7 +1087,15 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           }
 
           // Fin de phrase: silence stable
-          if (sttActive && sttSilenceFrames >= STT_SILENCE_FRAMES) {
+          // End-of-utterance adaptatif:
+          // - phrases longues → on déclenche plus vite (latence)
+          // - phrases courtes → on attend un peu plus (évite de couper)
+          const utterMs = sttActive ? (nowMs() - sttStartedAt) : 0;
+          let requiredSilenceFrames = STT_SILENCE_FRAMES;
+          if (utterMs >= 2500) requiredSilenceFrames = Math.max(10, Math.floor(STT_SILENCE_FRAMES * 0.65));
+          else if (utterMs >= 1500) requiredSilenceFrames = Math.max(12, Math.floor(STT_SILENCE_FRAMES * 0.8));
+
+          if (sttActive && sttSilenceFrames >= requiredSilenceFrames) {
             const durMs = nowMs() - sttStartedAt;
             sttActive = false;
             sttSpeechFrames = 0;

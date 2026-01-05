@@ -117,14 +117,14 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 
 ### `LLM_MAX_TOKENS`
 - **Rôle** : longueur max des réponses.
-- **Défaut** : `220`
+- **Défaut** : `160` (plus rapide)
 
 ### VAD STT (détection de fin de phrase)
 - **`STT_SPEECH_THRESHOLD`** (défaut `2200`)
 - **`STT_SPEECH_FRAMES`** (défaut `6` ≈ 120ms)
 - **`STT_SILENCE_THRESHOLD`** (défaut `900`)
-- **`STT_SILENCE_FRAMES`** (défaut `22` ≈ 440ms)
-- **`STT_MIN_AUDIO_MS`** (défaut `450`)
+- **`STT_SILENCE_FRAMES`** (défaut `18` ≈ 360ms) *(adaptatif : plus rapide sur phrases longues)*
+- **`STT_MIN_AUDIO_MS`** (défaut `350`)
 
 ### `BACKCHANNEL_ENABLED`
 - **Rôle** : joue un micro “accusé de réception” juste après ta phrase (ex: “D’accord, je note…”) pour que ça paraisse instantané.
@@ -135,6 +135,16 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 - **Défaut** : `D'accord, je note…`
 
 ---
+
+## Tuning latence (Realtime)
+
+### `WATCHDOG_AFTER_COMMIT_MS`
+- **Rôle** : délai avant de forcer un `response.create` si OpenAI n’a pas démarré sa réponse.
+- **Défaut** : `250`
+
+### `RESPONSE_CREATE_DEBOUNCE_MS`
+- **Rôle** : anti-spam `response.create` (plus bas = plus réactif).
+- **Défaut** : `400`
 
 ## Variables “persona / style” (rendre l’IA comme un mécanicien)
 
