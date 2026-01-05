@@ -66,13 +66,16 @@ function convertMulawToPcm24k(mulawBuffer) {
 
 // Convertir PCM16 (24kHz) → μ-law (8kHz)
 function convertPcm24kToMulaw(pcm24k) {
-  const pcm8k = new Int16Array(Math.floor(pcm24k.length / 3));
-  for (let i = 0; i < pcm8k.length; i++) {
-    pcm8k[i] = pcm24k[i * 3];
-  }
-  const mulaw = new Uint8Array(pcm8k.length);
-  for (let i = 0; i < pcm8k.length; i++) {
-    mulaw[i] = mulawEncodeSample(pcm8k[i]);
+  // Downsample 24kHz -> 8kHz avec une moyenne sur 3 samples (anti-aliasing léger).
+  // Prendre uniquement 1 sample sur 3 crée des artefacts (son "brouillé"/métallique).
+  const outLen = Math.floor(pcm24k.length / 3);
+  const mulaw = new Uint8Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const a = pcm24k[i * 3];
+    const b = pcm24k[i * 3 + 1];
+    const c = pcm24k[i * 3 + 2];
+    const avg = (a + b + c) / 3;
+    mulaw[i] = mulawEncodeSample(avg | 0);
   }
   return mulaw;
 }
@@ -168,6 +171,7 @@ wss.on("connection", (ws, req) => {
   let outboundTimer = null;
   let lastResponseAt = 0;
   let awaitingUserResponse = false;
+  let droppedOutboundBytes = 0;
 
   function nowMs() {
     return Date.now();
@@ -183,6 +187,10 @@ wss.on("connection", (ws, req) => {
     }
     return sum / mulawBuf.length;
   }
+
+  // Détection parole côté Twilio (pour barge-in) : plus stable que les events VAD OpenAI en environnement bruyant.
+  const TWILIO_SPEECH_THRESHOLD = 2500;
+  let twilioSpeechFrames = 0;
 
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
@@ -217,6 +225,23 @@ wss.on("connection", (ws, req) => {
 
   function enqueueOutboundMulaw(buf) {
     if (!buf || buf.length === 0) return;
+    // Garder un buffer raisonnable (~2s). Si OpenAI génère plus vite que temps réel,
+    // on drop l'audio le plus ancien (sinon ça sature et devient incompréhensible).
+    const MAX_BACKLOG_BYTES = 160 * 100; // ~2s @ 20ms
+    if (outboundQueuedBytes > MAX_BACKLOG_BYTES) {
+      while (outboundQueue.length > 0 && outboundQueuedBytes > MAX_BACKLOG_BYTES) {
+        const head = outboundQueue.shift();
+        if (!head) break;
+        outboundQueuedBytes -= head.length;
+        droppedOutboundBytes += head.length;
+      }
+      if (Math.random() < 0.2) {
+        console.log("🗑️ Outbound audio drop (backlog):", {
+          outboundQueuedBytes,
+          droppedOutboundBytes,
+        });
+      }
+    }
     outboundQueue.push(buf);
     outboundQueuedBytes += buf.length;
   }
@@ -464,8 +489,8 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
             awaitingUserResponse = true;
             bytesSinceSpeechStart = 0;
             userHasSpoken = true;
-            // Si l'IA parle déjà, on stoppe (barge-in)
-            cancelResponseForBargeIn();
+            // NOTE: ne pas annuler la réponse sur ce signal, il peut être trop sensible (bruit / écho).
+            // Le barge-in est géré côté Twilio via VAD local sur les frames inbound.
           }
           if (msg.type === "input_audio_buffer.speech_stopped") {
             speechActive = false;
@@ -568,10 +593,8 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
         if (!outboundTimer) {
           outboundTimer = setInterval(() => {
             try {
-              // 1 frame = 20ms. On draine plus vite si on a du retard pour éviter les backlogs et les "purges".
-              const backlogFrames = Math.floor(outboundQueuedBytes / 160);
-              const framesToSend = backlogFrames > 60 ? 5 : backlogFrames > 20 ? 3 : 1; // >1.2s => 5, >0.4s => 3
-              sendOutboundFrames(framesToSend);
+              // 1 frame = 20ms strict (Twilio attend un pacing temps réel)
+              sendOutboundFrames(1);
             } catch {
               // ignore
             }
@@ -598,6 +621,16 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
           if (audioBase64) {
             try {
               const mulawBuffer = Buffer.from(audioBase64, "base64");
+
+              // Barge-in: si l'utilisateur commence réellement à parler pendant que l'IA parle, on annule la réponse.
+              const avg = avgAbsMulaw(mulawBuffer);
+              const isUserSpeech = avg > TWILIO_SPEECH_THRESHOLD;
+              if (isUserSpeech) twilioSpeechFrames += 1;
+              else twilioSpeechFrames = Math.max(0, twilioSpeechFrames - 1);
+              if (responseInProgress && twilioSpeechFrames >= 2) {
+                cancelResponseForBargeIn();
+                twilioSpeechFrames = 0;
+              }
               
               if (mediaCount <= 3) {
                 console.log(`🔊 Frame ${mediaCount} audio (μ-law):`, {
@@ -609,11 +642,11 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               }
               
               // Détection parole/silence (robuste, sans dépendre d'events OpenAI)
-              const avg = avgAbsMulaw(mulawBuffer);
+              const avgLocal = avg;
               const speechThreshold = 2200;
               const silenceThreshold = 1200;
-              const isSpeech = avg > speechThreshold;
-              const isSilence = avg < silenceThreshold;
+              const isSpeech = avgLocal > speechThreshold;
+              const isSilence = avgLocal < silenceThreshold;
               if (isSpeech) {
                 speechActive = true;
                 lastSpeechTs = nowMs();
@@ -626,7 +659,7 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               }
               if (mediaCount % 200 === 0) {
                 console.log("🎚️ VAD (debug):", {
-                  avgAbs: Math.round(avg),
+                  avgAbs: Math.round(avgLocal),
                   speechActive,
                   silenceFrames,
                   appendedBytes,
