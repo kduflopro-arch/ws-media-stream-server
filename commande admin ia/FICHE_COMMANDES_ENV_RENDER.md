@@ -96,6 +96,7 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 - **Défaut** : `realtime`
 - **Valeurs** :
   - `realtime` : OpenAI Realtime (audio) + (option) ElevenLabs voix
+  - `gpt-realtime` : **alias accepté** (équivalent à `realtime`)
   - `stt_llm_tts` : **Option B** (VAD local → Whisper → LLM texte → ElevenLabs)
 
 ### `STT_MODEL`

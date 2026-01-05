@@ -1,0 +1,33 @@
+# ===== AutoGuru WS Media Stream Server (Render) — Exemple prêt à copier =====
+# Objectif: repasser en GPT‑Realtime (Twilio ↔ OpenAI Realtime) pour une conversation fluide.
+
+# --- Obligatoire ---
+OPENAI_API_KEY=sk-xxx
+
+# --- Mode pipeline ---
+# Valeurs acceptées:
+# - realtime
+# - gpt-realtime (alias toléré)
+# - stt_llm_tts (Option B)
+PIPELINE_MODE=realtime
+
+# --- Realtime (recommandé) ---
+# Audio OpenAI forcé en PCM16 (évite le "brouillage" si g711_ulaw est mal interprété)
+OPENAI_AUDIO_FORMAT=pcm16
+
+# Désactive les éléments Option B (ils n'ont pas d'effet en realtime mais évite la confusion)
+PREMIUM_TTS_ENABLED=false
+BACKCHANNEL_ENABLED=false
+
+# Anti-interruptions TV/bruit: barge-in OFF par défaut (tu peux le réactiver si tu veux)
+BARGE_IN_ENABLED=false
+
+# Optionnel: greeting contrôlé côté serveur Realtime (si déjà en place)
+GREETING_DELAY_MS=150
+GREETING_ONCE_PER_CALL=true
+GREETING_ONCE_TTL_MS=600000
+
+# --- Réseau / Render ---
+PORT=10000
+
+

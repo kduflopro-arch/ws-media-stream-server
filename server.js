@@ -149,7 +149,14 @@ if (!OPENAI_API_KEY) console.error("⚠️ OPENAI_API_KEY non configuré !");
 // Mode pipeline:
 // - realtime (historique): Twilio ↔ OpenAI Realtime (audio) (+ éventuellement ElevenLabs voix)
 // - stt_llm_tts (Option B): VAD local → STT (Whisper) → LLM (texte) → TTS (ElevenLabs)
-const PIPELINE_MODE = (process.env.PIPELINE_MODE ?? "realtime").toLowerCase();
+const PIPELINE_MODE_RAW = String(process.env.PIPELINE_MODE ?? "realtime").toLowerCase().trim();
+// Tolérance: certains envs peuvent contenir "gpt-realtime", "openai-realtime", etc.
+const PIPELINE_MODE =
+  PIPELINE_MODE_RAW === "stt_llm_tts"
+    ? "stt_llm_tts"
+    : PIPELINE_MODE_RAW.includes("realtime")
+      ? "realtime"
+      : "realtime";
 
 // Serveur HTTP explicite (meilleur contrôle + endpoint /health pour garder Render "chaud")
 const server = http.createServer((req, res) => {
@@ -288,6 +295,7 @@ wss.on("connection", (ws, req) => {
     try {
       console.log(prefix, {
         PIPELINE_MODE,
+        PIPELINE_MODE_RAW,
         PREMIUM_TTS_ENABLED,
         BACKCHANNEL_ENABLED,
         BACKCHANNEL_TEXT,
