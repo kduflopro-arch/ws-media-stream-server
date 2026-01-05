@@ -142,6 +142,10 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 - **Rôle** : anti-spam backchannel (min. entre deux).
 - **Défaut** : `8000`
 
+### `LLM_TIMEOUT_MS`
+- **Rôle** : timeout (ms) sur l’appel LLM (évite “aucune réponse” si le modèle bloque).
+- **Défaut** : `9000`
+
 ---
 
 ## Tuning latence (Realtime)

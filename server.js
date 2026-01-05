@@ -267,6 +267,7 @@ wss.on("connection", (ws, req) => {
   const BACKCHANNEL_TEXT = process.env.BACKCHANNEL_TEXT ?? "D'accord, je note…";
   const BACKCHANNEL_DELAY_MS = Number(process.env.BACKCHANNEL_DELAY_MS ?? "250");
   const BACKCHANNEL_MIN_INTERVAL_MS = Number(process.env.BACKCHANNEL_MIN_INTERVAL_MS ?? "8000");
+  const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? "9000");
   let backchannelTimer = null;
   let lastBackchannelAt = 0;
   // Realtime latency tuning
@@ -370,45 +371,89 @@ wss.on("connection", (ws, req) => {
     return (json.text ?? "").toString();
   }
 
-  async function openaiChat(messages, model) {
-    // Certains modèles (ex: gpt-5) n'acceptent pas `max_tokens` et demandent `max_completion_tokens`.
-    // Et certains n'acceptent pas `temperature` (ils n'autorisent que la valeur par défaut).
-    const body = {
-      model,
-      messages,
-    };
-    const isGpt5 = String(model).toLowerCase().includes("gpt-5");
-    // Par défaut on n'envoie temperature que si on est sûr que le modèle l'accepte.
-    // (Nos logs montrent que gpt-5 refuse temperature != 1)
-    if (!isGpt5) {
-      body.temperature = LLM_TEMPERATURE;
-    } else {
-      // Si l'utilisateur force explicitement 1, on peut l'envoyer, sinon on omet.
-      if (Number(LLM_TEMPERATURE) === 1) body.temperature = 1;
+  function extractTextFromResponsesJson(json) {
+    if (!json) return "";
+    if (typeof json.output_text === "string" && json.output_text.trim()) return json.output_text.trim();
+    // fallback: parcourir output[]
+    const out = Array.isArray(json.output) ? json.output : [];
+    const parts = [];
+    for (const item of out) {
+      const content = Array.isArray(item?.content) ? item.content : [];
+      for (const c of content) {
+        const t = c?.text ?? c?.transcript ?? c?.value ?? null;
+        if (typeof t === "string" && t.trim()) parts.push(t.trim());
+      }
     }
-    if (isGpt5) {
-      body.max_completion_tokens = LLM_MAX_TOKENS;
-    } else {
-      body.max_tokens = LLM_MAX_TOKENS;
-    }
+    return parts.join("\n").trim();
+  }
 
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const json = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      const msg = JSON.stringify(json).slice(0, 400);
-      const err = new Error(`LLM error ${resp.status}: ${msg}`);
-      err.__openai = json;
-      throw err;
+  async function openaiLLM(messages, model) {
+    const isGpt5 = String(model).toLowerCase().includes("gpt-5");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+
+    try {
+      // GPT‑5: utiliser Responses API (les params et endpoints diffèrent)
+      if (isGpt5) {
+        const body = {
+          model,
+          input: messages.map((m) => ({
+            role: m.role,
+            content: [{ type: "input_text", text: String(m.content ?? "") }],
+          })),
+          // Paramètre correct côté Responses API
+          max_output_tokens: LLM_MAX_TOKENS,
+        };
+        // temperature: gpt-5 semble refuser autre chose que la valeur par défaut; on omet.
+        if (Number(LLM_TEMPERATURE) === 1) body.temperature = 1;
+
+        const resp = await fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify(body),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          const msg = JSON.stringify(json).slice(0, 400);
+          const err = new Error(`LLM error ${resp.status}: ${msg}`);
+          err.__openai = json;
+          throw err;
+        }
+        return extractTextFromResponsesJson(json);
+      }
+
+      // Autres modèles: Chat Completions
+      const body = {
+        model,
+        temperature: LLM_TEMPERATURE,
+        max_tokens: LLM_MAX_TOKENS,
+        messages,
+      };
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        const msg = JSON.stringify(json).slice(0, 400);
+        const err = new Error(`LLM error ${resp.status}: ${msg}`);
+        err.__openai = json;
+        throw err;
+      }
+      const content = json?.choices?.[0]?.message?.content ?? "";
+      return String(content || "").trim();
+    } finally {
+      clearTimeout(timeout);
     }
-    const content = json?.choices?.[0]?.message?.content ?? "";
-    return String(content || "").trim();
   }
 
   async function runSttLlmTtsTurn() {
@@ -442,11 +487,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
       let answer = "";
       try {
-        answer = await openaiChat(msgs, LLM_MODEL);
+        console.log("🧠 LLM start:", { model: LLM_MODEL });
+        answer = await openaiLLM(msgs, LLM_MODEL);
+        console.log("🧠 LLM done:", { model: LLM_MODEL, chars: answer?.length ?? 0 });
       } catch (err) {
         // Fallback si le modèle demandé (ex: gpt-5) n'est pas disponible
         console.error("❌ LLM primary failed, fallback to gpt-4o:", String(err?.message ?? err));
-        answer = await openaiChat(msgs, "gpt-4o");
+        console.log("🧠 LLM start (fallback):", { model: "gpt-4o" });
+        answer = await openaiLLM(msgs, "gpt-4o");
+        console.log("🧠 LLM done (fallback):", { model: "gpt-4o", chars: answer?.length ?? 0 });
       }
       if (!answer) return;
       conversationHistory.push({ role: "assistant", content: answer });
@@ -1149,7 +1198,7 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
             sttSilenceFrames = 0;
             if (durMs >= STT_MIN_AUDIO_MS) {
               // Backchannel intelligent (moins souvent + seulement si la réponse tarde)
-              if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED) {
+              if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED && !sttInFlight) {
                 const now = nowMs();
                 const canPlay = (now - lastBackchannelAt) >= BACKCHANNEL_MIN_INTERVAL_MS;
                 if (canPlay) {
