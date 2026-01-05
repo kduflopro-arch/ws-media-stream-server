@@ -134,6 +134,7 @@ wss.on("connection", (ws, req) => {
   let speechActive = false;
   let lastSpeechTs = 0;
   let lastCommitAt = 0;
+  let silenceFrames = 0; // frames consécutives "silence"
   // Buffer des frames Twilio reçues avant que OpenAI WS soit "open"
   let preOpenFrames = []; // Array<{ audioBase64: string, mulawLen: number, ts: number }>
   let preOpenBytes = 0;
@@ -145,18 +146,15 @@ wss.on("connection", (ws, req) => {
     return Date.now();
   }
 
-  // VAD très simple: énergie moyenne sur la frame μ-law
-  // (seuil à ajuster si besoin; 8000 était trop strict en pratique → on descend)
-  function isSpeechMulaw(mulawBuf) {
+  // Énergie moyenne sur une frame μ-law (utile pour détecter silence/parole)
+  function avgAbsMulaw(mulawBuf) {
     if (!mulawBuf || mulawBuf.length === 0) return false;
     let sum = 0;
     for (let i = 0; i < mulawBuf.length; i++) {
       const s = MULAW_DECODE_TABLE[mulawBuf[i] & 0xff];
       sum += Math.abs(s);
     }
-    const avg = sum / mulawBuf.length;
-    // Sur ligne téléphonique, un seuil ~1500-3000 marche souvent mieux qu'un seuil très élevé.
-    return avg > 2200;
+    return sum / mulawBuf.length;
   }
 
   function createResponse() {
@@ -259,9 +257,10 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
 
         // Flush des frames reçues avant l'ouverture OpenAI
         if (preOpenFrames.length > 0) {
+          const flushedBytes = preOpenBytes;
           console.log("⏩ Flush pre-open frames -> OpenAI:", {
             frames: preOpenFrames.length,
-            bytes: preOpenBytes,
+            bytes: flushedBytes,
             fmt: OPENAI_AUDIO_FORMAT,
           });
           for (const f of preOpenFrames) {
@@ -270,6 +269,9 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               audio: f.audioBase64,
             }));
           }
+          // IMPORTANT: ces bytes ont déjà été append côté OpenAI, donc il faut aussi les compter
+          // pour pouvoir commit ensuite (sinon l'IA ne répond jamais si l'utilisateur parle trop tôt).
+          appendedBytes += flushedBytes;
           preOpenFrames = [];
           preOpenBytes = 0;
         }
@@ -469,14 +471,34 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
                 });
               }
               
+              // Détection parole/silence (robuste, sans dépendre d'events OpenAI)
+              const avg = avgAbsMulaw(mulawBuffer);
+              const speechThreshold = 2200;
+              const silenceThreshold = 1200;
+              const isSpeech = avg > speechThreshold;
+              const isSilence = avg < silenceThreshold;
+              if (isSpeech) {
+                speechActive = true;
+                lastSpeechTs = nowMs();
+                silenceFrames = 0;
+              } else if (isSilence) {
+                silenceFrames += 1;
+              } else {
+                // zone intermédiaire: on ne compte pas comme silence strict
+                silenceFrames = Math.max(0, silenceFrames - 1);
+              }
+              if (mediaCount % 200 === 0) {
+                console.log("🎚️ VAD (debug):", {
+                  avgAbs: Math.round(avg),
+                  speechActive,
+                  silenceFrames,
+                  appendedBytes,
+                  fmt: OPENAI_AUDIO_FORMAT,
+                });
+              }
+
               if (OPENAI_AUDIO_FORMAT === "g711_ulaw") {
                 // Pass-through: on append l'audio Twilio directement
-                // VAD local
-                const isSpeech = isSpeechMulaw(mulawBuffer);
-                if (isSpeech) {
-                  speechActive = true;
-                  lastSpeechTs = nowMs();
-                }
                 appendedBytes += mulawBuffer.length;
                 openaiWs.send(JSON.stringify({
                   type: "input_audio_buffer.append",
@@ -492,12 +514,6 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
                   pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
                 }
                 const pcm24kBase64 = pcm24kBuffer.toString("base64");
-                // VAD local basé sur μ-law
-                const isSpeech = isSpeechMulaw(mulawBuffer);
-                if (isSpeech) {
-                  speechActive = true;
-                  lastSpeechTs = nowMs();
-                }
                 appendedBytes += pcm24kBuffer.length;
 
                 // Envoyer PCM24k à OpenAI
@@ -507,21 +523,26 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
                 }));
               }
 
-              // Commit + réponse: quand on détecte la fin de parole (silence > 350ms)
+              // Commit + réponse:
+              // - si on a accumulé assez d'audio ET qu'on a du silence stable (~400ms)
+              // - ou en fallback, toutes les ~2s si rien ne déclenche (pour éviter "aucune réponse")
               const minCommitBytes = OPENAI_AUDIO_FORMAT === "g711_ulaw" ? 800 : 4800; // ~100ms
-              const silenceMs = 350;
-              const coolDownMs = 250; // éviter spam commits
+              const coolDownMs = 350;
+              const forceEveryMs = 2000;
               const now = nowMs();
-              const inSilence = speechActive && (now - lastSpeechTs) > silenceMs;
+              const silenceStable = silenceFrames >= 20; // ~20 * 20ms = 400ms
               const canCommit = appendedBytes >= minCommitBytes && (now - lastCommitAt) > coolDownMs;
-              if (inSilence && canCommit) {
+              const forceCommit = appendedBytes >= (minCommitBytes * 3) && (now - lastCommitAt) > forceEveryMs;
+              if ((silenceStable && speechActive && canCommit) || (forceCommit && canCommit)) {
                 speechActive = false;
+                silenceFrames = 0;
                 lastCommitAt = now;
-                console.log("📤 Commit+response (VAD local):", {
+                console.log("📤 Commit+response:", {
                   bytes: appendedBytes,
                   minCommitBytes,
                   fmt: OPENAI_AUDIO_FORMAT,
-                  silence: now - lastSpeechTs,
+                  silenceStable,
+                  forceCommit,
                 });
                 openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
                 createResponse();
