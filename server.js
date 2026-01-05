@@ -256,10 +256,14 @@ wss.on("connection", (ws, req) => {
   const LLM_MAX_TOKENS = Number(process.env.LLM_MAX_TOKENS ?? "220");
   const STT_SPEECH_THRESHOLD = Number(process.env.STT_SPEECH_THRESHOLD ?? "2200");
   const STT_SPEECH_FRAMES = Number(process.env.STT_SPEECH_FRAMES ?? "6"); // ~120ms
-  const STT_SILENCE_THRESHOLD = Number(process.env.STT_SILENCE_THRESHOLD ?? "1200");
-  const STT_SILENCE_FRAMES = Number(process.env.STT_SILENCE_FRAMES ?? "18"); // ~360ms
-  const STT_MIN_AUDIO_MS = Number(process.env.STT_MIN_AUDIO_MS ?? "400");
+  // IMPORTANT: trop agressif => coupe la phrase dès une micro-pause.
+  // On baisse le seuil de "silence" et on augmente la durée de silence requise.
+  const STT_SILENCE_THRESHOLD = Number(process.env.STT_SILENCE_THRESHOLD ?? "900");
+  const STT_SILENCE_FRAMES = Number(process.env.STT_SILENCE_FRAMES ?? "22"); // ~440ms
+  const STT_MIN_AUDIO_MS = Number(process.env.STT_MIN_AUDIO_MS ?? "450");
   const HISTORY_MAX_TURNS = Number(process.env.HISTORY_MAX_TURNS ?? "8");
+  const BACKCHANNEL_ENABLED = (process.env.BACKCHANNEL_ENABLED ?? "true").toLowerCase() === "true";
+  const BACKCHANNEL_TEXT = process.env.BACKCHANNEL_TEXT ?? "D'accord, je note…";
   let sttSpeechFrames = 0;
   let sttSilenceFrames = 0;
   let sttActive = false;
@@ -405,7 +409,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       conversationHistory.push({ role: "assistant", content: answer });
       conversationHistory = conversationHistory.slice(-HISTORY_MAX_TURNS * 2);
 
-      await speakWithElevenLabs(answer);
+      await speakWithElevenLabs(answer, { interrupt: true });
     } catch (err) {
       console.error("❌ Erreur pipeline STT→LLM→TTS:", err);
     } finally {
@@ -413,7 +417,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
   }
 
-  async function speakWithElevenLabs(text) {
+  async function speakWithElevenLabs(text, { interrupt = true } = {}) {
     if (!PREMIUM_TTS_ENABLED) return;
     if (PREMIUM_TTS_PROVIDER !== "elevenlabs") return;
     if (nowMs() < premiumTtsBypassUntilMs) return;
@@ -425,10 +429,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!clean) return;
 
     // Stopper toute synthèse en cours et couper l'audio en file
-    try { premiumTtsAbort?.abort?.(); } catch { /* ignore */ }
-    premiumTtsAbort = new AbortController();
-    outboundQueue = [];
-    outboundQueuedBytes = 0;
+    if (interrupt) {
+      try { premiumTtsAbort?.abort?.(); } catch { /* ignore */ }
+      premiumTtsAbort = new AbortController();
+      outboundQueue = [];
+      outboundQueuedBytes = 0;
+    } else if (!premiumTtsAbort) {
+      premiumTtsAbort = new AbortController();
+    }
     premiumTtsInFlight = true;
     premiumTtsLastError = null;
 
@@ -799,7 +807,7 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
             const doneText = (typeof msg.transcript === "string" ? msg.transcript : "") || (rid ? (transcriptMap.get(rid) || "") : "");
             if (PREMIUM_TTS_ENABLED && doneText && doneText.trim()) {
               // Lancer la voix premium
-              speakWithElevenLabs(doneText);
+              speakWithElevenLabs(doneText, { interrupt: true });
             }
           }
           
@@ -989,7 +997,7 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
           if (!greetOncePerCall || !hasGreetedRecently(callSid)) {
             const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "150");
             setTimeout(() => {
-              speakWithElevenLabs(`Oui allô, bonjour. Garage ${garageName || "AutoGuru"}, bonjour, je vous écoute. Qu'est-ce qui vous amène ?`);
+              speakWithElevenLabs(`Oui allô, bonjour. Garage ${garageName || "AutoGuru"}, bonjour, je vous écoute. Qu'est-ce qui vous amène ?`, { interrupt: true });
               if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
             }, greetingDelayMs);
           }
@@ -1081,6 +1089,10 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
             sttSpeechFrames = 0;
             sttSilenceFrames = 0;
             if (durMs >= STT_MIN_AUDIO_MS) {
+              // Backchannel très court pour réduire la "latence perçue"
+              if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED) {
+                speakWithElevenLabs(BACKCHANNEL_TEXT, { interrupt: true });
+              }
               runSttLlmTtsTurn();
             } else {
               sttMulawChunks = [];

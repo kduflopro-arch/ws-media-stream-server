@@ -122,9 +122,17 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 ### VAD STT (détection de fin de phrase)
 - **`STT_SPEECH_THRESHOLD`** (défaut `2200`)
 - **`STT_SPEECH_FRAMES`** (défaut `6` ≈ 120ms)
-- **`STT_SILENCE_THRESHOLD`** (défaut `1200`)
-- **`STT_SILENCE_FRAMES`** (défaut `18` ≈ 360ms)
-- **`STT_MIN_AUDIO_MS`** (défaut `400`)
+- **`STT_SILENCE_THRESHOLD`** (défaut `900`)
+- **`STT_SILENCE_FRAMES`** (défaut `22` ≈ 440ms)
+- **`STT_MIN_AUDIO_MS`** (défaut `450`)
+
+### `BACKCHANNEL_ENABLED`
+- **Rôle** : joue un micro “accusé de réception” juste après ta phrase (ex: “D’accord, je note…”) pour que ça paraisse instantané.
+- **Défaut** : `true`
+
+### `BACKCHANNEL_TEXT`
+- **Rôle** : texte du backchannel.
+- **Défaut** : `D'accord, je note…`
 
 ---
 
