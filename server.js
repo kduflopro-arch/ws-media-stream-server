@@ -150,6 +150,9 @@ wss.on("connection", (ws, req) => {
   let lastSpeechTs = 0;
   let lastCommitAt = 0;
   let silenceFrames = 0; // frames consécutives "silence"
+  let bytesSinceSpeechStart = 0;
+  let responseInProgress = false;
+  let activeResponseId = null;
   // Buffer des frames Twilio reçues avant que OpenAI WS soit "open"
   let preOpenFrames = []; // Array<{ audioBase64: string, mulawLen: number, ts: number }>
   let preOpenBytes = 0;
@@ -179,8 +182,26 @@ wss.on("connection", (ws, req) => {
 
   function createResponse() {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+    if (responseInProgress) return;
     // Important: sans response.create, l'IA peut ne jamais parler même après commit.
+    responseInProgress = true; // optimiste, sera confirmé par response.created
     openaiWs.send(JSON.stringify({ type: "response.create" }));
+  }
+
+  function cancelResponseForBargeIn() {
+    if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+    if (!responseInProgress) return;
+    try {
+      openaiWs.send(JSON.stringify({ type: "response.cancel" }));
+      responseInProgress = false;
+      activeResponseId = null;
+      // Couper immédiatement l'audio sortant (sinon l'appelant entend la fin du message pendant qu'il parle)
+      outboundQueue = [];
+      outboundQueuedBytes = 0;
+      console.log("✋ Barge-in: response.cancel + purge outbound.");
+    } catch (err) {
+      console.error("❌ Erreur response.cancel:", err);
+    }
   }
 
   function enqueueOutboundMulaw(buf) {
@@ -435,9 +456,26 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
             speechActive = true;
             lastSpeechTs = nowMs();
             awaitingUserResponse = true;
+            bytesSinceSpeechStart = 0;
+            // Si l'IA parle déjà, on stoppe (barge-in)
+            cancelResponseForBargeIn();
           }
           if (msg.type === "input_audio_buffer.speech_stopped") {
             speechActive = false;
+            // Commit uniquement si on a assez d'audio depuis le début de parole
+            const minCommitBytes = 4800; // 100ms @ 24kHz PCM16
+            if (bytesSinceSpeechStart >= minCommitBytes && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+              console.log("📤 Commit (OpenAI VAD speech_stopped):", {
+                bytesSinceSpeechStart,
+                minCommitBytes,
+              });
+              openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+            } else {
+              console.log("⏩ Skip commit (speech too short):", {
+                bytesSinceSpeechStart,
+                minCommitBytes,
+              });
+            }
           }
 
           if (msg.type === "input_audio_buffer.committed") {
@@ -456,6 +494,16 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               console.log("🗣️ response.create après commit (user speech).");
               createResponse();
             }
+          }
+
+          if (msg.type === "response.created") {
+            responseInProgress = true;
+            activeResponseId = msg.response?.id ?? msg.response_id ?? null;
+          }
+
+          if (msg.type === "response.done") {
+            responseInProgress = false;
+            activeResponseId = null;
           }
           
           if (msg.type === "session.created" || msg.type === "session.updated") {
@@ -592,6 +640,9 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
               }
               const pcm24kBase64 = pcm24kBuffer.toString("base64");
               appendedBytes += pcm24kBuffer.length;
+              if (speechActive) {
+                bytesSinceSpeechStart += pcm24kBuffer.length;
+              }
 
               // Envoyer PCM24k à OpenAI
               openaiWs.send(JSON.stringify({
@@ -599,27 +650,8 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
                 audio: pcm24kBase64,
               }));
 
-              // Commit + réponse:
-              // - si on a accumulé assez d'audio ET qu'on a du silence stable (~400ms)
-              const minCommitBytes = 4800; // 100ms @ 24kHz PCM16
-              const coolDownMs = 350;
-              const now = nowMs();
-              const silenceStable = silenceFrames >= 20; // ~20 * 20ms = 400ms
-              const canCommit = appendedBytes >= minCommitBytes && (now - lastCommitAt) > coolDownMs;
-              if (silenceStable && speechActive && canCommit) {
-                speechActive = false;
-                silenceFrames = 0;
-                lastCommitAt = now;
-                console.log("📤 Commit+response:", {
-                  bytes: appendedBytes,
-                  minCommitBytes,
-                  fmt: "pcm16",
-                  silenceStable,
-                });
-                openaiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-                createResponse();
-                appendedBytes = 0;
-              }
+              // IMPORTANT: On ne commit PAS ici (ça crée des commits concurrents et des réponses qui se chevauchent).
+              // Le commit est déclenché par input_audio_buffer.speech_stopped (VAD OpenAI).
               
             } catch (err) {
               console.error(`❌ Erreur frame ${mediaCount} conversion/envoi audio à OpenAI:`, err);
