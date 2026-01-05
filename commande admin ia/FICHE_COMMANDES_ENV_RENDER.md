@@ -205,6 +205,22 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 
 ## Variables avancées (debug)
 
+### `INPUT_SUPPRESS_WHILE_TALKING`
+- **Rôle** : anti-écho/anti-TV. Quand l’IA parle, on n’envoie pas l’audio entrant à OpenAI (évite réponses tronquées + coupures).
+- **Défaut** : `true`
+- **Valeurs** : `true` / `false`
+
+### `INPUT_SUPPRESS_BACKLOG_FRAMES`
+- **Rôle** : seuil (frames 20ms) de backlog audio sortant au-delà duquel on considère que “l’IA parle”.
+- **Défaut** : `5` (~100ms)
+
+### `ELEVENLABS_MAX_BACKLOG_SECONDS`
+- **Rôle** : limite le débit du TTS ElevenLabs pour éviter d’envoyer l’audio en rafales (Twilio peut “drop” → coupures).
+- **Défaut** : `3` (secondes)
+- **Conseils** :
+  - Si tu entends des coupures → baisse `2`
+  - Si tu entends de la latence (retard) → monte `4`
+
 ### `LOCAL_COMMIT_ENABLED`
 - **Rôle** : autorise le serveur à envoyer `input_audio_buffer.commit` lui-même (au lieu de laisser OpenAI auto-commit).
 - **Défaut** : `false`

@@ -247,6 +247,10 @@ wss.on("connection", (ws, req) => {
     return Date.now();
   }
 
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function speakWithElevenLabs(text) {
     if (!PREMIUM_TTS_ENABLED) return;
     if (PREMIUM_TTS_PROVIDER !== "elevenlabs") return;
@@ -295,6 +299,8 @@ wss.on("connection", (ws, req) => {
       // Buffer bytes pour alignement + blocs 640 bytes.
       const nodeStream = Readable.fromWeb(resp.body);
       let pcmBuf = Buffer.alloc(0);
+      const maxBacklogSeconds = Number(process.env.ELEVENLABS_MAX_BACKLOG_SECONDS ?? "3");
+      const maxBacklogBytes = Math.max(160 * 50, Math.floor(8000 * maxBacklogSeconds)); // 8k bytes/sec (μ-law 8kHz)
 
       for await (const chunk of nodeStream) {
         if (!chunk || chunk.length === 0) continue;
@@ -305,6 +311,11 @@ wss.on("connection", (ws, req) => {
           pcmBuf = pcmBuf.subarray(640);
           const mulawFrame = convertPcm16kBlockToMulaw(block); // 160 bytes
           enqueueOutboundMulaw(mulawFrame);
+          // IMPORTANT: éviter de pousser l'audio trop vite (Twilio peut drop / couper si on burst).
+          // On applique un throttle basé sur le backlog réel.
+          while (outboundQueuedBytes > maxBacklogBytes) {
+            await sleep(20);
+          }
         }
       }
       // Drop remainder (<20ms) to keep pacing stable.
@@ -351,6 +362,9 @@ wss.on("connection", (ws, req) => {
   let bytesSinceInputStart = 0;
   let lastInputCommitAt = 0;
   const LOCAL_COMMIT_ENABLED = (process.env.LOCAL_COMMIT_ENABLED ?? "false").toLowerCase() === "true";
+  // Anti-écho: si l'IA parle, on peut ignorer l'audio entrant pour éviter que la TV/retour audio déclenche un nouveau tour.
+  const INPUT_SUPPRESS_WHILE_TALKING = (process.env.INPUT_SUPPRESS_WHILE_TALKING ?? "true").toLowerCase() === "true";
+  const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "5"); // ~100ms d'audio sortant
 
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
@@ -860,6 +874,17 @@ Ensuite: pose UNE question simple ("Qu'est-ce qui vous amène ?")`,
                 cancelResponseForBargeIn();
                 twilioSpeechFrames = 0;
               }
+
+              // Anti-écho / anti-TV:
+              // Si l'IA parle (ou qu'il reste du backlog sortant à jouer), ne pas forward l'audio entrant à OpenAI.
+              // Sinon OpenAI détecte speech_started (écho/TV) et les réponses deviennent tronquées / "pas naturelles".
+              const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
+              const assistantIsTalking =
+                responseInProgress ||
+                premiumTtsInFlight ||
+                assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
+              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsTalking && !BARGE_IN_ENABLED;
+              if (suppressInputNow) return;
               
               if (mediaCount <= 3) {
                 console.log(`🔊 Frame ${mediaCount} audio (μ-law):`, {
