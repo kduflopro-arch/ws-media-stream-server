@@ -153,7 +153,10 @@ wss.on("connection", (ws, req) => {
   let bytesSinceSpeechStart = 0;
   let responseInProgress = false;
   let activeResponseId = null;
-  let pendingResponse = false;
+  let lastCommittedAt = 0;
+  let lastResponseCreatedAt = 0;
+  let lastResponseCreateRequestedAt = 0;
+  let userHasSpoken = false;
   // Buffer des frames Twilio reçues avant que OpenAI WS soit "open"
   let preOpenFrames = []; // Array<{ audioBase64: string, mulawLen: number, ts: number }>
   let preOpenBytes = 0;
@@ -181,14 +184,19 @@ wss.on("connection", (ws, req) => {
     return sum / mulawBuf.length;
   }
 
-  function maybeCreateResponse() {
+  function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+    // Ne pas spam: si OpenAI a déjà une réponse en cours, ou si on vient juste d'en demander une.
+    const now = nowMs();
     if (responseInProgress) return;
-    if (!pendingResponse) return;
-    pendingResponse = false;
-    // Important: sans response.create, l'IA peut ne jamais parler même après commit.
-    responseInProgress = true; // optimiste, sera confirmé par response.created
-    openaiWs.send(JSON.stringify({ type: "response.create" }));
+    if ((now - lastResponseCreateRequestedAt) < 600) return;
+    lastResponseCreateRequestedAt = now;
+    try {
+      openaiWs.send(JSON.stringify({ type: "response.create" }));
+      if (reason) console.log("🗣️ response.create envoyé:", { reason });
+    } catch (err) {
+      console.error("❌ Erreur response.create:", err);
+    }
   }
 
   function cancelResponseForBargeIn() {
@@ -209,13 +217,6 @@ wss.on("connection", (ws, req) => {
 
   function enqueueOutboundMulaw(buf) {
     if (!buf || buf.length === 0) return;
-    // Limiter le backlog: si on accumule trop, on préfère drop pour éviter un gros décalage (ou une saturation Twilio).
-    const MAX_BACKLOG_BYTES = 160 * 200; // ~4s @ 20ms frames
-    if (outboundQueuedBytes > MAX_BACKLOG_BYTES) {
-      outboundQueue = [];
-      outboundQueuedBytes = 0;
-      console.log("🧹 Outbound backlog purgé (trop grand).");
-    }
     outboundQueue.push(buf);
     outboundQueuedBytes += buf.length;
   }
@@ -312,8 +313,8 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
           setTimeout(() => {
             try {
               if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-              // Si l'utilisateur parle déjà, ne pas lancer le greeting (sinon chevauchement)
-              if (speechActive || awaitingUserResponse) return;
+              // Si l'utilisateur a déjà parlé (ou parle), on skip le greeting pour éviter tout chevauchement.
+              if (userHasSpoken || speechActive || awaitingUserResponse || responseInProgress) return;
               openaiWs.send(JSON.stringify({
                 type: "conversation.item.create",
                 item: {
@@ -328,8 +329,7 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
                   ],
                 },
               }));
-              pendingResponse = true;
-              maybeCreateResponse();
+              requestResponseCreate("greeting");
               console.log("👋 Greeting demandé à OpenAI (response.create).");
             } catch (err) {
               console.error("❌ Erreur envoi greeting à OpenAI:", err);
@@ -463,6 +463,7 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
             lastSpeechTs = nowMs();
             awaitingUserResponse = true;
             bytesSinceSpeechStart = 0;
+            userHasSpoken = true;
             // Si l'IA parle déjà, on stoppe (barge-in)
             cancelResponseForBargeIn();
           }
@@ -475,33 +476,36 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
 
           if (msg.type === "input_audio_buffer.committed") {
             appendedBytes = 0;
+            lastCommittedAt = nowMs();
             console.log("✅ OpenAI buffer committed:", {
               item_id: msg.item_id,
               previous_item_id: msg.previous_item_id,
             });
-            // IMPORTANT: déclencher une réponse uniquement via une file "pending" pour éviter
-            // les réponses concurrentes (conversation_already_has_active_response).
-            const now = nowMs();
-            const canRequest = (now - lastResponseAt) > 600;
+            // Ne pas forcer response.create tout de suite: OpenAI peut auto-démarrer une réponse.
+            // On met un watchdog: si aucune réponse ne démarre après le commit, on envoie response.create.
+            const canRequest = (lastCommittedAt - lastResponseAt) > 600;
             if (awaitingUserResponse && canRequest) {
-              lastResponseAt = now;
+              lastResponseAt = lastCommittedAt;
               awaitingUserResponse = false;
-              pendingResponse = true;
-              console.log("🗣️ response.create demandé après commit (user speech).");
-              maybeCreateResponse();
+              setTimeout(() => {
+                // Si OpenAI n'a pas démarré de réponse depuis ce commit, on déclenche.
+                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+                if (responseInProgress) return;
+                if (lastResponseCreatedAt >= lastCommittedAt) return;
+                requestResponseCreate("watchdog_after_commit");
+              }, 400);
             }
           }
 
           if (msg.type === "response.created") {
             responseInProgress = true;
             activeResponseId = msg.response?.id ?? msg.response_id ?? null;
+            lastResponseCreatedAt = nowMs();
           }
 
           if (msg.type === "response.done") {
             responseInProgress = false;
             activeResponseId = null;
-            // S'il y a une réponse en attente, on la démarre maintenant
-            maybeCreateResponse();
           }
           
           if (msg.type === "session.created" || msg.type === "session.updated") {
@@ -564,8 +568,10 @@ Quand tu confirmes une info, reformule-la brièvement (ex: « d'accord, plaque A
         if (!outboundTimer) {
           outboundTimer = setInterval(() => {
             try {
-              // 1 frame = 20ms
-              sendOutboundFrames(1);
+              // 1 frame = 20ms. On draine plus vite si on a du retard pour éviter les backlogs et les "purges".
+              const backlogFrames = Math.floor(outboundQueuedBytes / 160);
+              const framesToSend = backlogFrames > 60 ? 5 : backlogFrames > 20 ? 3 : 1; // >1.2s => 5, >0.4s => 3
+              sendOutboundFrames(framesToSend);
             } catch {
               // ignore
             }
