@@ -277,19 +277,27 @@ wss.on("connection", (ws, req) => {
   let premiumTtsDrainInFlight = false;
 
   // AutoGuru ingest (pour remplir "détails d'appel" même en mode Realtime)
-  const AUTOGURU_INGEST_URL = process.env.AUTOGURU_INGEST_URL ?? ""; // ex: https://<autoguru>/api/twilio/realtime-ingest
-  const AUTOGURU_INGEST_SECRET = process.env.AUTOGURU_INGEST_SECRET ?? "";
+  // AutoGuru ingest: par défaut via env (legacy), mais en multi-garages on préfère
+  // recevoir URL+token par appel via Twilio <Parameter> (verrouillé par garage).
+  const AUTOGURU_INGEST_URL_ENV = process.env.AUTOGURU_INGEST_URL ?? ""; // ex: https://<autoguru>/api/twilio/realtime-ingest
+  const AUTOGURU_INGEST_SECRET_ENV = process.env.AUTOGURU_INGEST_SECRET ?? "";
+  let autoguruIngestUrl = "";
+  let autoguruIngestToken = "";
   async function ingestToAutoGuru(role, text) {
     try {
-      if (!AUTOGURU_INGEST_URL || !AUTOGURU_INGEST_SECRET) return;
+      const url = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
+      const token = autoguruIngestToken;
+      const secret = AUTOGURU_INGEST_SECRET_ENV;
+      if (!url) return;
+      if (!token && !secret) return;
       if (!callSid) return;
       const clean = String(text || "").trim();
       if (!clean) return;
-      await fetch(AUTOGURU_INGEST_URL, {
+      await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          secret: AUTOGURU_INGEST_SECRET,
+          ...(token ? { token } : { secret }),
           callSid,
           role,
           text: clean,
@@ -1423,6 +1431,9 @@ But: être naturel et mettre le client en confiance.`,
         const finalGarageId = startParams.garageId || garageId;
         const finalGarageName = startParams.garageName || garageName;
         const finalFromNumber = startParams.fromNumber || fromNumber;
+        // AutoGuru ingest (Option A): transmis par AutoGuru via Twilio <Parameter>
+        const finalIngestUrl = startParams.autoguruIngestUrl || "";
+        const finalIngestToken = startParams.autoguruIngestToken || "";
         
         console.log("🎬 Stream start:", {
           streamCallSid,
@@ -1440,6 +1451,8 @@ But: être naturel et mettre le client en confiance.`,
         garageId = finalGarageId;
         garageName = finalGarageName;
         fromNumber = finalFromNumber;
+        if (typeof finalIngestUrl === "string" && finalIngestUrl.trim()) autoguruIngestUrl = finalIngestUrl.trim();
+        if (typeof finalIngestToken === "string" && finalIngestToken.trim()) autoguruIngestToken = finalIngestToken.trim();
 
         // Toujours logguer la config au démarrage d'un stream pour diagnostiquer Render env vs code path.
         logPipelineConfigOnce("⚙️ Pipeline actif");
