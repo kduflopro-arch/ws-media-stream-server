@@ -301,7 +301,17 @@ wss.on("connection", (ws, req) => {
   let garageTone = "";
   let consentRequired = true;
   let appointmentMode = "request";
-  async function ingestToAutoGuru(role, text) {
+  let ingestSeq = 0;
+  let ingestChain = Promise.resolve();
+  function enqueueIngest(role, text) {
+    ingestSeq += 1;
+    const seq = ingestSeq;
+    const ts = nowMs();
+    ingestChain = ingestChain
+      .then(() => ingestToAutoGuru(role, text, { seq, ts }))
+      .catch(() => {});
+  }
+  async function ingestToAutoGuru(role, text, extra = {}) {
     try {
       const url = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
       const token = autoguruIngestToken;
@@ -321,8 +331,40 @@ wss.on("connection", (ws, req) => {
           text: clean,
           garageId: garageId || null,
           fromNumber: fromNumber || null,
+          ...extra,
         }),
       }).catch(() => {});
+    } catch {
+      // ignore
+    }
+  }
+
+  let finalizeSent = false;
+  async function finalizeCallToAutoGuru(reason = "stop") {
+    try {
+      if (finalizeSent) return;
+      finalizeSent = true;
+      const ingestUrl = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
+      if (!ingestUrl) return;
+      const token = autoguruIngestToken;
+      const secret = AUTOGURU_INGEST_SECRET_ENV;
+      if (!token && !secret) return;
+      if (!callSid) return;
+      const finalizeUrl = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/realtime-finalize");
+      await ingestChain.catch(() => {});
+      await fetch(finalizeUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(token ? { token } : { secret }),
+          callSid,
+          garageId: garageId || null,
+          fromNumber: fromNumber || null,
+          appointmentMode: appointmentMode || null,
+          reason,
+        }),
+      }).catch(() => {});
+      console.log("🧾 Finalize envoyé à AutoGuru.", { reason });
     } catch {
       // ignore
     }
@@ -666,7 +708,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.error("❌ PREMIUM_TTS activé mais ELEVENLABS_API_KEY/ELEVENLABS_VOICE_ID manquants.");
       return;
     }
-    const clean = (text || "").trim();
+    const clean = normalizeFrenchTtsText((text || "").trim());
     if (!clean) return;
 
     // Stopper toute synthèse en cours et couper l'audio en file
@@ -768,7 +810,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
   function enqueueElevenLabsTts(text, { interrupt = true } = {}) {
     if (!PREMIUM_TTS_ENABLED) return;
-    const clean = (text || "").trim();
+    const clean = normalizeFrenchTtsText((text || "").trim());
     if (!clean) return;
 
     // Si le client parle, on retarde la réponse (sinon ça parle par-dessus).
@@ -815,6 +857,25 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       sum += Math.abs(s);
     }
     return sum / mulawBuf.length;
+  }
+
+  // Pré-traitement TTS (améliore articulation/intonation en téléphonie)
+  function normalizeFrenchTtsText(input) {
+    let t = String(input || "").trim();
+    if (!t) return "";
+    // Nettoyage léger
+    t = t.replace(/\s+/g, " ");
+    // Abbréviations courantes
+    t = t.replace(/\bRDV\b/gi, "rendez-vous");
+    t = t.replace(/\bOK\b/g, "ok");
+    // Ponctuation FR (aide l'intonation)
+    t = t.replace(/\s*([!?;:])\s*/g, "$1 ");
+    t = t.replace(/\s*([,.])\s*/g, "$1 ");
+    // Pauses naturelles
+    t = t.replace(/(\d)\s*km\b/gi, "$1 kilomètres");
+    // Eviter les très longues phrases (téléphonie)
+    if (t.length > 220 && !/[.!?]/.test(t.slice(-20))) t += ".";
+    return t.trim();
   }
 
   // Détection parole côté Twilio (pour barge-in) : plus stable que les events VAD OpenAI en environnement bruyant.
@@ -996,9 +1057,23 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const rawGarageName = String(garageName || "AutoGuru").trim();
         const garageLabel = /^garage\b/i.test(rawGarageName) ? rawGarageName : `Garage ${rawGarageName}`;
 
+        const modeLine =
+          appointmentMode === "none"
+            ? "Mode rendez-vous: aucun (tu ne proposes pas de RDV, tu prends un message)."
+            : appointmentMode === "internal"
+              ? "Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes seulement après validation explicite du client)."
+              : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande et le garage rappelle pour confirmer).";
+
+        const consentLine =
+          consentRequired
+            ? "Avant de collecter des infos perso: demander l'accord pour l'enregistrement (oui/non)."
+            : "Consentement enregistrement: non requis.";
+
         const baseInstructions = `Tu es ${assistantName}, l'assistante téléphonique de ${garageLabel}.
 Tu réponds à des appels téléphoniques.
-Objectif: comprendre le problème du véhicule, rassurer, et proposer un rendez-vous.
+Objectif: comprendre le problème du véhicule, rassurer, et avancer vers une prise en charge (selon le mode RDV).
+${modeLine}
+${consentLine}
 Style: très chaleureux et humain.
 Format: réponses TRÈS courtes (1 à 2 phrases), puis UNE question.`;
 
@@ -1024,9 +1099,11 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
           `IMPORTANT:
 - Tu es un garage auto. Tu parles UNIQUEMENT de véhicules/diagnostic/rendez-vous.
 - Si le client dit "j'ai un problème", tu poses des questions sur le véhicule (bruit/voyant/démarrage/freinage) et tu proposes un RDV.
+- Tu dois collecter la plaque d'immatriculation (ex: AB-123-CD) dès que possible. Si le client ne l'a pas: tu demandes marque/modèle/année.
 - Si le client donne une préférence de créneau (ex: "le matin", "l'après-midi"), tu DOIS la respecter et la reformuler.
 - Tu ne confirmes jamais un rendez-vous à une autre période que celle demandée. Si tu as un doute, tu demandes confirmation.
-- Si appointmentMode est "none", tu ne proposes pas de rendez-vous (tu prends un message et dis que le garage recontacte).
+- Si mode rendez-vous = demande: tu ne dis jamais "c'est confirmé" / "c'est fixé". Tu dis "je note la demande" et "on vous rappelle pour confirmer".
+- Si mode rendez-vous = aucun: tu ne proposes pas de RDV. Tu prends les infos et tu dis que le garage rappelle.
 - Ne dis JAMAIS: "ce que vous avez sur le cœur" / "dans la tête" / conseils psychologiques.`;
 
         const variationGuidelines =
@@ -1256,7 +1333,7 @@ But: être naturel et mettre le client en confiance.`,
             const doneText = (typeof msg.transcript === "string" ? msg.transcript : "") || (rid ? (transcriptMap.get(rid) || "") : "");
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
               // Remonter l'IA dans AutoGuru (détails d'appel)
-              ingestToAutoGuru("assistant", doneText);
+              enqueueIngest("assistant", doneText);
               // Lancer la voix premium.
               // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
               if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
@@ -1339,7 +1416,7 @@ But: être naturel et mettre le client en confiance.`,
           if (msg.type === "conversation.item.input_audio_transcription.completed") {
             const transcript = msg.transcript;
             console.log("🎤 Client dit:", transcript);
-            ingestToAutoGuru("user", transcript);
+            enqueueIngest("user", transcript);
           }
           
           if (msg.type === "error") {
@@ -1714,7 +1791,7 @@ But: être naturel et mettre le client en confiance.`,
                     try {
                       const wav = mulaw8kToPcm16kWav(joined);
                       const txt = (await openaiTranscribeWav(wav)).trim();
-                      if (txt) ingestToAutoGuru("user", txt);
+                      if (txt) enqueueIngest("user", txt);
                     } catch {
                       // ignore
                     } finally {
@@ -1884,6 +1961,7 @@ But: être naturel et mettre le client en confiance.`,
         
       } else if (msg.event === "stop") {
         console.log("🛑 Stream stop");
+        finalizeCallToAutoGuru("twilio_stop");
         if (outboundTimer) {
           clearInterval(outboundTimer);
           outboundTimer = null;
@@ -1899,6 +1977,7 @@ But: être naturel et mettre le client en confiance.`,
 
   ws.on("close", () => {
     console.log("🔌 Connection closed. Media frames total:", mediaCount);
+    finalizeCallToAutoGuru("ws_close");
     if (outboundTimer) {
       clearInterval(outboundTimer);
       outboundTimer = null;
