@@ -370,6 +370,37 @@ wss.on("connection", (ws, req) => {
     }
   }
 
+  async function requestPlateSmsIfNeeded(trigger = "assistant_plate_request") {
+    try {
+      const ingestUrl = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
+      if (!ingestUrl) return;
+      const token = autoguruIngestToken;
+      const secret = AUTOGURU_INGEST_SECRET_ENV;
+      if (!token && !secret) return;
+      if (!callSid) return;
+      const to = String(fromNumber || "").trim();
+      if (!/^\+\d{8,15}$/.test(to)) return;
+
+      // Anti-spam: une fois par appel
+      if (ws.__plateSmsRequested) return;
+      ws.__plateSmsRequested = true;
+
+      const url = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/plate-sms/request");
+      await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(token ? { token } : { secret }),
+          callSid,
+          garageId: garageId || null,
+          fromNumber: to,
+          trigger,
+        }),
+      }).catch(() => {});
+    } catch {
+      // ignore
+    }
+  }
   // Option B (STT → LLM → TTS)
   const STT_MODEL = process.env.STT_MODEL ?? "whisper-1";
   const STT_LANGUAGE = process.env.STT_LANGUAGE ?? "fr";
@@ -1102,6 +1133,7 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
 - Tu dois collecter la plaque d'immatriculation (ex: AB-123-CD) dès que possible. Si le client ne l'a pas: tu demandes marque/modèle/année.
 - Tu n'inventes JAMAIS une plaque. Si la plaque est partielle, ambiguë, ou trop courte (ex: un seul chiffre), tu dis que ce n'est pas suffisant et tu demandes de la redire lettre par lettre, chiffres par chiffres.
 - Quand tu répètes une plaque, tu la répètes exactement comme donnée. Si tu n'es pas sûr à 100%, tu demandes de confirmer au lieu de valider.
+- Quand tu as besoin de la plaque, tu proposes PRIORITAIREMENT: "Je vous envoie un SMS, répondez-y avec la plaque, ça l'enregistre automatiquement." puis tu demandes confirmation ("Ça vous va ?").
 - Si le client donne une préférence de créneau (ex: "le matin", "l'après-midi"), tu DOIS la respecter et la reformuler.
 - Tu ne confirmes jamais un rendez-vous à une autre période que celle demandée. Si tu as un doute, tu demandes confirmation.
 - Si mode rendez-vous = demande: tu ne dis jamais "c'est confirmé" / "c'est fixé". Tu dis "je note la demande" et "on vous rappelle pour confirmer".
@@ -1337,6 +1369,11 @@ But: être naturel et mettre le client en confiance.`,
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
+              // Si l'assistant demande la plaque, déclencher l'envoi SMS immédiatement
+              const low = String(doneText || "").toLowerCase();
+              if (low.includes("plaque") || low.includes("immatric")) {
+                requestPlateSmsIfNeeded("assistant_mentions_plate");
+              }
               // Lancer la voix premium.
               // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
               if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
