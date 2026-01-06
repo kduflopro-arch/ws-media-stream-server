@@ -255,6 +255,20 @@ wss.on("connection", (ws, req) => {
   let outUserSilenceFrames = 0;
   let outUserSpeaking = false;
   let pendingSpeakQueue = []; // textes ElevenLabs en attente pendant que le client parle
+
+  // Realtime: STT local (Whisper) pour remplir les détails d'appel + réduire les confusions
+  const REALTIME_USER_STT_ENABLED = (process.env.REALTIME_USER_STT_ENABLED ?? "true").toLowerCase() === "true";
+  const REALTIME_USER_STT_SPEECH_THRESHOLD = Number(process.env.REALTIME_USER_STT_SPEECH_THRESHOLD ?? "2200");
+  const REALTIME_USER_STT_SPEECH_FRAMES = Number(process.env.REALTIME_USER_STT_SPEECH_FRAMES ?? "6");
+  const REALTIME_USER_STT_SILENCE_THRESHOLD = Number(process.env.REALTIME_USER_STT_SILENCE_THRESHOLD ?? "900");
+  const REALTIME_USER_STT_SILENCE_FRAMES = Number(process.env.REALTIME_USER_STT_SILENCE_FRAMES ?? "22");
+  const REALTIME_USER_STT_MIN_AUDIO_MS = Number(process.env.REALTIME_USER_STT_MIN_AUDIO_MS ?? "500");
+  let rtSttSpeechFrames = 0;
+  let rtSttSilenceFrames = 0;
+  let rtSttActive = false;
+  let rtSttStartedAt = 0;
+  let rtSttMulawChunks = [];
+  let rtSttInFlight = false;
   
   // Mode "voix premium" (TTS externe). Si activé, on ignore l'audio OpenAI et on lit une voix premium via TTS.
   const PREMIUM_TTS_ENABLED = (process.env.PREMIUM_TTS_ENABLED ?? "false").toLowerCase() === "true";
@@ -283,6 +297,10 @@ wss.on("connection", (ws, req) => {
   const AUTOGURU_INGEST_SECRET_ENV = process.env.AUTOGURU_INGEST_SECRET ?? "";
   let autoguruIngestUrl = "";
   let autoguruIngestToken = "";
+  let assistantName = "Sandra";
+  let garageTone = "";
+  let consentRequired = true;
+  let appointmentMode = "request";
   async function ingestToAutoGuru(role, text) {
     try {
       const url = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
@@ -808,11 +826,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // Noise gate / VAD local pour l'INPUT (évite que la TV/bruit déclenche des réponses automatiques).
   // IMPORTANT: en pratique, trop agressif peut faire "l'IA ne répond pas".
   // Donc par défaut on l'active seulement si la variable Render est explicitement à true.
-  const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? "false").toLowerCase() === "true";
+  // En realtime, on active le gate par défaut pour éviter que l'IA réponde sur une micro-pause.
+  const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
   const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "2500");
   const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "6"); // ~120ms
-  const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "1200");
-  const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? "20"); // ~400ms
+  const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "1100");
+  const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? (PIPELINE_MODE === "realtime" ? "28" : "20")); // ~560ms en realtime
   let inputSpeechFrames = 0;
   let inputSilenceFrames = 0;
   let inputActive = false; // on est en train d'envoyer une "prise de parole" à OpenAI
@@ -977,14 +996,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const rawGarageName = String(garageName || "AutoGuru").trim();
         const garageLabel = /^garage\b/i.test(rawGarageName) ? rawGarageName : `Garage ${rawGarageName}`;
 
-        const baseInstructions = `Tu es le standard téléphonique de ${garageLabel}.
+        const baseInstructions = `Tu es ${assistantName}, l'assistante téléphonique de ${garageLabel}.
 Tu réponds à des appels téléphoniques.
 Objectif: comprendre le problème du véhicule, rassurer, et proposer un rendez-vous.
 Style: très chaleureux et humain.
 Format: réponses TRÈS courtes (1 à 2 phrases), puis UNE question.`;
 
         const mechanicPersona =
-          `Persona: tu es un mécanicien expérimenté, très humain et sympa (pas un robot).
+          `Persona: tu es ${assistantName}, une assistante très humaine du garage (pas un robot).
+Tu parles comme au téléphone: chaleureuse, claire, rassurante, avec une intonation vivante.
+Tu restes dans un registre garage/auto.
+${garageTone ? `Ton du garage (à respecter): ${garageTone}` : ""}
 Tu parles comme au téléphone: chaleureux, direct, rassurant, avec une intonation vivante.
 Tu utilises parfois de petites formules naturelles ("d'accord", "ok", "très bien", "pas de souci") sans en abuser.
 Tu peux utiliser un vocabulaire simple de garage (freins, embrayage, vidange, bruit, voyant…),
@@ -1004,6 +1026,7 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
 - Si le client dit "j'ai un problème", tu poses des questions sur le véhicule (bruit/voyant/démarrage/freinage) et tu proposes un RDV.
 - Si le client donne une préférence de créneau (ex: "le matin", "l'après-midi"), tu DOIS la respecter et la reformuler.
 - Tu ne confirmes jamais un rendez-vous à une autre période que celle demandée. Si tu as un doute, tu demandes confirmation.
+- Si appointmentMode est "none", tu ne proposes pas de rendez-vous (tu prends un message et dis que le garage recontacte).
 - Ne dis JAMAIS: "ce que vous avez sur le cœur" / "dans la tête" / conseils psychologiques.`;
 
         const variationGuidelines =
@@ -1044,11 +1067,11 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
 
         function pickGreetingText(label) {
           const greetings = [
-            `Oui allô, bonjour ! Ici ${label}. Je vous écoute. Qu'est-ce qui vous amène ?`,
-            `Bonjour ! ${label} à l'appareil. Dites-moi, qu'est-ce qui se passe avec votre voiture ?`,
-            `Oui bonjour, ${label}. Pas de souci, expliquez-moi ce qu'il y a sur le véhicule.`,
-            `Bonjour, vous êtes bien chez ${label}. Je vous écoute, c'est quoi le souci ?`,
-            `${label}, bonjour ! Je vous écoute. C'est un bruit, un voyant, ou un problème au démarrage ?`,
+            `Bonjour ! Je suis ${assistantName}, l'assistante du ${label}. En quoi puis-je vous aider ?`,
+            `Bonjour, ${assistantName} à l'appareil, du ${label}. Qu'est-ce qui vous amène ?`,
+            `Bonjour ! Ici ${assistantName}, du ${label}. Dites-moi ce qui se passe avec votre voiture.`,
+            `Bonjour, vous êtes bien au ${label}. Je suis ${assistantName}. En quoi je peux vous aider ?`,
+            `Bonjour ! Je suis ${assistantName} du ${label}. C'est un bruit, un voyant, ou un souci au démarrage ?`,
           ];
           return greetings[Math.floor(Math.random() * greetings.length)];
         }
@@ -1434,6 +1457,10 @@ But: être naturel et mettre le client en confiance.`,
         // AutoGuru ingest (Option A): transmis par AutoGuru via Twilio <Parameter>
         const finalIngestUrl = startParams.autoguruIngestUrl || "";
         const finalIngestToken = startParams.autoguruIngestToken || "";
+        const finalAssistantName = startParams.assistantName || "";
+        const finalGarageTone = startParams.garageTone || "";
+        const finalConsentRequired = startParams.consentRequired || "";
+        const finalAppointmentMode = startParams.appointmentMode || "";
         
         console.log("🎬 Stream start:", {
           streamCallSid,
@@ -1453,6 +1480,10 @@ But: être naturel et mettre le client en confiance.`,
         fromNumber = finalFromNumber;
         if (typeof finalIngestUrl === "string" && finalIngestUrl.trim()) autoguruIngestUrl = finalIngestUrl.trim();
         if (typeof finalIngestToken === "string" && finalIngestToken.trim()) autoguruIngestToken = finalIngestToken.trim();
+        if (typeof finalAssistantName === "string" && finalAssistantName.trim()) assistantName = finalAssistantName.trim();
+        if (typeof finalGarageTone === "string") garageTone = finalGarageTone.trim();
+        if (typeof finalConsentRequired === "string" && finalConsentRequired.trim()) consentRequired = finalConsentRequired.trim().toLowerCase() === "true";
+        if (typeof finalAppointmentMode === "string" && finalAppointmentMode.trim()) appointmentMode = finalAppointmentMode.trim();
 
         // Toujours logguer la config au démarrage d'un stream pour diagnostiquer Render env vs code path.
         logPipelineConfigOnce("⚙️ Pipeline actif");
@@ -1631,6 +1662,68 @@ But: être naturel et mettre le client en confiance.`,
                 const toSpeak = pendingSpeakQueue.join(" ");
                 pendingSpeakQueue = [];
                 enqueueElevenLabsTts(toSpeak, { interrupt: false });
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+
+        // Realtime STT local (Whisper) -> AutoGuru details (utile quand OpenAI input_audio_transcription n'est pas supporté)
+        try {
+          if (PIPELINE_MODE === "realtime" && REALTIME_USER_STT_ENABLED && !rtSttInFlight) {
+            const audioBase64Stt = msg.media?.payload;
+            if (audioBase64Stt) {
+              const mulawBuf = Buffer.from(audioBase64Stt, "base64");
+              const avg = avgAbsMulaw(mulawBuf);
+              const isSpeech = avg > REALTIME_USER_STT_SPEECH_THRESHOLD;
+              const isSilence = avg < REALTIME_USER_STT_SILENCE_THRESHOLD;
+
+              if (isSpeech) {
+                rtSttSpeechFrames += 1;
+                rtSttSilenceFrames = 0;
+              } else if (isSilence) {
+                rtSttSilenceFrames += 1;
+                rtSttSpeechFrames = Math.max(0, rtSttSpeechFrames - 1);
+              } else {
+                rtSttSpeechFrames = Math.max(0, rtSttSpeechFrames - 1);
+                rtSttSilenceFrames = Math.max(0, rtSttSilenceFrames - 1);
+              }
+
+              if (!rtSttActive && rtSttSpeechFrames >= REALTIME_USER_STT_SPEECH_FRAMES) {
+                rtSttActive = true;
+                rtSttStartedAt = nowMs();
+                rtSttMulawChunks = [];
+              }
+
+              if (rtSttActive) {
+                rtSttMulawChunks.push(mulawBuf);
+              }
+
+              if (rtSttActive && rtSttSilenceFrames >= REALTIME_USER_STT_SILENCE_FRAMES) {
+                const durMs = nowMs() - rtSttStartedAt;
+                rtSttActive = false;
+                rtSttSpeechFrames = 0;
+                rtSttSilenceFrames = 0;
+
+                if (durMs >= REALTIME_USER_STT_MIN_AUDIO_MS) {
+                  const joined = rtSttMulawChunks.length ? Buffer.concat(rtSttMulawChunks) : Buffer.alloc(0);
+                  rtSttMulawChunks = [];
+                  rtSttInFlight = true;
+                  (async () => {
+                    try {
+                      const wav = mulaw8kToPcm16kWav(joined);
+                      const txt = (await openaiTranscribeWav(wav)).trim();
+                      if (txt) ingestToAutoGuru("user", txt);
+                    } catch {
+                      // ignore
+                    } finally {
+                      rtSttInFlight = false;
+                    }
+                  })();
+                } else {
+                  rtSttMulawChunks = [];
+                }
               }
             }
           }
