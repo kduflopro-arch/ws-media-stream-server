@@ -276,6 +276,32 @@ wss.on("connection", (ws, req) => {
   let premiumTtsQueue = []; // Array<{ text: string, interrupt: boolean }>
   let premiumTtsDrainInFlight = false;
 
+  // AutoGuru ingest (pour remplir "détails d'appel" même en mode Realtime)
+  const AUTOGURU_INGEST_URL = process.env.AUTOGURU_INGEST_URL ?? ""; // ex: https://<autoguru>/api/twilio/realtime-ingest
+  const AUTOGURU_INGEST_SECRET = process.env.AUTOGURU_INGEST_SECRET ?? "";
+  async function ingestToAutoGuru(role, text) {
+    try {
+      if (!AUTOGURU_INGEST_URL || !AUTOGURU_INGEST_SECRET) return;
+      if (!callSid) return;
+      const clean = String(text || "").trim();
+      if (!clean) return;
+      await fetch(AUTOGURU_INGEST_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secret: AUTOGURU_INGEST_SECRET,
+          callSid,
+          role,
+          text: clean,
+          garageId: garageId || null,
+          fromNumber: fromNumber || null,
+        }),
+      }).catch(() => {});
+    } catch {
+      // ignore
+    }
+  }
+
   // Option B (STT → LLM → TTS)
   const STT_MODEL = process.env.STT_MODEL ?? "whisper-1";
   const STT_LANGUAGE = process.env.STT_LANGUAGE ?? "fr";
@@ -1029,8 +1055,9 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
           setTimeout(() => {
             try {
               if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-              // Si l'utilisateur a déjà parlé (ou parle), on skip le greeting pour éviter tout chevauchement.
-              if (userHasSpoken || speechActive || awaitingUserResponse || responseInProgress) return;
+              // Si le client parle, on laisse l'anti-overlap retarder l'audio, mais on ne skip plus le greeting
+              // (les flags OpenAI speech_started peuvent être trop sensibles et faire sauter l'accueil).
+              if (responseInProgress) return;
               // Éviter de rejouer l'accueil si Twilio reconnecte pendant le même CallSid
               if (greetOncePerCall && hasGreetedRecently(callSid)) {
                 console.log("👋 Greeting ignoré (déjà joué pour ce CallSid).", { callSid });
@@ -1197,6 +1224,8 @@ But: être naturel et mettre le client en confiance.`,
             const rid = msg.response_id ?? msg.response?.id ?? null;
             const doneText = (typeof msg.transcript === "string" ? msg.transcript : "") || (rid ? (transcriptMap.get(rid) || "") : "");
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
+              // Remonter l'IA dans AutoGuru (détails d'appel)
+              ingestToAutoGuru("assistant", doneText);
               // Lancer la voix premium.
               // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
               if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
@@ -1279,6 +1308,7 @@ But: être naturel et mettre le client en confiance.`,
           if (msg.type === "conversation.item.input_audio_transcription.completed") {
             const transcript = msg.transcript;
             console.log("🎤 Client dit:", transcript);
+            ingestToAutoGuru("user", transcript);
           }
           
           if (msg.type === "error") {
