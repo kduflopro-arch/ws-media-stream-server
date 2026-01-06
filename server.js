@@ -389,7 +389,7 @@ wss.on("connection", (ws, req) => {
       ws.__plateSmsRequested = true;
 
       const url = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/plate-sms/request");
-      await fetch(url, {
+      const resp = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -399,7 +399,15 @@ wss.on("connection", (ws, req) => {
           fromNumber: to,
           trigger,
         }),
-      }).catch(() => {});
+      }).catch(() => null);
+      if (resp && resp.ok) {
+        console.log("📩 SMS plaque demandé à AutoGuru.", { trigger });
+      } else if (resp) {
+        const t = await resp.text().catch(() => "");
+        console.warn("⚠️ SMS plaque request non-ok:", { status: resp.status, trigger, body: t.slice(0, 180) });
+      } else {
+        console.warn("⚠️ SMS plaque request: aucune réponse (fetch échoué).", { trigger });
+      }
     } catch {
       // ignore
     }
@@ -1242,7 +1250,7 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
 
         const closingGuidelines =
           `Fin d'appel:
-- Avant de conclure, rappelle: "Quand vous arrivez au garage, donnez ce numéro à l'accueil pour retrouver votre dossier: ${fromNumber || "votre numéro"}."
+- Avant de conclure, dis: "Donnez juste votre numéro de téléphone à l'accueil pour faciliter votre arrivée au garage."
 - En mode demande RDV: rappelle que le garage vous rappelle pour confirmer.`;
 
         const variationGuidelines =
@@ -1479,6 +1487,21 @@ But: être naturel et mettre le client en confiance.`,
                 // Mode "consentement": on attend un "oui" utilisateur
                 plateSmsConsentPending = true;
                 plateSmsConsentDeadlineMs = nowMs() + 25_000;
+              }
+              // Fallback: si OpenAI a compris l'accord ("super/parfait/merci/ok") mais que notre STT local n'a pas capté le "oui",
+              // on déclenche quand même l'envoi SMS (sinon le SMS ne part jamais).
+              if (plateSmsConsentPending && nowMs() <= plateSmsConsentDeadlineMs) {
+                const soundsLikeAcceptance =
+                  /\b(super|parfait|merci|ok|tr[eè]s bien)\b/.test(low) &&
+                  (low.includes("disponible") || low.includes("rendez-vous") || low.includes("rdv") || low.includes("quand"));
+                if (soundsLikeAcceptance) {
+                  plateSmsConsentPending = false;
+                  console.log("📩 Fallback consent détecté via réponse IA → envoi SMS plaque.");
+                  await requestPlateSmsIfNeeded("assistant_inferred_user_acceptance");
+                  plateSmsWaitingForReply = true;
+                  if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
+                  plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
+                }
               }
               // Lancer la voix premium.
               // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
