@@ -78,6 +78,24 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 
 ### `ELEVENLABS_MODEL_ID`
 - **Rôle** : modèle ElevenLabs (qualité/latence).
+- **Valeur conseillée (FR)** : `eleven_multilingual_v2`
+
+---
+
+## Intégration AutoGuru (remplir “détails d’appel” en mode Realtime)
+
+> Objectif : quand tu utilises `PIPELINE_MODE=realtime`, AutoGuru n’a pas forcément de transcript via Twilio.
+> Ces variables permettent au serveur WS de pousser le transcript vers AutoGuru au fil de l’appel.
+
+### `AUTOGURU_INGEST_URL`
+- **Rôle** : URL du endpoint AutoGuru qui reçoit les phrases Realtime.
+- **Exemple** : `https://<TON_AUTOGURU>/api/twilio/realtime-ingest`
+- **Obligatoire** : oui si tu veux les détails d’appel.
+
+### `AUTOGURU_INGEST_SECRET`
+- **Rôle** : secret partagé entre Render (WS) et AutoGuru (API) pour autoriser l’ingestion.
+- **Conseil** : une clé longue (32+ caractères).
+- **Obligatoire** : oui si tu veux les détails d’appel.
 - **Défaut** : `eleven_multilingual_v2`
 
 ### `ELEVENLABS_OUTPUT_FORMAT`

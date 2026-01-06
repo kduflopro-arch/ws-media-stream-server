@@ -22,7 +22,13 @@ PREMIUM_TTS_PROVIDER=elevenlabs
 ELEVENLABS_API_KEY=xi_xxx
 ELEVENLABS_VOICE_ID=YxrwjAKoUKULGd0g8K9Y
 ELEVENLABS_MODEL_ID=eleven_multilingual_v2
-ELEVENLABS_OUTPUT_FORMAT=pcm_16000
+ELEVENLABS_OUTPUT_FORMAT=ulaw_8000
+ELEVENLABS_OPTIMIZE_STREAMING_LATENCY=3
+
+# --- AutoGuru (détails d'appel) ---
+# Permet de remplir automatiquement transcript/détails de l'appel côté AutoGuru en mode realtime
+AUTOGURU_INGEST_URL=https://<TON_AUTOGURU>/api/twilio/realtime-ingest
+AUTOGURU_INGEST_SECRET=change-me-please-32-chars-minimum
 
 # Backchannel OFF en realtime (sinon "Ok je vois" peut spam)
 BACKCHANNEL_ENABLED=false
