@@ -401,12 +401,22 @@ wss.on("connection", (ws, req) => {
         }),
       }).catch(() => null);
       if (resp && resp.ok) {
-        console.log("📩 SMS plaque demandé à AutoGuru.", { trigger });
+        const json = await resp.json().catch(() => ({}));
+        console.log("📩 SMS plaque demandé à AutoGuru.", { trigger, smsSid: json?.smsSid ?? null });
       } else if (resp) {
         const t = await resp.text().catch(() => "");
         console.warn("⚠️ SMS plaque request non-ok:", { status: resp.status, trigger, body: t.slice(0, 180) });
+        // Fallback UX: si le SMS ne peut pas partir, on repasse en collecte orale
+        enqueueElevenLabsTts(
+          "Je n’arrive pas à vous envoyer le SMS. Dites-moi la plaque à l’oral, lettre par lettre s’il vous plaît.",
+          { interrupt: true },
+        );
       } else {
         console.warn("⚠️ SMS plaque request: aucune réponse (fetch échoué).", { trigger });
+        enqueueElevenLabsTts(
+          "Petit souci d’envoi du SMS. Dites-moi la plaque à l’oral, lettre par lettre s’il vous plaît.",
+          { interrupt: true },
+        );
       }
     } catch {
       // ignore
