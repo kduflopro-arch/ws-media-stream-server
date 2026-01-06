@@ -401,6 +401,88 @@ wss.on("connection", (ws, req) => {
       // ignore
     }
   }
+
+  // --- SMS plaque : consentement + attente réponse ---
+  let plateSmsConsentPending = false;
+  let plateSmsConsentDeadlineMs = 0;
+  let plateSmsWaitingForReply = false;
+  let plateSmsPollTimer = null;
+
+  function isAffirmativeFr(text) {
+    const t = String(text || "").toLowerCase();
+    if (!t) return false;
+    return /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche)\b/.test(t);
+  }
+  function isNegativeFr(text) {
+    const t = String(text || "").toLowerCase();
+    if (!t) return false;
+    return /\b(non|pas du tout|nan|nann|nope|laisse tomber)\b/.test(t);
+  }
+
+  function isJunkTranscript(text) {
+    const t = String(text || "").toLowerCase();
+    if (!t) return true;
+    // TV / sous-titres / disclaimers
+    if (t.includes("amara.org") || t.includes("sous-titres") || t.includes("sous titres")) return true;
+    if (t.includes("réalisés par la communauté")) return true;
+    // bruit très court
+    const stripped = t.replace(/[\s\p{P}\p{S}]/gu, "");
+    if (stripped.length < 2) return true;
+    return false;
+  }
+
+  async function pollPlateSmsStatus() {
+    try {
+      if (!plateSmsWaitingForReply) return;
+      const ingestUrl = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
+      if (!ingestUrl) return;
+      const token = autoguruIngestToken;
+      const secret = AUTOGURU_INGEST_SECRET_ENV;
+      if (!token && !secret) return;
+      if (!callSid) return;
+      const url = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/plate-sms/status");
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(token ? { token } : { secret }),
+          callSid,
+          garageId: garageId || null,
+        }),
+      }).catch(() => null);
+      if (!resp || !resp.ok) return;
+      const json = await resp.json().catch(() => ({}));
+      const plate = String(json?.plate || "").trim();
+      const received = !!plate;
+      if (!received) return;
+
+      // Stop polling
+      plateSmsWaitingForReply = false;
+      if (plateSmsPollTimer) {
+        clearInterval(plateSmsPollTimer);
+        plateSmsPollTimer = null;
+      }
+
+      // Dire au client qu'on a bien reçu la plaque, puis continuer
+      const confirmText = `Parfait, j’ai bien reçu votre plaque ${plate}. Merci.`;
+      enqueueElevenLabsTts(confirmText, { interrupt: true });
+      // Et l'ajouter au contexte OpenAI pour que la suite en tienne compte
+      try {
+        if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+          openaiWs.send(JSON.stringify({
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: `Plaque reçue par SMS: ${plate}. Continue la conversation.` }],
+            },
+          }));
+        }
+      } catch {}
+    } catch {
+      // ignore
+    }
+  }
   // Option B (STT → LLM → TTS)
   const STT_MODEL = process.env.STT_MODEL ?? "whisper-1";
   const STT_LANGUAGE = process.env.STT_LANGUAGE ?? "fr";
@@ -1369,10 +1451,12 @@ But: être naturel et mettre le client en confiance.`,
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
-              // Si l'assistant demande la plaque, déclencher l'envoi SMS immédiatement
+              // Si l'assistant parle de plaque, proposer SMS MAIS NE PAS ENVOYER avant accord du client.
               const low = String(doneText || "").toLowerCase();
               if (low.includes("plaque") || low.includes("immatric")) {
-                requestPlateSmsIfNeeded("assistant_mentions_plate");
+                // Mode "consentement": on attend un "oui" utilisateur
+                plateSmsConsentPending = true;
+                plateSmsConsentDeadlineMs = nowMs() + 25_000;
               }
               // Lancer la voix premium.
               // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
@@ -1831,7 +1915,26 @@ But: être naturel et mettre le client en confiance.`,
                     try {
                       const wav = mulaw8kToPcm16kWav(joined);
                       const txt = (await openaiTranscribeWav(wav)).trim();
-                      if (txt) enqueueIngest("user", txt);
+                      if (txt && !isJunkTranscript(txt)) {
+                        enqueueIngest("user", txt);
+                        // Gestion consentement SMS plaque
+                        if (plateSmsConsentPending && nowMs() <= plateSmsConsentDeadlineMs) {
+                          if (isAffirmativeFr(txt)) {
+                            plateSmsConsentPending = false;
+                            // Envoyer le SMS maintenant
+                            requestPlateSmsIfNeeded("user_accepted_plate_sms");
+                            // Démarrer le polling
+                            plateSmsWaitingForReply = true;
+                            if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
+                            plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
+                            // Petite phrase "j'attends votre réponse au SMS"
+                            enqueueElevenLabsTts("Parfait. Je vous laisse 2 secondes : répondez au SMS avec la plaque, et je continue.", { interrupt: true });
+                          } else if (isNegativeFr(txt)) {
+                            plateSmsConsentPending = false;
+                            enqueueElevenLabsTts("D'accord. Dans ce cas, dites-moi la plaque lettre par lettre, s'il vous plaît.", { interrupt: true });
+                          }
+                        }
+                      }
                     } catch {
                       // ignore
                     } finally {
