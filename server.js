@@ -274,7 +274,9 @@ wss.on("connection", (ws, req) => {
   const PREMIUM_TTS_ENABLED = (process.env.PREMIUM_TTS_ENABLED ?? "false").toLowerCase() === "true";
   const PREMIUM_TTS_PROVIDER = (process.env.PREMIUM_TTS_PROVIDER ?? "elevenlabs").toLowerCase();
   const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY ?? "";
-  const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID ?? ""; // voice masculine (à choisir dans ElevenLabs)
+  const ELEVENLABS_VOICE_ID_DEFAULT = process.env.ELEVENLABS_VOICE_ID ?? "";
+  const ELEVENLABS_VOICE_ID_MALE = process.env.ELEVENLABS_VOICE_ID_MALE ?? "";
+  const ELEVENLABS_VOICE_ID_FEMALE = process.env.ELEVENLABS_VOICE_ID_FEMALE ?? "";
   const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
   const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT ?? "pcm_16000";
   const ELEVENLABS_OPTIMIZE_STREAMING_LATENCY = Number(process.env.ELEVENLABS_OPTIMIZE_STREAMING_LATENCY ?? "3"); // 0..4
@@ -298,6 +300,7 @@ wss.on("connection", (ws, req) => {
   let autoguruIngestUrl = "";
   let autoguruIngestToken = "";
   let assistantName = "Sandra";
+  let assistantVoice = "female"; // "female" | "male"
   let garageTone = "";
   let consentRequired = true;
   let appointmentMode = "request";
@@ -817,7 +820,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!PREMIUM_TTS_ENABLED) return;
     if (PREMIUM_TTS_PROVIDER !== "elevenlabs") return;
     if (nowMs() < premiumTtsBypassUntilMs) return;
-    if (!ELEVENLABS_API_KEY || !ELEVENLABS_VOICE_ID) {
+    const selectedVoiceId =
+      assistantVoice === "male"
+        ? (ELEVENLABS_VOICE_ID_MALE || ELEVENLABS_VOICE_ID_DEFAULT)
+        : (ELEVENLABS_VOICE_ID_FEMALE || ELEVENLABS_VOICE_ID_DEFAULT);
+    if (!ELEVENLABS_API_KEY || !selectedVoiceId) {
       console.error("❌ PREMIUM_TTS activé mais ELEVENLABS_API_KEY/ELEVENLABS_VOICE_ID manquants.");
       return;
     }
@@ -838,7 +845,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
     try {
       const url =
-        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}/stream` +
+        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(selectedVoiceId)}/stream` +
         `?output_format=${encodeURIComponent(ELEVENLABS_OUTPUT_FORMAT)}` +
         `&optimize_streaming_latency=${encodeURIComponent(String(ELEVENLABS_OPTIMIZE_STREAMING_LATENCY))}`;
       const resp = await fetch(url, {
@@ -1179,7 +1186,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
         const consentLine =
           consentRequired
-            ? "Avant de collecter des infos perso: demander l'accord pour l'enregistrement (oui/non)."
+            ? "Dès le début de l'appel, annonce: 'Cet appel est enregistré pour préparer votre arrivée au garage. Si vous refusez, vous pouvez raccrocher à tout moment.' Puis demande un oui/non."
             : "Consentement enregistrement: non requis.";
 
         const baseInstructions = `Tu es ${assistantName}, l'assistante téléphonique de ${garageLabel}.
@@ -1223,6 +1230,11 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
 - Si mode rendez-vous = aucun: tu ne proposes pas de RDV. Tu prends les infos et tu dis que le garage rappelle.
 - Ne dis JAMAIS: "ce que vous avez sur le cœur" / "dans la tête" / conseils psychologiques.`;
 
+        const closingGuidelines =
+          `Fin d'appel:
+- Avant de conclure, rappelle: "Quand vous arrivez au garage, donnez ce numéro à l'accueil pour retrouver votre dossier: ${fromNumber || "votre numéro"}."
+- En mode demande RDV: rappelle que le garage vous rappelle pour confirmer.`;
+
         const variationGuidelines =
           `Variation:
 - Varie tes formulations et ton accueil (évite les répétitions mot pour mot).
@@ -1253,7 +1265,7 @@ Tu expliques le bénéfice ("comme ça on regarde ça ensemble et on vous dit ex
         }
         // On ajoute des contraintes fortes (évite les réponses "hors sujet" type coach de vie).
         sessionUpdate.session.instructions =
-          `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}`;
+          `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
         // Stocke pour fallback en cas de unknown_parameter (session.update partiellement appliquée)
         ws.__sessionInstructions = String(sessionUpdate.session.instructions || "");
 
@@ -1659,6 +1671,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalIngestUrl = startParams.autoguruIngestUrl || "";
         const finalIngestToken = startParams.autoguruIngestToken || "";
         const finalAssistantName = startParams.assistantName || "";
+        const finalAssistantVoice = startParams.assistantVoice || "";
         const finalGarageTone = startParams.garageTone || "";
         const finalConsentRequired = startParams.consentRequired || "";
         const finalAppointmentMode = startParams.appointmentMode || "";
@@ -1682,6 +1695,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalIngestUrl === "string" && finalIngestUrl.trim()) autoguruIngestUrl = finalIngestUrl.trim();
         if (typeof finalIngestToken === "string" && finalIngestToken.trim()) autoguruIngestToken = finalIngestToken.trim();
         if (typeof finalAssistantName === "string" && finalAssistantName.trim()) assistantName = finalAssistantName.trim();
+        if (typeof finalAssistantVoice === "string" && finalAssistantVoice.trim()) assistantVoice = finalAssistantVoice.trim().toLowerCase();
         if (typeof finalGarageTone === "string") garageTone = finalGarageTone.trim();
         if (typeof finalConsentRequired === "string" && finalConsentRequired.trim()) consentRequired = finalConsentRequired.trim().toLowerCase() === "true";
         if (typeof finalAppointmentMode === "string" && finalAppointmentMode.trim()) appointmentMode = finalAppointmentMode.trim();
