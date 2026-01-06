@@ -258,9 +258,9 @@ wss.on("connection", (ws, req) => {
 
   // Realtime: STT local (Whisper) pour remplir les détails d'appel + réduire les confusions
   const REALTIME_USER_STT_ENABLED = (process.env.REALTIME_USER_STT_ENABLED ?? "true").toLowerCase() === "true";
-  const REALTIME_USER_STT_SPEECH_THRESHOLD = Number(process.env.REALTIME_USER_STT_SPEECH_THRESHOLD ?? "2200");
+  const REALTIME_USER_STT_SPEECH_THRESHOLD = Number(process.env.REALTIME_USER_STT_SPEECH_THRESHOLD ?? "1500");
   const REALTIME_USER_STT_SPEECH_FRAMES = Number(process.env.REALTIME_USER_STT_SPEECH_FRAMES ?? "6");
-  const REALTIME_USER_STT_SILENCE_THRESHOLD = Number(process.env.REALTIME_USER_STT_SILENCE_THRESHOLD ?? "900");
+  const REALTIME_USER_STT_SILENCE_THRESHOLD = Number(process.env.REALTIME_USER_STT_SILENCE_THRESHOLD ?? "650");
   const REALTIME_USER_STT_SILENCE_FRAMES = Number(process.env.REALTIME_USER_STT_SILENCE_FRAMES ?? "22");
   const REALTIME_USER_STT_MIN_AUDIO_MS = Number(process.env.REALTIME_USER_STT_MIN_AUDIO_MS ?? "500");
   let rtSttSpeechFrames = 0;
@@ -489,17 +489,20 @@ wss.on("connection", (ws, req) => {
   // Option B (STT → LLM → TTS)
   const STT_MODEL = process.env.STT_MODEL ?? "whisper-1";
   const STT_LANGUAGE = process.env.STT_LANGUAGE ?? "fr";
+  // Prompt Whisper: améliore la compréhension en téléphonie (vocabulaire garage + formats plaques)
+  const STT_PROMPT = process.env.STT_PROMPT ?? "Garage auto, pièces: vidange, freins, plaquettes, disques, embrayage, courroie de distribution, pneus, climatisation, diagnostic. Plaques françaises: AB-123-CD. Le client parle français.";
   const LLM_MODEL = process.env.LLM_MODEL ?? "gpt-4o";
   // Réglages "fast-by-default" pour réduire la latence perçue
   const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0.3");
   const LLM_MAX_TOKENS = Number(process.env.LLM_MAX_TOKENS ?? "160");
-  const STT_SPEECH_THRESHOLD = Number(process.env.STT_SPEECH_THRESHOLD ?? "2200");
+  // Valeurs par défaut plus tolérantes (meilleure compréhension si voix faible)
+  const STT_SPEECH_THRESHOLD = Number(process.env.STT_SPEECH_THRESHOLD ?? "1500");
   const STT_SPEECH_FRAMES = Number(process.env.STT_SPEECH_FRAMES ?? "6"); // ~120ms
   // IMPORTANT: trop agressif => coupe la phrase dès une micro-pause.
   // On baisse le seuil de "silence" et on augmente la durée de silence requise.
-  const STT_SILENCE_THRESHOLD = Number(process.env.STT_SILENCE_THRESHOLD ?? "900");
-  const STT_SILENCE_FRAMES = Number(process.env.STT_SILENCE_FRAMES ?? "18"); // ~360ms
-  const STT_MIN_AUDIO_MS = Number(process.env.STT_MIN_AUDIO_MS ?? "350");
+  const STT_SILENCE_THRESHOLD = Number(process.env.STT_SILENCE_THRESHOLD ?? "650");
+  const STT_SILENCE_FRAMES = Number(process.env.STT_SILENCE_FRAMES ?? "24"); // ~480ms
+  const STT_MIN_AUDIO_MS = Number(process.env.STT_MIN_AUDIO_MS ?? "550");
   const HISTORY_MAX_TURNS = Number(process.env.HISTORY_MAX_TURNS ?? "8");
   const BACKCHANNEL_ENABLED = (process.env.BACKCHANNEL_ENABLED ?? "true").toLowerCase() === "true";
   const BACKCHANNEL_TEXT = process.env.BACKCHANNEL_TEXT ?? "D'accord, je note…";
@@ -600,6 +603,9 @@ wss.on("connection", (ws, req) => {
     form.append("model", STT_MODEL);
     form.append("language", STT_LANGUAGE);
     form.append("response_format", "json");
+    if (STT_PROMPT && String(STT_PROMPT).trim()) {
+      form.append("prompt", String(STT_PROMPT).trim());
+    }
     form.append("file", new Blob([wavBuffer], { type: "audio/wav" }), "audio.wav");
 
     const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -1009,9 +1015,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // Donc par défaut on l'active seulement si la variable Render est explicitement à true.
   // En realtime, on active le gate par défaut pour éviter que l'IA réponde sur une micro-pause.
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
-  const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "2500");
+  // Valeurs plus tolérantes par défaut (sinon voix faible => aucune parole détectée)
+  const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "900");
   const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "6"); // ~120ms
-  const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "1100");
+  const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "450");
   const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? (PIPELINE_MODE === "realtime" ? "28" : "20")); // ~560ms en realtime
   let inputSpeechFrames = 0;
   let inputSilenceFrames = 0;
@@ -1023,7 +1030,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const INPUT_SUPPRESS_WHILE_TALKING = (process.env.INPUT_SUPPRESS_WHILE_TALKING ?? "true").toLowerCase() === "true";
   const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "5"); // ~100ms d'audio sortant
   // Si le client parle fort/clair, on laisse passer même si l'assistant parle (améliore la compréhension, sans activer le barge-in).
-  const INPUT_SUPPRESS_OVERRIDE_THRESHOLD = Number(process.env.INPUT_SUPPRESS_OVERRIDE_THRESHOLD ?? "9000");
+  // Autoriser une voix "normale" à passer même si l'assistant parle (évite incompréhension si le client parle tôt).
+  const INPUT_SUPPRESS_OVERRIDE_THRESHOLD = Number(
+    process.env.INPUT_SUPPRESS_OVERRIDE_THRESHOLD ?? String(Math.max(5000, INPUT_SPEECH_THRESHOLD * 2)),
+  );
 
   // Realtime: voix
   // - openai: utiliser l'audio renvoyé par OpenAI Realtime

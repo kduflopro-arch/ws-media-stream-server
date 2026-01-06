@@ -109,6 +109,12 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 > Objectif : améliorer **la compréhension** (STT téléphonie) et le **texte** (LLM plus puissant), tout en gardant la voix ElevenLabs.
 > Mode conseillé si tu dis “il ne comprend pas ce que je dis”.
 
+### `STT_PROMPT`
+- **Rôle** : “boost” de compréhension Whisper (vocabulaire garage + format plaques FR).
+- **Quand l’utiliser** : si tu constates des incompréhensions sans bruit de fond.
+- **Exemple** :
+  - `STT_PROMPT=Garage auto. Français. Termes: vidange, freins, plaquettes, disques, embrayage, distribution, pneus, climatisation, diagnostic. Plaque FR: AB-123-CD.`
+
 ### `PIPELINE_MODE`
 - **Rôle** : choisit le pipeline.
 - **Défaut** : `realtime`
@@ -152,6 +158,16 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 - **`STT_SILENCE_THRESHOLD`** (défaut `900`)
 - **`STT_SILENCE_FRAMES`** (défaut `18` ≈ 360ms) *(adaptatif : plus rapide sur phrases longues)*
 - **`STT_MIN_AUDIO_MS`** (défaut `350`)
+
+### Si “il ne comprend pas ce que je dis” (voix faible / micro téléphone)
+- **Option 1 (recommandée)** : passer en Option B
+  - `PIPELINE_MODE=stt_llm_tts`
+  - `STT_LANGUAGE=fr`
+  - `STT_MIN_AUDIO_MS=550`
+  - `STT_SILENCE_FRAMES=24`
+- **Option 2 (si tu restes en realtime)** : rendre le gate moins agressif
+  - `INPUT_GATE_ENABLED=false` (le plus simple si pas de TV/bruit)
+  - ou baisser `INPUT_SPEECH_THRESHOLD` (ex: `900`) et `INPUT_SILENCE_THRESHOLD` (ex: `450`)
 
 ### `BACKCHANNEL_ENABLED`
 - **Rôle** : joue un micro “accusé de réception” juste après ta phrase (ex: “D’accord, je note…”) pour que ça paraisse instantané.
