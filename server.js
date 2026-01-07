@@ -1058,10 +1058,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
   // Détection parole côté Twilio (pour barge-in) : plus stable que les events VAD OpenAI en environnement bruyant.
   // Activé par défaut pour permettre au client de couper l'IA quand elle parle
-  // Seuils augmentés pour éviter les coupures intempestives (bruit de fond, TV, etc.)
+  // Seuils très élevés pour éviter les coupures intempestives (bruit de fond, TV, etc.)
+  // Le barge-in ne se déclenche que sur une parole claire et continue
   const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "true").toLowerCase() === "true";
-  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "8000"); // Augmenté de 5500 à 8000 pour moins de sensibilité
-  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "20"); // Augmenté de 12 à 20 (~400ms au lieu de 240ms) pour nécessiter plus de parole continue
+  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "12000"); // Très élevé pour éviter les faux positifs
+  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "30"); // ~600ms de parole continue nécessaire
   let twilioSpeechFrames = 0;
 
   // Noise gate / VAD local pour l'INPUT (évite que la TV/bruit déclenche des réponses automatiques).
