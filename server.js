@@ -1865,6 +1865,15 @@ But: être naturel et mettre le client en confiance.`,
             responseInProgress = true;
             activeResponseId = msg.response?.id ?? msg.response_id ?? null;
             lastResponseCreatedAt = nowMs();
+            // Timeout de sécurité : si la réponse ne se termine pas dans 30s, on réinitialise
+            // (évite que responseInProgress reste bloqué à true si l'IA ne répond pas)
+            setTimeout(() => {
+              if (responseInProgress && activeResponseId === (msg.response?.id ?? msg.response_id ?? null)) {
+                console.warn("⚠️ Timeout réponse IA: réinitialisation responseInProgress après 30s");
+                responseInProgress = false;
+                activeResponseId = null;
+              }
+            }, 30000);
           }
 
           if (msg.type === "response.done") {
