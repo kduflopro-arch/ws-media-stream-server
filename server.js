@@ -2212,13 +2212,24 @@ But: être naturel et mettre le client en confiance.`,
               // Anti-écho / anti-TV:
               // Si l'IA parle (ou qu'il reste du backlog sortant à jouer), ne pas forward l'audio entrant à OpenAI.
               // Sinon OpenAI détecte speech_started (écho/TV) et les réponses deviennent tronquées / "pas naturelles".
+              // IMPORTANT: Si le barge-in est désactivé, on est beaucoup plus permissif pour permettre à l'IA de comprendre l'utilisateur.
               const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
               const assistantIsTalking =
                 responseInProgress ||
                 premiumTtsInFlight ||
                 assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
-              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsTalking && !BARGE_IN_ENABLED;
-              if (suppressInputNow && avg < INPUT_SUPPRESS_OVERRIDE_THRESHOLD) return;
+              // Si barge-in désactivé, on ne supprime l'input que si le backlog est vraiment important (évite écho) mais on laisse passer la parole claire
+              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsTalking;
+              if (suppressInputNow) {
+                // Si barge-in désactivé, être beaucoup plus permissif : laisser passer toute parole claire
+                if (!BARGE_IN_ENABLED) {
+                  // Seuil beaucoup plus bas pour laisser passer la parole claire même si l'IA parle
+                  if (avg < Math.max(2000, INPUT_SPEECH_THRESHOLD * 1.2)) return;
+                } else {
+                  // Barge-in activé : seuil normal
+                  if (avg < INPUT_SUPPRESS_OVERRIDE_THRESHOLD) return;
+                }
+              }
               
               if (mediaCount <= 3) {
                 console.log(`🔊 Frame ${mediaCount} audio (μ-law):`, {
