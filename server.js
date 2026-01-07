@@ -185,7 +185,8 @@ server.listen(PORT, () => {
 });
 
 wss.on("connection", (ws, req) => {
-  console.log("New Media Stream connection:", req.url);
+  console.log("📞 New Media Stream connection:", req.url);
+  console.log("📞 Headers:", JSON.stringify(req.headers, null, 2).substring(0, 500));
   
   // Extraire les paramètres de l'URL
   let callSid = null;
@@ -1192,15 +1193,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // Connecter à OpenAI Realtime API
   async function connectToOpenAI() {
     if (!OPENAI_API_KEY) {
-      console.error("OpenAI API key manquante");
+      console.error("❌ OpenAI API key manquante");
       return;
     }
 
     try {
+      console.log("🔌 Tentative de connexion à OpenAI Realtime API...");
       // Configurer le format audio dans l'URL de connexion.
       // On force PCM16 pour éviter tout mismatch de format en sortie (sinon Twilio joue du bruit).
       const openaiUrl =
         "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17&input_audio_format=pcm16&output_audio_format=pcm16";
+      console.log("🔌 URL OpenAI:", openaiUrl.replace(/Bearer\s+\S+/, "Bearer ***"));
       openaiWs = new WebSocket(openaiUrl, {
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -1210,6 +1213,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       openaiWs.on("open", () => {
         console.log("✅ Connecté à OpenAI Realtime API");
         console.log("🎛️ OpenAI audio format (forced):", { input: "pcm16", output: "pcm16" });
+        console.log("📊 Configuration active:", {
+          PIPELINE_MODE,
+          REALTIME_USE_ELEVEN,
+          PREMIUM_TTS_ENABLED,
+          LLM_MODEL,
+          ELEVENLABS_VOICE_ID: ELEVENLABS_VOICE_ID_FEMALE || ELEVENLABS_VOICE_ID_MALE || ELEVENLABS_VOICE_ID_DEFAULT,
+        });
         
         // Log état du fallback au démarrage
         if (REALTIME_USE_ELEVEN) {
@@ -1731,10 +1741,18 @@ But: être naturel et mettre le client en confiance.`,
 
       openaiWs.on("error", (err) => {
         console.error("❌ Erreur OpenAI WS:", err);
+        console.error("❌ OpenAI WS error details:", {
+          message: err.message,
+          code: err.code,
+          stack: err.stack?.substring(0, 500),
+        });
       });
 
-      openaiWs.on("close", () => {
-        console.log("🔌 OpenAI WS fermé");
+      openaiWs.on("close", (code, reason) => {
+        console.log("🔌 OpenAI WS fermé", { code, reason: reason?.toString() });
+        if (code !== 1000) {
+          console.warn("⚠️ OpenAI WS fermé anormalement (code != 1000)");
+        }
       });
     } catch (err) {
       console.error("Erreur connexion OpenAI:", err);
@@ -2206,13 +2224,17 @@ But: être naturel et mettre le client en confiance.`,
         // Le pacing sortant est géré par le timer 20ms.
         
       } else if (msg.event === "stop") {
-        console.log("🛑 Stream stop");
+        console.log("🛑 Stream stop (Twilio a demandé l'arrêt)");
+        console.log("🛑 Raison possible: timeout, erreur Twilio, ou fin d'appel normale");
         finalizeCallToAutoGuru("twilio_stop");
         if (outboundTimer) {
           clearInterval(outboundTimer);
           outboundTimer = null;
         }
-        if (openaiWs) openaiWs.close();
+        if (openaiWs) {
+          console.log("🛑 Fermeture connexion OpenAI...");
+          openaiWs.close();
+        }
       } else {
         console.log("ℹ️ Other event:", msg.event);
       }
