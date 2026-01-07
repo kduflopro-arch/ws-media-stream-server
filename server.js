@@ -1253,21 +1253,23 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               ? "Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes seulement après validation explicite du client)."
               : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande et le garage rappelle pour confirmer).";
 
-        const openingLine = garageClosed
-          ? `IMPORTANT: le garage est actuellement fermé. ${garageClosedText || ""} Tu l'annonces poliment dès le début (1 phrase), puis tu prends un message complet (raison + symptômes + véhicule + plaque si possible + dispo + numéro) et tu dis que le garage rappellera dès l'ouverture.`
-          : "Garage: ouvert (flux normal).";
-
         const consentLine =
           consentRequired
             ? "Dès le début de l'appel, annonce: 'Cet appel est enregistré pour préparer votre arrivée au garage. Si vous refusez, vous pouvez raccrocher à tout moment.' Puis demande un oui/non."
             : "Consentement enregistrement: non requis.";
 
+        const hoursPolicyLine = `Horaires: l'IA répond H24. Les horaires/vacances sont PUREMENT informatifs pour le client (pas bloquants, pas de raccrochage automatique).`;
+        const closedInfoLine = garageClosed
+          ? `Info horaires (interne): le garage est actuellement indiqué comme fermé. (${garageClosedReason || "closed"}) ${garageClosedText || ""} Tu NE le mentionnes PAS au début. Tu le mentionnes uniquement en fin d'appel, selon les règles ci-dessous.`
+          : "Info horaires (interne): garage indiqué ouvert.";
+
         const baseInstructions = `Tu es ${assistantName}, l'assistant(e) téléphonique de ${garageLabel}.
 Tu réponds à des appels téléphoniques (style oral, naturel, vivant).
 Objectif: comprendre précisément le besoin, rassurer, et avancer vers une prise en charge (selon le mode RDV).
 ${modeLine}
-${openingLine}
 ${consentLine}
+${hoursPolicyLine}
+${closedInfoLine}
 Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
 Format: réponses courtes (1 à 2 phrases), puis UNE question.
 Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, virgules, questions).`;
@@ -1314,7 +1316,12 @@ But: préparer le dossier pour l'atelier (que le garage puisse rappeler efficace
         const closingGuidelines =
           `Fin d'appel:
 - Avant de conclure, dis: "Donnez juste votre numéro de téléphone à l'accueil pour faciliter votre arrivée au garage."
-- En mode demande RDV: rappelle que le garage vous rappelle pour confirmer.`;
+- En mode demande RDV: rappelle que le garage vous rappelle pour confirmer.
+${garageClosed
+  ? (appointmentMode === "internal"
+      ? `- IMPORTANT: en toute fin, ajoute UNE phrase d'info: "À noter, le garage est actuellement fermé; j'ai bien enregistré votre demande/rdv et une personne vous rappellera si besoin."`
+      : `- IMPORTANT: en toute fin, ajoute UNE phrase d'info: "À noter, le garage est actuellement fermé; une personne vous rappellera pour confirmer."`)
+  : ""}`;
 
         const variationGuidelines =
           `Variation:
