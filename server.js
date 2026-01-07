@@ -1144,7 +1144,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const LOCAL_COMMIT_ENABLED = (process.env.LOCAL_COMMIT_ENABLED ?? "false").toLowerCase() === "true";
   // Anti-écho: si l'IA parle, on peut ignorer l'audio entrant pour éviter que la TV/retour audio déclenche un nouveau tour.
   const INPUT_SUPPRESS_WHILE_TALKING = (process.env.INPUT_SUPPRESS_WHILE_TALKING ?? "true").toLowerCase() === "true";
-  const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "5"); // ~100ms d'audio sortant
+  // Réduit à 2 frames (~40ms) pour ne bloquer que l'écho immédiat, pas la parole utilisateur
+  const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "2"); // ~40ms d'audio sortant
   // Si le client parle fort/clair, on laisse passer même si l'assistant parle (améliore la compréhension, sans activer le barge-in).
   // Autoriser une voix "normale" à passer même si l'assistant parle (évite incompréhension si le client parle tôt).
   // Par défaut, on laisse passer une voix "normale" même si l'assistant parle (sinon incompréhension).
@@ -2066,12 +2067,12 @@ But: être naturel et mettre le client en confiance.`,
           const mulawBuffer = Buffer.from(audioBase64, "base64");
 
           // Ne pas capturer pendant que l'assistant parle (anti-écho/TV)
+          // Même logique que pour realtime : ne bloquer que si vraiment nécessaire
           const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
-          const assistantIsTalking =
-            responseInProgress ||
-            premiumTtsInFlight ||
-            assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
-          if (INPUT_SUPPRESS_WHILE_TALKING && assistantIsTalking) return;
+          const assistantIsReallyTalking = 
+            responseInProgress || 
+            (assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES && premiumTtsInFlight);
+          if (INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking) return;
 
           const avg = avgAbsMulaw(mulawBuffer);
           const isSpeech = avg > STT_SPEECH_THRESHOLD;
@@ -2280,17 +2281,22 @@ But: être naturel et mettre le client en confiance.`,
               // Sinon OpenAI détecte speech_started (écho/TV) et les réponses deviennent tronquées / "pas naturelles".
               // IMPORTANT: Si le barge-in est désactivé, on est beaucoup plus permissif pour permettre à l'IA de comprendre l'utilisateur.
               const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
-              const assistantIsTalking =
-                responseInProgress ||
-                premiumTtsInFlight ||
-                assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
-              // Si barge-in désactivé, on ne supprime l'input que si le backlog est vraiment important (évite écho) mais on laisse passer la parole claire
-              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsTalking;
+              
+              // Ne bloquer que si :
+              // 1. Une réponse est vraiment en cours (responseInProgress)
+              // 2. OU le backlog est vraiment élevé (évite écho immédiat)
+              // On ne bloque PAS basé sur premiumTtsInFlight seul car cela bloque trop longtemps
+              const assistantIsReallyTalking = 
+                responseInProgress || 
+                (assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES && premiumTtsInFlight);
+              
+              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking;
               if (suppressInputNow) {
                 // Si barge-in désactivé, être beaucoup plus permissif : laisser passer toute parole claire
                 if (!BARGE_IN_ENABLED) {
                   // Seuil beaucoup plus bas pour laisser passer la parole claire même si l'IA parle
-                  if (avg < Math.max(2000, INPUT_SPEECH_THRESHOLD * 1.2)) return;
+                  // Si l'utilisateur parle clairement (seuil bas), on laisse toujours passer
+                  if (avg < Math.max(1500, INPUT_SPEECH_THRESHOLD * 1.1)) return;
                 } else {
                   // Barge-in activé : seuil normal
                   if (avg < INPUT_SUPPRESS_OVERRIDE_THRESHOLD) return;
