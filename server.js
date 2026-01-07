@@ -1389,7 +1389,7 @@ But: être naturel et mettre le client en confiance.`,
         }
       });
 
-      openaiWs.on("message", (data) => {
+      openaiWs.on("message", async (data) => {
         try {
           const msg = JSON.parse(data.toString());
           // Stockage du texte de réponse (pour mode TTS premium)
