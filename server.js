@@ -1141,6 +1141,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   let inputSilenceFrames = 0;
   let inputActive = false; // on est en train d'envoyer une "prise de parole" à OpenAI
   let bytesSinceInputStart = 0;
+  let lastInputAudioLevel = 0; // Niveau audio moyen de la dernière frame pour filtrer les faux positifs OpenAI
   let lastInputCommitAt = 0;
   const LOCAL_COMMIT_ENABLED = (process.env.LOCAL_COMMIT_ENABLED ?? "false").toLowerCase() === "true";
   // Anti-écho: si l'IA parle, on peut ignorer l'audio entrant pour éviter que la TV/retour audio déclenche un nouveau tour.
@@ -1826,10 +1827,10 @@ But: être naturel et mettre le client en confiance.`,
           // IMPORTANT: Filtrer les faux positifs d'OpenAI (détection trop sensible au bruit)
           if (msg.type === "input_audio_buffer.speech_started") {
             // Vérifier que le niveau audio local confirme vraiment de la parole
-            // Si on a un gate actif et qu'on n'a pas détecté de parole localement, ignorer l'événement OpenAI
-            const shouldIgnore = INPUT_GATE_ENABLED && !inputActive && inputSpeechFrames < INPUT_SPEECH_FRAMES;
+            // Si le niveau audio récent est trop faible, c'est probablement un faux positif
+            const shouldIgnore = INPUT_GATE_ENABLED && lastInputAudioLevel < INPUT_SPEECH_THRESHOLD;
             if (shouldIgnore) {
-              console.log("🔇 Ignoré speech_started OpenAI (faux positif, pas de parole locale confirmée)");
+              console.log("🔇 Ignoré speech_started OpenAI (faux positif, niveau audio trop faible:", lastInputAudioLevel, "<", INPUT_SPEECH_THRESHOLD + ")");
               return;
             }
             speechActive = true;
