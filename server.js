@@ -1282,7 +1282,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           : "Info horaires (interne): garage indiqué ouvert.";
         const pricingLine = pricingSummary
           ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}
-IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu DOIS donner le prix indiqué ET préciser que le prix peut varier selon le véhicule. Exemple: "Pour une vidange, c'est environ 45€, mais le prix peut varier selon le véhicule."`
+IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu DOIS donner le prix indiqué ET préciser que le prix peut varier selon le véhicule. Ajoute ensuite: "Tout sera inscrit lorsque vous aurez établi le devis avec le garage." ou une phrase similaire. Exemple: "Pour une vidange, c'est environ 45€, mais le prix peut varier selon le véhicule. Tout sera inscrit lorsque vous aurez établi le devis avec le garage."`
           : "Tarifs du garage: non renseignés (si le client demande un prix, tu expliques que c'est sur devis ou à confirmer).";
 
         const servicesLine = servicesSummary
@@ -1340,7 +1340,7 @@ But: préparer le dossier pour l'atelier (que le garage puisse rappeler efficace
 - Tu dois collecter la plaque d'immatriculation (ex: AB-123-CD) dès que possible.
 - Si le client demande un tarif ET que le tarif est dans "Tarifs du garage":
   * Si le tarif est fixe (ex: "45€"), tu le donnes directement et tu proposes la suite (RDV ou dépôt). Tu n'exiges pas marque/modèle dans ce cas.
-  * Si le tarif est variable (contient "le prix peut varier selon le véhicule"), tu donnes le prix indiqué ET tu précises que le prix peut varier selon le véhicule. Exemple: "Pour une vidange, c'est environ 45€, mais le prix peut varier selon le véhicule. Quel véhicule avez-vous ?" Dans ce cas, tu peux demander marque/modèle pour affiner.
+  * Si le tarif est variable (contient "le prix peut varier selon le véhicule"), tu donnes le prix indiqué ET tu précises que le prix peut varier selon le véhicule. Ajoute ensuite: "Tout sera inscrit lorsque vous aurez établi le devis avec le garage." ou une phrase similaire. Exemple: "Pour une vidange, c'est environ 45€, mais le prix peut varier selon le véhicule. Tout sera inscrit lorsque vous aurez établi le devis avec le garage." Dans ce cas, tu peux demander marque/modèle pour affiner, mais ce n'est pas obligatoire.
 - Si le client demande un tarif ET qu'il n'y a pas de tarif renseigné, tu dis que c'est à confirmer/devis et tu proposes RDV; tu peux demander le véhicule UNIQUEMENT si nécessaire.
 - Utilise les informations des "Services disponibles" et "Questions fréquentes" pour répondre aux questions du client de manière précise et cohérente avec les infos du garage.
 ${vehicleInfoRule}
