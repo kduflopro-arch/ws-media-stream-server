@@ -308,6 +308,9 @@ wss.on("connection", (ws, req) => {
   let garageTone = "";
   let consentRequired = true;
   let appointmentMode = "request";
+  let garageClosed = false;
+  let garageClosedReason = "";
+  let garageClosedText = "";
   let ingestSeq = 0;
   let ingestChain = Promise.resolve();
   function enqueueIngest(role, text) {
@@ -1250,6 +1253,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               ? "Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes seulement après validation explicite du client)."
               : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande et le garage rappelle pour confirmer).";
 
+        const openingLine = garageClosed
+          ? `IMPORTANT: le garage est actuellement fermé. ${garageClosedText || ""} Tu l'annonces poliment dès le début (1 phrase), puis tu prends un message complet (raison + symptômes + véhicule + plaque si possible + dispo + numéro) et tu dis que le garage rappellera dès l'ouverture.`
+          : "Garage: ouvert (flux normal).";
+
         const consentLine =
           consentRequired
             ? "Dès le début de l'appel, annonce: 'Cet appel est enregistré pour préparer votre arrivée au garage. Si vous refusez, vous pouvez raccrocher à tout moment.' Puis demande un oui/non."
@@ -1259,6 +1266,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 Tu réponds à des appels téléphoniques (style oral, naturel, vivant).
 Objectif: comprendre précisément le besoin, rassurer, et avancer vers une prise en charge (selon le mode RDV).
 ${modeLine}
+${openingLine}
 ${consentLine}
 Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
 Format: réponses courtes (1 à 2 phrases), puis UNE question.
@@ -1785,6 +1793,9 @@ But: être naturel et mettre le client en confiance.`,
         const finalGarageTone = startParams.garageTone || "";
         const finalConsentRequired = startParams.consentRequired || "";
         const finalAppointmentMode = startParams.appointmentMode || "";
+        const finalGarageClosed = startParams.garageClosed || "";
+        const finalGarageClosedReason = startParams.garageClosedReason || "";
+        const finalGarageClosedText = startParams.garageClosedText || "";
         
         console.log("🎬 Stream start:", {
           streamCallSid,
@@ -1793,6 +1804,8 @@ But: être naturel et mettre le client en confiance.`,
           garageId: finalGarageId,
           garageName: finalGarageName,
           fromNumber: finalFromNumber,
+          garageClosed: finalGarageClosed,
+          garageClosedReason: finalGarageClosedReason,
           customParameters: startParams,
           mediaFormat: msg.start?.mediaFormat
         });
@@ -1809,6 +1822,9 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalGarageTone === "string") garageTone = finalGarageTone.trim();
         if (typeof finalConsentRequired === "string" && finalConsentRequired.trim()) consentRequired = finalConsentRequired.trim().toLowerCase() === "true";
         if (typeof finalAppointmentMode === "string" && finalAppointmentMode.trim()) appointmentMode = finalAppointmentMode.trim();
+        if (typeof finalGarageClosed === "string" && finalGarageClosed.trim()) garageClosed = finalGarageClosed.trim().toLowerCase() === "true";
+        if (typeof finalGarageClosedReason === "string") garageClosedReason = String(finalGarageClosedReason || "").trim();
+        if (typeof finalGarageClosedText === "string") garageClosedText = String(finalGarageClosedText || "").trim();
 
         // Toujours logguer la config au démarrage d'un stream pour diagnostiquer Render env vs code path.
         logPipelineConfigOnce("⚙️ Pipeline actif");
