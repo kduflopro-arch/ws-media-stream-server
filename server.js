@@ -811,6 +811,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       } catch (err) {
         // Fallback si le modèle demandé (ex: gpt-5) n'est pas disponible
         console.error("❌ LLM primary failed, fallback to gpt-4o:", String(err?.message ?? err));
+        console.warn("⚠️ FALLBACK LLM ACTIVÉ: " + LLM_MODEL + " → gpt-4o (réponses moins bonnes)");
         console.log("🧠 LLM start (fallback):", { model: "gpt-4o" });
         answer = await openaiLLM(msgs, "gpt-4o");
         console.log("🧠 LLM done (fallback):", { model: "gpt-4o", chars: answer?.length ?? 0 });
@@ -822,8 +823,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
       }
       if (!answer) {
-        // Si GPT‑5 renvoie vide, on fallback immédiatement pour ne pas laisser l'appel “sans réponse”.
+        // Si GPT‑5 renvoie vide, on fallback immédiatement pour ne pas laisser l'appel "sans réponse".
         console.warn("⚠️ LLM réponse vide, fallback gpt-4o.");
+        console.warn("⚠️ FALLBACK LLM ACTIVÉ: " + LLM_MODEL + " a renvoyé vide → gpt-4o (réponses moins bonnes)");
         console.log("🧠 LLM start (fallback-empty):", { model: "gpt-4o" });
         answer = await openaiLLM(msgs, "gpt-4o");
         console.log("🧠 LLM done (fallback-empty):", { model: "gpt-4o", chars: answer?.length ?? 0 });
@@ -893,11 +895,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       });
       if (!resp.ok || !resp.body) {
         const errText = await resp.text().catch(() => "");
-        premiumTtsLastError = { status: resp.status, body: errText.slice(0, 500) };
+        premiumTtsLastError = { status: resp.status, body: errText.slice(0, 500), timestamp: new Date().toISOString() };
         console.error("❌ ElevenLabs TTS error:", premiumTtsLastError);
         // Fallback: laisser passer l'audio OpenAI pendant 5 minutes (sinon silence total)
         premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000;
-        console.warn("↩️ Fallback premium: bypass audio OpenAI activé (5 min).");
+        console.warn("↩️ FALLBACK ACTIVÉ: ElevenLabs en erreur → utilisation audio OpenAI pendant 5 min.");
+        console.warn("   Pour désactiver le fallback, redémarre le serveur ou attends 5 min.");
+        console.warn("   Vérifie ELEVENLABS_API_KEY, crédits ElevenLabs, et voice ID.");
         return;
       }
 
@@ -941,12 +945,20 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       // Drop remainder (<20ms) to keep pacing stable.
       console.log("🎙️ ElevenLabs TTS terminé.", { chars: clean.length });
+      // Si ElevenLabs fonctionne, on réinitialise le fallback (au cas où il était actif)
+      if (premiumTtsBypassUntilMs > 0) {
+        console.log("✅ ElevenLabs fonctionne → réinitialisation du fallback");
+        premiumTtsBypassUntilMs = 0;
+        premiumTtsLastError = null;
+      }
     } catch (err) {
       if (String(err?.name) === "AbortError") return;
       console.error("❌ Erreur ElevenLabs TTS:", err);
-      premiumTtsLastError = { message: String(err?.message ?? err) };
+      premiumTtsLastError = { message: String(err?.message ?? err), timestamp: new Date().toISOString() };
       premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000;
-      console.warn("↩️ Fallback premium: bypass audio OpenAI activé (5 min).");
+      console.warn("↩️ FALLBACK ACTIVÉ: Exception ElevenLabs → utilisation audio OpenAI pendant 5 min.");
+      console.warn("   Pour désactiver le fallback, redémarre le serveur ou attends 5 min.");
+      console.warn("   Vérifie ELEVENLABS_API_KEY, crédits ElevenLabs, et voice ID.");
     } finally {
       premiumTtsInFlight = false;
     }
@@ -1198,6 +1210,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       openaiWs.on("open", () => {
         console.log("✅ Connecté à OpenAI Realtime API");
         console.log("🎛️ OpenAI audio format (forced):", { input: "pcm16", output: "pcm16" });
+        
+        // Log état du fallback au démarrage
+        if (REALTIME_USE_ELEVEN) {
+          if (nowMs() < premiumTtsBypassUntilMs) {
+            const remainingMinutes = Math.ceil((premiumTtsBypassUntilMs - nowMs()) / 60000);
+            console.warn("⚠️ FALLBACK ACTIF au démarrage: ElevenLabs en erreur → audio OpenAI (~" + remainingMinutes + " min restantes)");
+            if (premiumTtsLastError) {
+              console.error("   Dernière erreur ElevenLabs:", premiumTtsLastError);
+            }
+          } else {
+            console.log("✅ ElevenLabs actif (pas de fallback)");
+          }
+        }
         
         // Configurer la session OpenAI
         // Note: input_audio_format et output_audio_format sont configurés dans l'URL WebSocket, pas ici
@@ -1540,7 +1565,21 @@ But: être naturel et mettre le client en confiance.`,
           if (msg.type === "response.audio.delta" || msg.type === "response.output_audio.delta") {
             // Si on utilise ElevenLabs en Realtime, on ignore complètement l'audio OpenAI (sinon doublon + backlog).
             // SAUF si ElevenLabs est en erreur (bypass) → on repasse sur OpenAI pour éviter le silence total.
-            if (REALTIME_USE_ELEVEN && nowMs() >= premiumTtsBypassUntilMs) return;
+            if (REALTIME_USE_ELEVEN && nowMs() >= premiumTtsBypassUntilMs) {
+              // ElevenLabs actif, on ignore l'audio OpenAI
+              return;
+            }
+            // Fallback actif : on utilise l'audio OpenAI (moins naturel mais fonctionne)
+            if (REALTIME_USE_ELEVEN && nowMs() < premiumTtsBypassUntilMs) {
+              const remainingMinutes = Math.ceil((premiumTtsBypassUntilMs - nowMs()) / 60000);
+              if (!ws.__loggedFallbackAudio) {
+                ws.__loggedFallbackAudio = true;
+                console.warn("⚠️ FALLBACK ACTIF: Utilisation audio OpenAI au lieu d'ElevenLabs (reste ~" + remainingMinutes + " min).");
+                if (premiumTtsLastError) {
+                  console.error("   Dernière erreur ElevenLabs:", premiumTtsLastError);
+                }
+              }
+            }
             const audioBase64 =
               msg.delta ??
               msg.audio ??
