@@ -1084,6 +1084,22 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bcourroie\b/gi, "courroie");
     t = t.replace(/\bdistribution\b/gi, "distribution");
     t = t.replace(/\bclimatisation\b/gi, "climatisation");
+    t = t.replace(/\bvéhicule\b/gi, "véhicule");
+    t = t.replace(/\bvoiture\b/gi, "voiture");
+    t = t.replace(/\bgarage\b/gi, "garage");
+    t = t.replace(/\bassistante\b/gi, "assistante");
+    t = t.replace(/\bassistant\b/gi, "assistant");
+    t = t.replace(/\bdisponibilité\b/gi, "disponibilité");
+    t = t.replace(/\bdisponibilités\b/gi, "disponibilités");
+    t = t.replace(/\bappareil\b/gi, "appareil");
+    t = t.replace(/\bamène\b/gi, "amène");
+    t = t.replace(/\bconvenir\b/gi, "convenir");
+    t = t.replace(/\bconvenu\b/gi, "convenu");
+    t = t.replace(/\bconvenez\b/gi, "convenez");
+    
+    // Normalisation des nombres pour cohérence
+    t = t.replace(/\b(\d+)\s*€\b/gi, "$1 euros");
+    t = t.replace(/\b(\d+)\s*euros?\b/gi, "$1 euros");
     t = t.replace(/\bparallélisme\b/gi, "parallélisme");
     t = t.replace(/\bgéométrie\b/gi, "géométrie");
     t = t.replace(/\bcontrôle\b/gi, "contrôle");
