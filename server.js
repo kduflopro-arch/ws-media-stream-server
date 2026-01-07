@@ -240,6 +240,7 @@ wss.on("connection", (ws, req) => {
   let outboundQueue = []; // Array<Buffer>
   let outboundQueuedBytes = 0;
   let hasSentInitialGreeting = false;
+  let initialAssistantGreetingText = "";
   let loggedFirstAudioDelta = false;
   let outboundTimer = null;
   let lastResponseAt = 0;
@@ -1085,8 +1086,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // Realtime+ElevenLabs: "direct" (chunking) pour parler dès que le texte arrive
   const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "true").toLowerCase() === "true";
   // Valeurs par défaut plus "stables" (moins de requêtes ElevenLabs ⇒ moins de coupures).
-  const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "120");
-  const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "360");
+  // On baisse le seuil min par défaut pour améliorer la réactivité (quand OpenAI envoie des deltas).
+  const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
+  const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "240");
 
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
@@ -1370,11 +1372,28 @@ ${garageClosed
           return greetings[Math.floor(Math.random() * greetings.length)];
         }
 
+        // Si on a déjà joué un greeting local (ElevenLabs) avant l'ouverture OpenAI,
+        // on l'injecte dans la conversation pour éviter que le modèle le répète.
+        if (initialAssistantGreetingText && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+          try {
+            openaiWs.send(JSON.stringify({
+              type: "conversation.item.create",
+              item: {
+                type: "message",
+                role: "assistant",
+                content: [{ type: "input_text", text: initialAssistantGreetingText }],
+              },
+            }));
+          } catch (e) {
+            console.error("❌ Erreur injection greeting assistant:", e);
+          }
+        }
+
         // IMPORTANT: faire parler l'IA tout de suite (valide le chemin audio Twilio <- OpenAI),
         // même si le client n'a pas encore parlé / même si le VAD n'a pas commit.
         if (!hasSentInitialGreeting) {
           hasSentInitialGreeting = true;
-          const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "150");
+          const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "80");
           const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
           const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
           setTimeout(() => {
@@ -1388,6 +1407,14 @@ ${garageClosed
                 console.log("👋 Greeting ignoré (déjà joué pour ce CallSid).", { callSid });
                 return;
               }
+
+              // Si on a déjà joué un greeting local (ElevenLabs), ne pas en redemander un à OpenAI.
+              if (initialAssistantGreetingText) {
+                console.log("👋 Greeting OpenAI ignoré (greeting déjà joué via ElevenLabs).", { callSid });
+                if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+                return;
+              }
+
               openaiWs.send(JSON.stringify({
                 type: "conversation.item.create",
                 item: {
@@ -1835,6 +1862,33 @@ But: être naturel et mettre le client en confiance.`,
 
         // Toujours logguer la config au démarrage d'un stream pour diagnostiquer Render env vs code path.
         logPipelineConfigOnce("⚙️ Pipeline actif");
+
+        // 🔥 Greeting immédiat (ultra-réactif) :
+        // - doit annoncer l'enregistrement AVANT que le client puisse répondre
+        // - doit utiliser la voix ElevenLabs (pas attendre OpenAI)
+        // - on injecte ensuite le même texte dans la conversation OpenAI pour éviter les répétitions
+        try {
+          const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
+          const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
+          if ((!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN) {
+            const rawName = String(garageName || "AutoGuru").trim();
+            const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
+            const baseHello = `Bonjour ! Ici ${assistantName}, du ${label}.`;
+            const consentText = consentRequired
+              ? "Cet appel est enregistré pour préparer votre arrivée au garage. Si vous refusez, vous pouvez raccrocher à tout moment."
+              : "";
+            const question = consentRequired
+              ? "Est-ce que ça vous convient ?"
+              : "En quoi je peux vous aider ?";
+            const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+            initialAssistantGreetingText = greeting;
+            enqueueElevenLabsTts(greeting, { interrupt: true });
+            console.log("👋 Greeting immédiat joué via ElevenLabs.", { callSid, consentRequired });
+            if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+          }
+        } catch (e) {
+          console.error("❌ Erreur greeting immédiat ElevenLabs:", e);
+        }
         
         // Démarrage selon mode pipeline
         if (PIPELINE_MODE === "stt_llm_tts") {
