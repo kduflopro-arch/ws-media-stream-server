@@ -2333,6 +2333,7 @@ But: être naturel et mettre le client en confiance.`,
               
               // Détection parole/silence (debug)
               const avgLocal = avg;
+              lastInputAudioLevel = avgLocal; // Mettre à jour pour filtrer les faux positifs OpenAI
               const isSpeechDbg = avgLocal > INPUT_SPEECH_THRESHOLD;
               const isSilenceDbg = avgLocal < INPUT_SILENCE_THRESHOLD;
               if (isSpeechDbg) {
