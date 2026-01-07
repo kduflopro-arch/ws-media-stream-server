@@ -2167,7 +2167,7 @@ But: être naturel et mettre le client en confiance.`,
                             if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
                             plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
                             // Petite phrase "j'attends votre réponse au SMS"
-                            enqueueElevenLabsTts("Parfait. Je vous envoie le SMS maintenant. Répondez-y avec votre plaque d'immatriculation (ex: AB-123-CD), et je continuerai la conversation dès que je l'aurai reçue. Je vous attends.", { interrupt: true });
+                            enqueueElevenLabsTts("Parfait. Je vous envoie le SMS maintenant. Répondez-y avec votre plaque d'immatriculation (ex: AB-123-CD). Je vais attendre votre réponse avant de continuer la conversation. Dites-moi quand vous avez répondu, ou je détecterai automatiquement votre réponse.", { interrupt: true });
                           } else if (isNegativeFr(txt)) {
                             plateSmsConsentPending = false;
                             enqueueElevenLabsTts("D'accord. Dans ce cas, dites-moi la plaque lettre par lettre, s'il vous plaît.", { interrupt: true });
