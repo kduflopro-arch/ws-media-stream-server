@@ -314,6 +314,8 @@ wss.on("connection", (ws, req) => {
   let garageClosedText = "";
   let collectVehicleInfo = false;
   let pricingSummary = "";
+  let servicesSummary = "";
+  let faqsSummary = "";
   let ingestSeq = 0;
   let ingestChain = Promise.resolve();
   function enqueueIngest(role, text) {
@@ -1279,8 +1281,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           ? `Info horaires (interne): le garage est actuellement indiqué comme fermé. (${garageClosedReason || "closed"}) ${garageClosedText || ""} Tu NE le mentionnes PAS au début. Tu le mentionnes uniquement en fin d'appel, selon les règles ci-dessous.`
           : "Info horaires (interne): garage indiqué ouvert.";
         const pricingLine = pricingSummary
-          ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}`
+          ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}
+IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu DOIS donner le prix indiqué ET préciser que le prix peut varier selon le véhicule. Exemple: "Pour une vidange, c'est environ 45€, mais le prix peut varier selon le véhicule."`
           : "Tarifs du garage: non renseignés (si le client demande un prix, tu expliques que c'est sur devis ou à confirmer).";
+
+        const servicesLine = servicesSummary
+          ? `Services disponibles au garage (utilise ces infos pour répondre aux questions): ${servicesSummary}`
+          : "";
+
+        const faqsLine = faqsSummary
+          ? `Questions fréquentes (utilise ces réponses si le client pose une question similaire): ${faqsSummary}`
+          : "";
 
         const baseInstructions = `Tu es ${assistantName}, l'assistant(e) téléphonique de ${garageLabel}.
 Tu réponds à des appels téléphoniques (style oral, naturel, vivant).
@@ -1290,7 +1301,7 @@ ${consentLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
 ${pricingLine}
-Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
+${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
 Format: réponses courtes (1 à 2 phrases), puis UNE question.
 Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, virgules, questions).`;
 
@@ -1327,8 +1338,11 @@ But: préparer le dossier pour l'atelier (que le garage puisse rappeler efficace
 - Tu es un garage auto. Tu parles UNIQUEMENT de véhicules/diagnostic/rendez-vous.
 - Si le client dit "j'ai un problème", tu poses des questions sur le véhicule (bruit/voyant/démarrage/freinage) et tu proposes un RDV.
 - Tu dois collecter la plaque d'immatriculation (ex: AB-123-CD) dès que possible.
-- Si le client demande un tarif ET que le tarif est dans "Tarifs du garage", tu le donnes directement (prix + ce que ça inclut) et tu proposes la suite (RDV ou dépôt). Tu n'exiges pas marque/modèle dans ce cas.
+- Si le client demande un tarif ET que le tarif est dans "Tarifs du garage":
+  * Si le tarif est fixe (ex: "45€"), tu le donnes directement et tu proposes la suite (RDV ou dépôt). Tu n'exiges pas marque/modèle dans ce cas.
+  * Si le tarif est variable (contient "le prix peut varier selon le véhicule"), tu donnes le prix indiqué ET tu précises que le prix peut varier selon le véhicule. Exemple: "Pour une vidange, c'est environ 45€, mais le prix peut varier selon le véhicule. Quel véhicule avez-vous ?" Dans ce cas, tu peux demander marque/modèle pour affiner.
 - Si le client demande un tarif ET qu'il n'y a pas de tarif renseigné, tu dis que c'est à confirmer/devis et tu proposes RDV; tu peux demander le véhicule UNIQUEMENT si nécessaire.
+- Utilise les informations des "Services disponibles" et "Questions fréquentes" pour répondre aux questions du client de manière précise et cohérente avec les infos du garage.
 ${vehicleInfoRule}
 - Tu n'inventes JAMAIS une plaque. Si la plaque est partielle, ambiguë, ou trop courte (ex: un seul chiffre), tu dis que ce n'est pas suffisant et tu demandes de la redire lettre par lettre, chiffres par chiffres.
 - Quand tu répètes une plaque, tu la répètes exactement comme donnée. Si tu n'es pas sûr à 100%, tu demandes de confirmer au lieu de valider.
@@ -1858,6 +1872,8 @@ But: être naturel et mettre le client en confiance.`,
         const finalGarageClosedText = startParams.garageClosedText || "";
         const finalCollectVehicleInfo = startParams.collectVehicleInfo || "";
         const finalPricingSummary = startParams.pricingSummary || "";
+        const finalServicesSummary = startParams.servicesSummary || "";
+        const finalFaqsSummary = startParams.faqsSummary || "";
         
         console.log("🎬 Stream start:", {
           streamCallSid,
@@ -1891,6 +1907,8 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalGarageClosedText === "string") garageClosedText = String(finalGarageClosedText || "").trim();
         if (typeof finalCollectVehicleInfo === "string" && finalCollectVehicleInfo.trim()) collectVehicleInfo = finalCollectVehicleInfo.trim().toLowerCase() === "true";
         if (typeof finalPricingSummary === "string") pricingSummary = String(finalPricingSummary || "").trim();
+        if (typeof finalServicesSummary === "string") servicesSummary = String(finalServicesSummary || "").trim();
+        if (typeof finalFaqsSummary === "string") faqsSummary = String(finalFaqsSummary || "").trim();
 
         // Toujours logguer la config au démarrage d'un stream pour diagnostiquer Render env vs code path.
         logPipelineConfigOnce("⚙️ Pipeline actif");
