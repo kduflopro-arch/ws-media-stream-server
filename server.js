@@ -414,7 +414,14 @@ wss.on("connection", (ws, req) => {
       }).catch(() => null);
       if (resp && resp.ok) {
         const json = await resp.json().catch(() => ({}));
-        console.log("📩 SMS plaque demandé à AutoGuru.", { trigger, smsSid: json?.smsSid ?? null });
+        console.log("📩 SMS plaque demandé à AutoGuru.", { 
+          trigger, 
+          smsSid: json?.smsSid ?? null,
+          callSid,
+          fromNumber: to,
+          garageId: garageId || null,
+          url
+        });
       } else if (resp) {
         const t = await resp.text().catch(() => "");
         console.warn("⚠️ SMS plaque request non-ok:", { status: resp.status, trigger, body: t.slice(0, 180) });
@@ -1028,6 +1035,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
 
   // Pré-traitement TTS (améliore articulation/intonation en téléphonie)
+  // IMPORTANT: Ce dictionnaire doit être appliqué de manière cohérente pour éviter les variations de prononciation
+  // entre la phrase d'accueil et le reste de la conversation
   function normalizeFrenchTtsText(input) {
     let t = String(input || "").trim();
     if (!t) return "";
@@ -1036,16 +1045,53 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Abbréviations courantes
     t = t.replace(/\bRDV\b/gi, "rendez-vous");
     t = t.replace(/\bOK\b/g, "ok");
-    // Prononciations FR (téléphonie): quelques marques / mots souvent mal dits
-    // (simple dictionnaire, sans sur-optimiser)
-    t = t.replace(/\bSEAT\b/g, "Siat");
-    t = t.replace(/\bSeat\b/g, "Siat");
+    t = t.replace(/\bSMS\b/gi, "S M S"); // Prononcer lettre par lettre pour SMS
+    
+    // Prononciations FR (téléphonie): dictionnaire complet pour cohérence
+    // Marques automobiles (prononciation française standardisée)
+    t = t.replace(/\bSEAT\b/gi, "Siat");
     t = t.replace(/\bPeugeot\b/gi, "Peujo");
     t = t.replace(/\bRenault\b/gi, "Renô");
     t = t.replace(/\bCitro[eë]n\b/gi, "Citroën");
     t = t.replace(/\bVolkswagen\b/gi, "Volksvaguen");
     t = t.replace(/\bMercedes\b/gi, "Mèr-cè-dès");
     t = t.replace(/\bNorauto\b/gi, "Norauto");
+    t = t.replace(/\bBMW\b/gi, "Bé M Double Vé");
+    t = t.replace(/\bAudi\b/gi, "Aoudi");
+    t = t.replace(/\bOpel\b/gi, "Opèl");
+    t = t.replace(/\bFord\b/gi, "Forde");
+    t = t.replace(/\bToyota\b/gi, "Toyota");
+    t = t.replace(/\bNissan\b/gi, "Nissane");
+    t = t.replace(/\bHyundai\b/gi, "Hyoundaï");
+    t = t.replace(/\bKia\b/gi, "Kia");
+    t = t.replace(/\bDacia\b/gi, "Datchia");
+    t = t.replace(/\bFiat\b/gi, "Fiate");
+    t = t.replace(/\bVolvo\b/gi, "Volvo");
+    t = t.replace(/\bSkoda\b/gi, "Skoda");
+    
+    // Mots courants du garage (normalisation pour cohérence)
+    // Ces mots sont souvent mal prononcés différemment selon le contexte
+    t = t.replace(/\brécupérer\b/gi, "récupérer");
+    t = t.replace(/\bimmatriculation\b/gi, "immatriculation");
+    t = t.replace(/\bplaque\b/gi, "plaque");
+    t = t.replace(/\bvidange\b/gi, "vidange");
+    t = t.replace(/\brévision\b/gi, "révision");
+    t = t.replace(/\bdiagnostic\b/gi, "diagnostic");
+    t = t.replace(/\bfreinage\b/gi, "freinage");
+    t = t.replace(/\bplaquettes\b/gi, "plaquettes");
+    t = t.replace(/\bdisques\b/gi, "disques");
+    t = t.replace(/\bembrayage\b/gi, "embrayage");
+    t = t.replace(/\bcourroie\b/gi, "courroie");
+    t = t.replace(/\bdistribution\b/gi, "distribution");
+    t = t.replace(/\bclimatisation\b/gi, "climatisation");
+    t = t.replace(/\bparallélisme\b/gi, "parallélisme");
+    t = t.replace(/\bgéométrie\b/gi, "géométrie");
+    t = t.replace(/\bcontrôle\b/gi, "contrôle");
+    t = t.replace(/\btechnique\b/gi, "technique");
+    t = t.replace(/\bbatterie\b/gi, "batterie");
+    t = t.replace(/\bpneus\b/gi, "pneus");
+    t = t.replace(/\béquilibrage\b/gi, "équilibrage");
+    
     // Ponctuation FR (aide l'intonation)
     t = t.replace(/\s*([!?;:])\s*/g, "$1 ");
     t = t.replace(/\s*([,.])\s*/g, "$1 ");
@@ -1348,7 +1394,7 @@ But: préparer le dossier pour l'atelier (que le garage puisse rappeler efficace
 ${vehicleInfoRule}
 - Tu n'inventes JAMAIS une plaque. Si la plaque est partielle, ambiguë, ou trop courte (ex: un seul chiffre), tu dis que ce n'est pas suffisant et tu demandes de la redire lettre par lettre, chiffres par chiffres.
 - Quand tu répètes une plaque, tu la répètes exactement comme donnée. Si tu n'es pas sûr à 100%, tu demandes de confirmer au lieu de valider.
-- Quand tu as besoin de la plaque, tu proposes PRIORITAIREMENT: "Je vais vous envoyer un SMS avec un message pour récupérer votre plaque d'immatriculation. Répondez simplement au SMS avec votre plaque (ex: AB-123-CD), et je continuerai la conversation une fois que vous aurez répondu. Ça vous va ?" Tu DOIS attendre la confirmation explicite du client ("oui", "d'accord", "ok", etc.) avant de dire que tu envoies le SMS. Une fois qu'il a confirmé, tu dis: "Parfait, je vous envoie le SMS maintenant. Répondez-y avec votre plaque et je continuerai dès que je l'aurai reçue."
+- Quand tu as besoin de la plaque, tu proposes PRIORITAIREMENT: "Je vais vous envoyer un SMS pour récupérer votre plaque d'immatriculation. Répondez au SMS s'il vous plaît avec votre plaque (ex: AB-123-CD), et je continuerai la conversation une fois que vous aurez répondu. Ça vous va ?" Tu DOIS attendre la confirmation explicite du client ("oui", "d'accord", "ok", etc.) avant de dire que tu envoies le SMS. Une fois qu'il a confirmé, tu dis: "Parfait, je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît avec votre plaque, et je continuerai dès que je l'aurai reçue."
 - Si le client donne une préférence de créneau (ex: "le matin", "l'après-midi"), tu DOIS la respecter et la reformuler.
 - Tu ne confirmes jamais un rendez-vous à une autre période que celle demandée. Si tu as un doute, tu demandes confirmation.
 - Si mode rendez-vous = demande: tu ne dis jamais "c'est confirmé" / "c'est fixé". Tu dis "je note la demande" et "on vous rappelle pour confirmer".
@@ -2168,7 +2214,7 @@ But: être naturel et mettre le client en confiance.`,
                             if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
                             plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
                             // Petite phrase "j'attends votre réponse au SMS"
-                            enqueueElevenLabsTts("Parfait. Je vous envoie le SMS maintenant. Répondez-y avec votre plaque d'immatriculation (ex: AB-123-CD). Je vais attendre votre réponse avant de continuer la conversation. Dites-moi quand vous avez répondu, ou je détecterai automatiquement votre réponse.", { interrupt: true });
+                            enqueueElevenLabsTts("Parfait. Je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît avec votre plaque d'immatriculation (ex: AB-123-CD). Je vais attendre votre réponse avant de continuer la conversation. Dites-moi quand vous avez répondu, ou je détecterai automatiquement votre réponse.", { interrupt: true });
                           } else if (isNegativeFr(txt)) {
                             plateSmsConsentPending = false;
                             enqueueElevenLabsTts("D'accord. Dans ce cas, dites-moi la plaque lettre par lettre, s'il vous plaît.", { interrupt: true });
