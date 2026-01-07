@@ -497,7 +497,7 @@ wss.on("connection", (ws, req) => {
       }
 
       // Dire au client qu'on a bien reçu la plaque, puis continuer
-      const confirmText = `Parfait, j’ai bien reçu votre plaque ${plate}. Merci.`;
+      const confirmText = `Parfait, j'ai bien reçu votre plaque ${plate}. Merci. Je continue maintenant.`;
       enqueueElevenLabsTts(confirmText, { interrupt: true });
       // Et l'ajouter au contexte OpenAI pour que la suite en tienne compte
       try {
@@ -1057,7 +1057,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
 
   // Détection parole côté Twilio (pour barge-in) : plus stable que les events VAD OpenAI en environnement bruyant.
-  const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "false").toLowerCase() === "true";
+  // Activé par défaut pour permettre au client de couper l'IA quand elle parle
+  const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "true").toLowerCase() === "true";
   const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "5500");
   const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "12"); // ~240ms (12 * 20ms)
   let twilioSpeechFrames = 0;
@@ -1346,7 +1347,7 @@ But: préparer le dossier pour l'atelier (que le garage puisse rappeler efficace
 ${vehicleInfoRule}
 - Tu n'inventes JAMAIS une plaque. Si la plaque est partielle, ambiguë, ou trop courte (ex: un seul chiffre), tu dis que ce n'est pas suffisant et tu demandes de la redire lettre par lettre, chiffres par chiffres.
 - Quand tu répètes une plaque, tu la répètes exactement comme donnée. Si tu n'es pas sûr à 100%, tu demandes de confirmer au lieu de valider.
-- Quand tu as besoin de la plaque, tu proposes PRIORITAIREMENT: "Je vous envoie un SMS, répondez-y avec la plaque, ça l'enregistre automatiquement." puis tu demandes confirmation ("Ça vous va ?").
+- Quand tu as besoin de la plaque, tu proposes PRIORITAIREMENT: "Je vais vous envoyer un SMS avec un message pour récupérer votre plaque d'immatriculation. Répondez simplement au SMS avec votre plaque (ex: AB-123-CD), et je continuerai la conversation une fois que vous aurez répondu. Ça vous va ?" Tu DOIS attendre la confirmation explicite du client ("oui", "d'accord", "ok", etc.) avant de dire que tu envoies le SMS. Une fois qu'il a confirmé, tu dis: "Parfait, je vous envoie le SMS maintenant. Répondez-y avec votre plaque et je continuerai dès que je l'aurai reçue."
 - Si le client donne une préférence de créneau (ex: "le matin", "l'après-midi"), tu DOIS la respecter et la reformuler.
 - Tu ne confirmes jamais un rendez-vous à une autre période que celle demandée. Si tu as un doute, tu demandes confirmation.
 - Si mode rendez-vous = demande: tu ne dis jamais "c'est confirmé" / "c'est fixé". Tu dis "je note la demande" et "on vous rappelle pour confirmer".
@@ -1625,21 +1626,8 @@ But: être naturel et mettre le client en confiance.`,
                 plateSmsConsentPending = true;
                 plateSmsConsentDeadlineMs = nowMs() + 25_000;
               }
-              // Fallback: si OpenAI a compris l'accord ("super/parfait/merci/ok") mais que notre STT local n'a pas capté le "oui",
-              // on déclenche quand même l'envoi SMS (sinon le SMS ne part jamais).
-              if (plateSmsConsentPending && nowMs() <= plateSmsConsentDeadlineMs) {
-                const soundsLikeAcceptance =
-                  /\b(super|parfait|merci|ok|tr[eè]s bien)\b/.test(low) &&
-                  (low.includes("disponible") || low.includes("rendez-vous") || low.includes("rdv") || low.includes("quand"));
-                if (soundsLikeAcceptance) {
-                  plateSmsConsentPending = false;
-                  console.log("📩 Fallback consent détecté via réponse IA → envoi SMS plaque.");
-                  await requestPlateSmsIfNeeded("assistant_inferred_user_acceptance");
-                  plateSmsWaitingForReply = true;
-                  if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
-                  plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
-                }
-              }
+              // IMPORTANT: Ne pas utiliser de fallback automatique. On attend TOUJOURS une confirmation explicite du client.
+              // Le fallback a été supprimé pour éviter d'envoyer des SMS sans consentement clair.
               // Lancer la voix premium.
               // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
               if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
@@ -2179,7 +2167,7 @@ But: être naturel et mettre le client en confiance.`,
                             if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
                             plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
                             // Petite phrase "j'attends votre réponse au SMS"
-                            enqueueElevenLabsTts("Parfait. Je vous laisse 2 secondes : répondez au SMS avec la plaque, et je continue.", { interrupt: true });
+                            enqueueElevenLabsTts("Parfait. Je vous envoie le SMS maintenant. Répondez-y avec votre plaque d'immatriculation (ex: AB-123-CD), et je continuerai la conversation dès que je l'aurai reçue. Je vous attends.", { interrupt: true });
                           } else if (isNegativeFr(txt)) {
                             plateSmsConsentPending = false;
                             enqueueElevenLabsTts("D'accord. Dans ce cas, dites-moi la plaque lettre par lettre, s'il vous plaît.", { interrupt: true });
