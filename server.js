@@ -167,6 +167,7 @@ const server = http.createServer((req, res) => {
     res.end("ok");
     return;
   }
+  console.log("📥 HTTP Request:", req.method, req.url, "from", req.headers["user-agent"] || "unknown");
   res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
   res.end("ws server");
 });
@@ -2259,6 +2260,11 @@ But: être naturel et mettre le client en confiance.`,
 
   ws.on("error", (err) => {
     console.error("❌ WS error:", err);
+    console.error("❌ WS error details:", {
+      message: err.message,
+      code: err.code,
+      stack: err.stack?.substring(0, 500),
+    });
   });
 });
 
