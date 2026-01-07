@@ -1394,7 +1394,7 @@ But: préparer le dossier pour l'atelier (que le garage puisse rappeler efficace
 ${vehicleInfoRule}
 - Tu n'inventes JAMAIS une plaque. Si la plaque est partielle, ambiguë, ou trop courte (ex: un seul chiffre), tu dis que ce n'est pas suffisant et tu demandes de la redire lettre par lettre, chiffres par chiffres.
 - Quand tu répètes une plaque, tu la répètes exactement comme donnée. Si tu n'es pas sûr à 100%, tu demandes de confirmer au lieu de valider.
-- Quand tu as besoin de la plaque, tu proposes PRIORITAIREMENT: "Je vais vous envoyer un SMS pour récupérer votre plaque d'immatriculation. Répondez au SMS s'il vous plaît avec votre plaque (ex: AB-123-CD), et je continuerai la conversation une fois que vous aurez répondu. Ça vous va ?" Tu DOIS attendre la confirmation explicite du client ("oui", "d'accord", "ok", etc.) avant de dire que tu envoies le SMS. Une fois qu'il a confirmé, tu dis: "Parfait, je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît avec votre plaque, et je continuerai dès que je l'aurai reçue."
+- Quand tu as besoin de la plaque, tu proposes PRIORITAIREMENT: "Je vais vous envoyer un SMS pour récupérer votre plaque. Répondez au SMS s'il vous plaît." Tu DOIS attendre la confirmation explicite du client ("oui", "d'accord", "ok", etc.) avant de dire que tu envoies le SMS. Une fois qu'il a confirmé, tu dis: "Parfait, je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît."
 - Si le client donne une préférence de créneau (ex: "le matin", "l'après-midi"), tu DOIS la respecter et la reformuler.
 - Tu ne confirmes jamais un rendez-vous à une autre période que celle demandée. Si tu as un doute, tu demandes confirmation.
 - Si mode rendez-vous = demande: tu ne dis jamais "c'est confirmé" / "c'est fixé". Tu dis "je note la demande" et "on vous rappelle pour confirmer".
@@ -1461,15 +1461,19 @@ ${garageClosed
 
         // Si on a déjà joué un greeting local (ElevenLabs) avant l'ouverture OpenAI,
         // on l'injecte dans la conversation pour éviter que le modèle le répète.
+        // IMPORTANT: Normaliser le texte pour cohérence de prononciation avec ElevenLabs
         if (initialAssistantGreetingText && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
           try {
+            // Normaliser le texte pour que les mots soient prononcés de la même manière
+            // dans la phrase d'accueil (ElevenLabs) et dans le reste de la conversation (OpenAI -> ElevenLabs)
+            const normalizedGreeting = normalizeFrenchTtsText(initialAssistantGreetingText);
             openaiWs.send(JSON.stringify({
               type: "conversation.item.create",
               item: {
                 type: "message",
                 role: "assistant",
                 // Realtime: pour un message assistant, le type attendu est "output_text"
-                content: [{ type: "output_text", text: initialAssistantGreetingText }],
+                content: [{ type: "output_text", text: normalizedGreeting }],
               },
             }));
           } catch (e) {
@@ -2214,7 +2218,7 @@ But: être naturel et mettre le client en confiance.`,
                             if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
                             plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
                             // Petite phrase "j'attends votre réponse au SMS"
-                            enqueueElevenLabsTts("Parfait. Je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît avec votre plaque d'immatriculation (ex: AB-123-CD). Je vais attendre votre réponse avant de continuer la conversation. Dites-moi quand vous avez répondu, ou je détecterai automatiquement votre réponse.", { interrupt: true });
+                            enqueueElevenLabsTts("Parfait. Je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît.", { interrupt: true });
                           } else if (isNegativeFr(txt)) {
                             plateSmsConsentPending = false;
                             enqueueElevenLabsTts("D'accord. Dans ce cas, dites-moi la plaque lettre par lettre, s'il vous plaît.", { interrupt: true });
