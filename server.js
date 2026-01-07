@@ -1131,9 +1131,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // Donc par défaut on l'active seulement si la variable Render est explicitement à true.
   // En realtime, on active le gate par défaut pour éviter que l'IA réponde sur une micro-pause.
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
-  // Valeurs plus tolérantes par défaut (sinon voix faible => aucune parole détectée)
-  const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "900");
-  const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "6"); // ~120ms
+  // Valeurs plus strictes par défaut pour éviter les faux positifs (IA qui répond sans parole réelle)
+  // Augmenté pour être moins sensible au bruit de fond
+  const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "1200"); // Augmenté de 900 à 1200
+  const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "10"); // Augmenté de 6 à 10 (~200ms au lieu de 120ms)
   const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "450");
   const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? (PIPELINE_MODE === "realtime" ? "28" : "20")); // ~560ms en realtime
   let inputSpeechFrames = 0;
@@ -1822,7 +1823,15 @@ But: être naturel et mettre le client en confiance.`,
           }
 
           // NOTE: On garde ces events si jamais ils arrivent, mais on ne dépend pas d'eux.
+          // IMPORTANT: Filtrer les faux positifs d'OpenAI (détection trop sensible au bruit)
           if (msg.type === "input_audio_buffer.speech_started") {
+            // Vérifier que le niveau audio local confirme vraiment de la parole
+            // Si on a un gate actif et qu'on n'a pas détecté de parole localement, ignorer l'événement OpenAI
+            const shouldIgnore = INPUT_GATE_ENABLED && !inputActive && inputSpeechFrames < INPUT_SPEECH_FRAMES;
+            if (shouldIgnore) {
+              console.log("🔇 Ignoré speech_started OpenAI (faux positif, pas de parole locale confirmée)");
+              return;
+            }
             speechActive = true;
             lastSpeechTs = nowMs();
             awaitingUserResponse = true;
