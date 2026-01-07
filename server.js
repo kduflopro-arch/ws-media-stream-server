@@ -312,6 +312,8 @@ wss.on("connection", (ws, req) => {
   let garageClosed = false;
   let garageClosedReason = "";
   let garageClosedText = "";
+  let collectVehicleInfo = false;
+  let pricingSummary = "";
   let ingestSeq = 0;
   let ingestChain = Promise.resolve();
   function enqueueIngest(role, text) {
@@ -1032,6 +1034,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Abbréviations courantes
     t = t.replace(/\bRDV\b/gi, "rendez-vous");
     t = t.replace(/\bOK\b/g, "ok");
+    // Prononciations FR (téléphonie): quelques marques / mots souvent mal dits
+    // (simple dictionnaire, sans sur-optimiser)
+    t = t.replace(/\bSEAT\b/g, "Siat");
+    t = t.replace(/\bSeat\b/g, "Siat");
+    t = t.replace(/\bPeugeot\b/gi, "Peujo");
+    t = t.replace(/\bRenault\b/gi, "Renô");
+    t = t.replace(/\bCitro[eë]n\b/gi, "Citroën");
+    t = t.replace(/\bVolkswagen\b/gi, "Volksvaguen");
+    t = t.replace(/\bMercedes\b/gi, "Mèr-cè-dès");
+    t = t.replace(/\bNorauto\b/gi, "Norauto");
     // Ponctuation FR (aide l'intonation)
     t = t.replace(/\s*([!?;:])\s*/g, "$1 ");
     t = t.replace(/\s*([,.])\s*/g, "$1 ");
@@ -1069,8 +1081,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "5"); // ~100ms d'audio sortant
   // Si le client parle fort/clair, on laisse passer même si l'assistant parle (améliore la compréhension, sans activer le barge-in).
   // Autoriser une voix "normale" à passer même si l'assistant parle (évite incompréhension si le client parle tôt).
+  // Par défaut, on laisse passer une voix "normale" même si l'assistant parle (sinon incompréhension).
+  // Trop haut => le client doit crier pour être entendu.
   const INPUT_SUPPRESS_OVERRIDE_THRESHOLD = Number(
-    process.env.INPUT_SUPPRESS_OVERRIDE_THRESHOLD ?? String(Math.max(5000, INPUT_SPEECH_THRESHOLD * 2)),
+    process.env.INPUT_SUPPRESS_OVERRIDE_THRESHOLD ?? String(Math.max(2500, Math.floor(INPUT_SPEECH_THRESHOLD * 1.5))),
   );
 
   // Realtime: voix
@@ -1264,6 +1278,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const closedInfoLine = garageClosed
           ? `Info horaires (interne): le garage est actuellement indiqué comme fermé. (${garageClosedReason || "closed"}) ${garageClosedText || ""} Tu NE le mentionnes PAS au début. Tu le mentionnes uniquement en fin d'appel, selon les règles ci-dessous.`
           : "Info horaires (interne): garage indiqué ouvert.";
+        const pricingLine = pricingSummary
+          ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}`
+          : "Tarifs du garage: non renseignés (si le client demande un prix, tu expliques que c'est sur devis ou à confirmer).";
 
         const baseInstructions = `Tu es ${assistantName}, l'assistant(e) téléphonique de ${garageLabel}.
 Tu réponds à des appels téléphoniques (style oral, naturel, vivant).
@@ -1272,6 +1289,7 @@ ${modeLine}
 ${consentLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
+${pricingLine}
 Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
 Format: réponses courtes (1 à 2 phrases), puis UNE question.
 Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, virgules, questions).`;
@@ -1300,11 +1318,18 @@ Règles de langage:
 
 But: préparer le dossier pour l'atelier (que le garage puisse rappeler efficacement).`;
 
+        const vehicleInfoRule = collectVehicleInfo
+          ? `- Si le client n'a pas la plaque: tu demandes marque + modèle + année (ou kilométrage).`
+          : `- Si le client n'a pas la plaque: tu NE demandes PAS systématiquement marque/modèle/année. Tu ne demandes ces infos que si c'est indispensable (ex: tarif variable), et tu restes léger ("Quel véhicule c'est ?").`;
+
         const hardConstraints =
           `IMPORTANT:
 - Tu es un garage auto. Tu parles UNIQUEMENT de véhicules/diagnostic/rendez-vous.
 - Si le client dit "j'ai un problème", tu poses des questions sur le véhicule (bruit/voyant/démarrage/freinage) et tu proposes un RDV.
-- Tu dois collecter la plaque d'immatriculation (ex: AB-123-CD) dès que possible. Si le client ne l'a pas: tu demandes marque/modèle/année.
+- Tu dois collecter la plaque d'immatriculation (ex: AB-123-CD) dès que possible.
+- Si le client demande un tarif ET que le tarif est dans "Tarifs du garage", tu le donnes directement (prix + ce que ça inclut) et tu proposes la suite (RDV ou dépôt). Tu n'exiges pas marque/modèle dans ce cas.
+- Si le client demande un tarif ET qu'il n'y a pas de tarif renseigné, tu dis que c'est à confirmer/devis et tu proposes RDV; tu peux demander le véhicule UNIQUEMENT si nécessaire.
+${vehicleInfoRule}
 - Tu n'inventes JAMAIS une plaque. Si la plaque est partielle, ambiguë, ou trop courte (ex: un seul chiffre), tu dis que ce n'est pas suffisant et tu demandes de la redire lettre par lettre, chiffres par chiffres.
 - Quand tu répètes une plaque, tu la répètes exactement comme donnée. Si tu n'es pas sûr à 100%, tu demandes de confirmer au lieu de valider.
 - Quand tu as besoin de la plaque, tu proposes PRIORITAIREMENT: "Je vous envoie un SMS, répondez-y avec la plaque, ça l'enregistre automatiquement." puis tu demandes confirmation ("Ça vous va ?").
@@ -1381,7 +1406,8 @@ ${garageClosed
               item: {
                 type: "message",
                 role: "assistant",
-                content: [{ type: "input_text", text: initialAssistantGreetingText }],
+                // Realtime: pour un message assistant, le type attendu est "output_text"
+                content: [{ type: "output_text", text: initialAssistantGreetingText }],
               },
             }));
           } catch (e) {
@@ -1830,6 +1856,8 @@ But: être naturel et mettre le client en confiance.`,
         const finalGarageClosed = startParams.garageClosed || "";
         const finalGarageClosedReason = startParams.garageClosedReason || "";
         const finalGarageClosedText = startParams.garageClosedText || "";
+        const finalCollectVehicleInfo = startParams.collectVehicleInfo || "";
+        const finalPricingSummary = startParams.pricingSummary || "";
         
         console.log("🎬 Stream start:", {
           streamCallSid,
@@ -1840,6 +1868,8 @@ But: être naturel et mettre le client en confiance.`,
           fromNumber: finalFromNumber,
           garageClosed: finalGarageClosed,
           garageClosedReason: finalGarageClosedReason,
+          collectVehicleInfo: finalCollectVehicleInfo,
+          hasPricingSummary: Boolean(finalPricingSummary && String(finalPricingSummary).trim()),
           customParameters: startParams,
           mediaFormat: msg.start?.mediaFormat
         });
@@ -1859,6 +1889,8 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalGarageClosed === "string" && finalGarageClosed.trim()) garageClosed = finalGarageClosed.trim().toLowerCase() === "true";
         if (typeof finalGarageClosedReason === "string") garageClosedReason = String(finalGarageClosedReason || "").trim();
         if (typeof finalGarageClosedText === "string") garageClosedText = String(finalGarageClosedText || "").trim();
+        if (typeof finalCollectVehicleInfo === "string" && finalCollectVehicleInfo.trim()) collectVehicleInfo = finalCollectVehicleInfo.trim().toLowerCase() === "true";
+        if (typeof finalPricingSummary === "string") pricingSummary = String(finalPricingSummary || "").trim();
 
         // Toujours logguer la config au démarrage d'un stream pour diagnostiquer Render env vs code path.
         logPipelineConfigOnce("⚙️ Pipeline actif");
