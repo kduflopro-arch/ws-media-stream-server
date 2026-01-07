@@ -182,6 +182,8 @@ const wss = new WebSocketServer({
 
 server.listen(PORT, () => {
   console.log(`WS Media Stream server listening on :${PORT}`);
+  console.log(`🌐 Server ready for WebSocket connections on port ${PORT}`);
+  console.log(`🔗 WebSocket URL: wss://users-kendrikduflo-documents-autoguru-ws.onrender.com/stream`);
 });
 
 wss.on("connection", (ws, req) => {
