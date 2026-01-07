@@ -1068,6 +1068,24 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bFiat\b/gi, "Fiate");
     t = t.replace(/\bVolvo\b/gi, "Volvo");
     t = t.replace(/\bSkoda\b/gi, "Skoda");
+    t = t.replace(/\bMazda\b/gi, "Mazda");
+    t = t.replace(/\bSuzuki\b/gi, "Suzuki");
+    t = t.replace(/\bHonda\b/gi, "Honda");
+    t = t.replace(/\bMitsubishi\b/gi, "Mitsubishi");
+    t = t.replace(/\bSubaru\b/gi, "Subaru");
+    t = t.replace(/\bLexus\b/gi, "Lexus");
+    t = t.replace(/\bInfiniti\b/gi, "Infiniti");
+    t = t.replace(/\bJaguar\b/gi, "Jaguar");
+    t = t.replace(/\bLand Rover\b/gi, "Land Rover");
+    t = t.replace(/\bRange Rover\b/gi, "Range Rover");
+    t = t.replace(/\bPorsche\b/gi, "Porsche");
+    t = t.replace(/\bFerrari\b/gi, "Ferrari");
+    t = t.replace(/\bLamborghini\b/gi, "Lamborghini");
+    t = t.replace(/\bBentley\b/gi, "Bentley");
+    t = t.replace(/\bRolls-Royce\b/gi, "Rolls-Royce");
+    t = t.replace(/\bTesla\b/gi, "Tesla");
+    t = t.replace(/\bBYD\b/gi, "Bé Y Dé");
+    t = t.replace(/\bMG\b/gi, "M G");
     
     // Mots courants du garage (normalisation pour cohérence)
     // Ces mots sont souvent mal prononcés différemment selon le contexte
@@ -1096,10 +1114,48 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bconvenir\b/gi, "convenir");
     t = t.replace(/\bconvenu\b/gi, "convenu");
     t = t.replace(/\bconvenez\b/gi, "convenez");
+    t = t.replace(/\bkilométrage\b/gi, "kilométrage");
+    t = t.replace(/\bkilomètres\b/gi, "kilomètres");
+    t = t.replace(/\bkilomètre\b/gi, "kilomètre");
+    t = t.replace(/\bapproximatif\b/gi, "approximatif");
+    t = t.replace(/\bapproximative\b/gi, "approximative");
+    t = t.replace(/\bconseiller\b/gi, "conseiller");
+    t = t.replace(/\bconseillère\b/gi, "conseillère");
+    t = t.replace(/\bproblème\b/gi, "problème");
+    t = t.replace(/\bproblèmes\b/gi, "problèmes");
+    t = t.replace(/\bvoyant\b/gi, "voyant");
+    t = t.replace(/\bvoyants\b/gi, "voyants");
+    t = t.replace(/\bdémarrage\b/gi, "démarrage");
+    t = t.replace(/\barrêt\b/gi, "arrêt");
+    t = t.replace(/\barrêter\b/gi, "arrêter");
+    t = t.replace(/\barrêté\b/gi, "arrêté");
+    t = t.replace(/\bdisponibilité\b/gi, "disponibilité");
+    t = t.replace(/\bdisponibilités\b/gi, "disponibilités");
+    t = t.replace(/\bconfirmer\b/gi, "confirmer");
+    t = t.replace(/\bconfirmation\b/gi, "confirmation");
+    t = t.replace(/\bconfirme\b/gi, "confirme");
+    t = t.replace(/\bconfirmé\b/gi, "confirmé");
+    t = t.replace(/\bconfirmez\b/gi, "confirmez");
+    t = t.replace(/\bcompris\b/gi, "compris");
+    t = t.replace(/\bcomprendre\b/gi, "comprendre");
+    t = t.replace(/\bcomprends\b/gi, "comprends");
+    t = t.replace(/\bcomprenez\b/gi, "comprenez");
+    t = t.replace(/\brépéter\b/gi, "répéter");
+    t = t.replace(/\brépète\b/gi, "répète");
+    t = t.replace(/\brépétez\b/gi, "répétez");
+    t = t.replace(/\breformuler\b/gi, "reformuler");
+    t = t.replace(/\breformule\b/gi, "reformule");
+    t = t.replace(/\breformulez\b/gi, "reformulez");
+    t = t.replace(/\bpardon\b/gi, "pardon");
+    t = t.replace(/\bexcusez\b/gi, "excusez");
+    t = t.replace(/\bexcuse\b/gi, "excuse");
+    t = t.replace(/\bexcuses\b/gi, "excuses");
     
     // Normalisation des nombres pour cohérence
     t = t.replace(/\b(\d+)\s*€\b/gi, "$1 euros");
     t = t.replace(/\b(\d+)\s*euros?\b/gi, "$1 euros");
+    t = t.replace(/\b(\d+)\s*km\b/gi, "$1 kilomètres");
+    t = t.replace(/\b(\d+)\s*kilomètres?\b/gi, "$1 kilomètres");
     t = t.replace(/\bparallélisme\b/gi, "parallélisme");
     t = t.replace(/\bgéométrie\b/gi, "géométrie");
     t = t.replace(/\bcontrôle\b/gi, "contrôle");
@@ -1393,12 +1449,13 @@ Règles de langage:
 - Tu ne dis jamais que tu es une IA.
 - Tu utilises parfois des petites formules ("ok", "très bien", "pas de souci") SANS répétition.
 - Tu parles en petites phrases, naturelles, comme une vraie personne.
+- Si tu n'as pas compris ce que le client a dit, tu lui demandes poliment de répéter: "Pardon, je n'ai pas bien compris. Pouvez-vous répéter s'il vous plaît ?" ou "Excusez-moi, pouvez-vous reformuler ?" Ne fais JAMAIS semblant d'avoir compris si ce n'est pas clair.
+- Attends toujours une réponse claire du client avant de continuer. Si la réponse est ambiguë ou incomplète, demande des précisions.
 
 But: préparer le dossier pour l'atelier (que le garage puisse rappeler efficacement).`;
 
-        const vehicleInfoRule = collectVehicleInfo
-          ? `- Si le client n'a pas la plaque: tu demandes marque + modèle + année (ou kilométrage).`
-          : `- Si le client n'a pas la plaque: tu NE demandes PAS systématiquement marque/modèle/année. Tu ne demandes ces infos que si c'est indispensable (ex: tarif variable), et tu restes léger ("Quel véhicule c'est ?").`;
+        // IMPORTANT: Ne plus demander le modèle de véhicule, uniquement la plaque si nécessaire
+        const vehicleInfoRule = `- Tu NE demandes PAS le modèle de véhicule (marque/modèle/année). Tu demandes UNIQUEMENT la plaque d'immatriculation si nécessaire.`;
 
         const hardConstraints =
           `IMPORTANT:
@@ -2301,23 +2358,26 @@ But: être naturel et mettre le client en confiance.`,
               // IMPORTANT: Si le barge-in est désactivé, on est beaucoup plus permissif pour permettre à l'IA de comprendre l'utilisateur.
               const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
               
-              // Ne bloquer que si :
-              // 1. Une réponse est vraiment en cours (responseInProgress)
-              // 2. OU le backlog est vraiment élevé (évite écho immédiat)
-              // On ne bloque PAS basé sur premiumTtsInFlight seul car cela bloque trop longtemps
+              // IMPORTANT: Bloquer l'input tant que l'IA n'a pas fini de parler
+              // On bloque si :
+              // 1. Une réponse est en cours (responseInProgress)
+              // 2. OU ElevenLabs est en train de synthétiser (premiumTtsInFlight)
+              // 3. OU il reste du backlog audio à jouer (même petit)
+              // Cela garantit que l'IA finit sa phrase avant d'écouter le client
               const assistantIsReallyTalking = 
                 responseInProgress || 
-                (assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES && premiumTtsInFlight);
+                premiumTtsInFlight ||
+                assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
               
               const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking;
               if (suppressInputNow) {
-                // Si barge-in désactivé, être beaucoup plus permissif : laisser passer toute parole claire
+                // Si barge-in désactivé, on bloque complètement tant que l'IA parle
+                // (pas de seuil d'override pour permettre la parole claire)
                 if (!BARGE_IN_ENABLED) {
-                  // Seuil beaucoup plus bas pour laisser passer la parole claire même si l'IA parle
-                  // Si l'utilisateur parle clairement (seuil bas), on laisse toujours passer
-                  if (avg < Math.max(1500, INPUT_SPEECH_THRESHOLD * 1.1)) return;
+                  // Blocage total : l'IA doit finir avant d'écouter
+                  return;
                 } else {
-                  // Barge-in activé : seuil normal
+                  // Barge-in activé : seuil normal pour permettre l'interruption
                   if (avg < INPUT_SUPPRESS_OVERRIDE_THRESHOLD) return;
                 }
               }
