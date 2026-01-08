@@ -304,6 +304,7 @@ wss.on("connection", (ws, req) => {
   const AUTOGURU_INGEST_SECRET_ENV = process.env.AUTOGURU_INGEST_SECRET ?? "";
   let autoguruIngestUrl = "";
   let autoguruIngestToken = "";
+  let clientInfo = null; // Infos client (nom, rendez-vous à venir)
   let assistantName = "Sandra";
   let assistantVoice = "female"; // "female" | "male"
   let garageTone = "";
@@ -1391,7 +1392,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           appointmentMode === "none"
             ? "Mode rendez-vous: aucun (tu ne proposes pas de RDV, tu prends un message)."
             : appointmentMode === "internal"
-              ? "Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes seulement après validation explicite du client)."
+              ? `Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes seulement après validation explicite du client).${garageClosed ? " IMPORTANT: Si le garage est fermé (selon les horaires d'ouverture), tu NE peux PAS prendre de rendez-vous. Tu dis que le garage est actuellement fermé et que quelqu'un rappellera pour proposer un créneau quand le garage sera ouvert." : ""}`
               : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande et le garage rappelle pour confirmer).";
 
         const consentLine =
@@ -1416,6 +1417,41 @@ IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu D
           ? `Questions fréquentes (utilise ces réponses si le client pose une question similaire): ${faqsSummary}`
           : "";
 
+        // Construire la section infos client pour le prompt
+        const buildClientInfoLine = () => {
+          if (!clientInfo || !clientInfo.name) return "";
+          
+          const appointments = clientInfo.appointments || [];
+          const appointmentsText = appointments.length > 0
+            ? appointments.map((apt) => {
+                const date = new Date(apt.appointment_date);
+                const dateStr = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+                const service = apt.service_requested ? ` (${apt.service_requested})` : "";
+                return `- ${dateStr} à ${apt.appointment_time}${service}`;
+              }).join("\n")
+            : "Aucun rendez-vous à venir.";
+          
+          return `DÉTECTION CLIENT:
+Le numéro qui appelle fait partie des dossiers clients du garage.
+Nom du client: ${clientInfo.name}
+Rendez-vous à venir:
+${appointmentsText}
+
+IMPORTANT - GESTION DES RENDEZ-VOUS:
+- Si le client appelle pour MODIFIER un rendez-vous: détecte sa demande et demande la nouvelle date/heure souhaitée.
+  * Si mode rendez-vous = "interne": tu peux modifier directement le rendez-vous et confirmer.
+  * Si mode rendez-vous = "demande" ou "aucun": tu notes la demande de modification et dis: "J'ai bien noté votre demande de modification. Le garage vous rappellera pour confirmer la nouvelle date et heure."
+- Si le client appelle pour ANNULER un rendez-vous: détecte sa demande.
+  * Si mode rendez-vous = "interne": tu peux annuler directement le rendez-vous et confirmer.
+  * Si mode rendez-vous = "demande" ou "aucun": tu notes la demande d'annulation et dis: "J'ai bien noté votre demande d'annulation. Le garage vous rappellera pour confirmer."
+- Si le client demande s'il a un rendez-vous: informe-le des rendez-vous à venir listés ci-dessus.
+- Si le client ne mentionne pas modification/annulation, procède normalement (diagnostic, nouveau RDV, etc.).
+
+Tu dois DÉTECTER automatiquement si le client mentionne "modifier", "changer", "déplacer" pour un rendez-vous, ou "annuler", "annulation" pour un rendez-vous.`;
+        };
+        
+        const clientInfoLine = buildClientInfoLine();
+
         const baseInstructions = `Tu es ${assistantName}, l'assistant(e) téléphonique de ${garageLabel}.
 Tu réponds à des appels téléphoniques (style oral, naturel, vivant).
 Objectif: comprendre précisément le besoin, rassurer, et avancer vers une prise en charge (selon le mode RDV).
@@ -1424,7 +1460,7 @@ ${consentLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
 ${pricingLine}
-${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
+${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
 Format: réponses courtes (1 à 2 phrases), puis UNE question.
 Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, virgules, questions).`;
 
@@ -1476,6 +1512,7 @@ ${vehicleInfoRule}
 - Si mode rendez-vous = demande: tu ne dis jamais "c'est confirmé" / "c'est fixé". Tu dis "je note la demande" et "on vous rappelle pour confirmer".
 - Si mode rendez-vous = demande: tu demandes UNIQUEMENT les disponibilités (jour + plutôt matin/après-midi). Tu peux suggérer des options ("demain / après-demain") mais tu précises que ce n'est pas confirmé.
 - Si mode rendez-vous = aucun: tu ne proposes pas de RDV. Tu prends les infos et tu dis que le garage rappelle.
+- Si mode rendez-vous = interne ET le garage est fermé (selon les horaires d'ouverture): tu NE peux PAS prendre de rendez-vous. Tu dis que le garage est actuellement fermé et que quelqu'un rappellera pour proposer un créneau quand le garage sera ouvert. Tu ne proposes PAS de créneau futur, tu dis simplement que le garage rappellera.
 - Ne dis JAMAIS: "ce que vous avez sur le cœur" / "dans la tête" / conseils psychologiques.`;
 
         const closingGuidelines =
@@ -1516,11 +1553,47 @@ ${garageClosed
             language: REALTIME_INPUT_TRANSCRIPTION_LANGUAGE,
           };
         }
+        // Fonction pour mettre à jour le prompt avec les infos client (si récupérées après)
+        const updatePromptWithClientInfo = () => {
+          if (!clientInfo || !openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+          
+          const newClientInfoLine = buildClientInfoLine();
+          if (!newClientInfoLine) return;
+          
+          // Reconstruire baseInstructions avec les nouvelles infos client
+          const updatedBaseInstructions = `Tu es ${assistantName}, l'assistant(e) téléphonique de ${garageLabel}.
+Tu réponds à des appels téléphoniques (style oral, naturel, vivant).
+Objectif: comprendre précisément le besoin, rassurer, et avancer vers une prise en charge (selon le mode RDV).
+${modeLine}
+${consentLine}
+${hoursPolicyLine}
+${closedInfoLine}
+${pricingLine}
+${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${newClientInfoLine}\n\nStyle: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
+Format: réponses courtes (1 à 2 phrases), puis UNE question.
+Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, virgules, questions).`;
+          
+          const updatedInstructions = `${updatedBaseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
+          
+          openaiWs.send(JSON.stringify({
+            type: "session.update",
+            session: {
+              type: "realtime",
+              instructions: updatedInstructions,
+            },
+          }));
+          ws.__sessionInstructions = String(updatedInstructions || "");
+          console.log("✅ Prompt mis à jour avec infos client");
+        };
+        
         // On ajoute des contraintes fortes (évite les réponses "hors sujet" type coach de vie).
         sessionUpdate.session.instructions =
           `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
         // Stocke pour fallback en cas de unknown_parameter (session.update partiellement appliquée)
         ws.__sessionInstructions = String(sessionUpdate.session.instructions || "");
+        
+        // Stocker la fonction pour mise à jour ultérieure
+        ws.__updatePromptWithClientInfo = updatePromptWithClientInfo;
 
         openaiWs.send(JSON.stringify(sessionUpdate));
 
@@ -2041,6 +2114,44 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalPricingSummary === "string") pricingSummary = String(finalPricingSummary || "").trim();
         if (typeof finalServicesSummary === "string") servicesSummary = String(finalServicesSummary || "").trim();
         if (typeof finalFaqsSummary === "string") faqsSummary = String(finalFaqsSummary || "").trim();
+
+        // Récupérer les infos client (nom, rendez-vous) pour l'IA
+        // IMPORTANT: faire cette requête de manière asynchrone, ne pas bloquer le démarrage du stream
+        (async () => {
+          try {
+            if (finalGarageId && finalFromNumber && AUTOGURU_INGEST_SECRET_ENV && autoguruIngestUrl) {
+              // Construire l'URL de l'API client-info à partir de autoguruIngestUrl
+              const baseUrl = autoguruIngestUrl.replace(/\/api\/twilio\/realtime-ingest.*$/, "");
+              const clientInfoUrl = `${baseUrl}/api/twilio/client-info?garageId=${encodeURIComponent(finalGarageId)}&phoneNumber=${encodeURIComponent(finalFromNumber)}`;
+              
+              const response = await fetch(clientInfoUrl, {
+                method: "GET",
+                headers: {
+                  "x-secret": AUTOGURU_INGEST_SECRET_ENV,
+                },
+              });
+              
+              if (response.ok) {
+                const data = await response.json();
+                if (data.client) {
+                  clientInfo = data.client;
+                  console.log("✅ Infos client récupérées:", {
+                    name: clientInfo.name,
+                    appointmentsCount: clientInfo.appointments?.length || 0,
+                  });
+                  // Mettre à jour le prompt si OpenAI est déjà connecté
+                  if (openaiWs && openaiWs.readyState === WebSocket.OPEN && ws.__updatePromptWithClientInfo) {
+                    ws.__updatePromptWithClientInfo();
+                  }
+                }
+              } else {
+                console.log("ℹ️ Client non trouvé ou erreur récupération infos client");
+              }
+            }
+          } catch (e) {
+            console.error("❌ Erreur récupération infos client:", e);
+          }
+        })();
 
         // Toujours logguer la config au démarrage d'un stream pour diagnostiquer Render env vs code path.
         logPipelineConfigOnce("⚙️ Pipeline actif");
