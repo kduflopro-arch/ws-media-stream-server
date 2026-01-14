@@ -428,7 +428,7 @@ wss.on("connection", (ws, req) => {
           });
           // L'IA devra demander confirmation de la plaque au lieu d'envoyer le SMS
           enqueueElevenLabsTts(
-            `Je vois que vous êtes déjà dans nos dossiers. Est-ce que votre plaque est bien ${json.existingPlate} ?`,
+            `Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${json.existingPlate}. Est-ce bien correct ?`,
             { interrupt: true }
           );
           return;
@@ -1604,7 +1604,7 @@ But: préparer le dossier pour l'atelier (que le garage puisse rappeler efficace
 - Tu dois collecter la plaque d'immatriculation (ex: AB-123-CD) dès que possible.
 - IMPORTANT - PLAQUE D'IMMATRICULATION (RÈGLE ABSOLUE):
   * AVANT de proposer un SMS pour la plaque, tu DOIS TOUJOURS vérifier la section "DÉTECTION CLIENT" dans les instructions.
-  * Si le client a déjà une plaque dans son dossier (voir section "DÉTECTION CLIENT" → "Plaque d'immatriculation enregistrée"), tu DOIS demander confirmation de cette plaque. NE PROPOSE PAS DE SMS. Demande: "Je vois que vous êtes déjà dans nos dossiers. Est-ce que votre plaque est bien [PLAQUE] ?"
+  * Si le client a déjà une plaque dans son dossier (voir section "DÉTECTION CLIENT" → "Plaque d'immatriculation enregistrée"), tu DOIS annoncer directement la plaque. NE PROPOSE PAS DE SMS. Dis: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est [PLAQUE]. Est-ce bien correct ?"
   * Si le client confirme que la plaque est correcte, utilise-la. Si le client dit que ce n'est pas la bonne, alors propose d'envoyer un SMS.
   * Si le client n'a PAS de plaque dans son dossier (voir section "DÉTECTION CLIENT" → "Aucune plaque d'immatriculation enregistrée"), propose d'envoyer un SMS pour qu'il envoie sa plaque. NE PAS demander la plaque à l'oral.
   * RÈGLE ABSOLUE: Ne propose JAMAIS un SMS pour la plaque si le client a déjà une plaque enregistrée. Annonce directement la plaque enregistrée et demande confirmation.
