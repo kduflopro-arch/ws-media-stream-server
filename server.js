@@ -1726,9 +1726,7 @@ Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, 
               type: "realtime",
               instructions: updatedInstructions,
               // Maintenir les modalités audio activées
-              modalities: ["audio"],
-              output_audio_format: "pcm16",
-              input_audio_format: "pcm16",
+              output_modalities: ["audio"],
             },
           }));
           ws.__sessionInstructions = String(updatedInstructions || "");
