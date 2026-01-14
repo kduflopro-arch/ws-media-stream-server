@@ -37,6 +37,22 @@ MINIMAX_PITCH=0         # -12 à 12, par défaut: 0
 4. Consultez la liste des voix disponibles dans la documentation Minimax
 5. Sélectionnez les IDs de voix pour homme/femme selon vos besoins
 
+## Configuration rapide dans Render
+
+1. Allez dans votre service Render (ws-media-stream-server)
+2. Cliquez sur "Environment" dans le menu de gauche
+3. Ajoutez/modifiez ces variables :
+
+```
+PREMIUM_TTS_ENABLED=true
+PREMIUM_TTS_PROVIDER=minimax
+MINIMAX_API_KEY=sk-api-7ja0ltVW6qMM4Ooe9nbwBhX1fbG-SatPIElK9qhEK78aUhlA817H0Us91VBknzDdusPMmwlT55QXZJCNQK-gt5fTgzHS60ua6B0piNNEWXC21UWOS42FKy4
+MINIMAX_GROUP_ID=votre_group_id_ici
+MINIMAX_VOICE_ID=votre_voice_id_ici
+```
+
+**⚠️ IMPORTANT :** Remplacez `votre_group_id_ici` et `votre_voice_id_ici` par vos vraies valeurs depuis le dashboard Minimax.
+
 ## Configuration de la voix
 
 Le système sélectionne automatiquement la voix selon le paramètre `assistantVoice` :

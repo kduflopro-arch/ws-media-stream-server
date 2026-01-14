@@ -1369,11 +1369,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // - openai: utiliser l'audio renvoyé par OpenAI Realtime
   // - elevenlabs: utiliser le transcript OpenAI Realtime et faire parler ElevenLabs
   const REALTIME_TTS_MODE = (process.env.REALTIME_TTS_MODE ?? "openai").toLowerCase();
+  // REALTIME_USE_ELEVEN est maintenant utilisé pour tous les TTS premium (ElevenLabs ou Minimax)
   const REALTIME_USE_ELEVEN =
     PIPELINE_MODE === "realtime" &&
-    REALTIME_TTS_MODE.includes("eleven") &&
     PREMIUM_TTS_ENABLED &&
-    PREMIUM_TTS_PROVIDER === "elevenlabs";
+    (PREMIUM_TTS_PROVIDER === "elevenlabs" || PREMIUM_TTS_PROVIDER === "minimax");
 
   // Realtime+ElevenLabs: "direct" (chunking) pour parler dès que le texte arrive
   const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "true").toLowerCase() === "true";
@@ -1595,12 +1595,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         if (REALTIME_USE_ELEVEN) {
           if (nowMs() < premiumTtsBypassUntilMs) {
             const remainingMinutes = Math.ceil((premiumTtsBypassUntilMs - nowMs()) / 60000);
-            console.warn("⚠️ FALLBACK ACTIF au démarrage: ElevenLabs en erreur → audio OpenAI (~" + remainingMinutes + " min restantes)");
+            const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+            console.warn(`⚠️ FALLBACK ACTIF au démarrage: ${providerName} en erreur → audio OpenAI (~${remainingMinutes} min restantes)`);
             if (premiumTtsLastError) {
-              console.error("   Dernière erreur ElevenLabs:", premiumTtsLastError);
+              console.error(`   Dernière erreur ${providerName}:`, premiumTtsLastError);
             }
           } else {
-            console.log("✅ ElevenLabs actif (pas de fallback)");
+            const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+            console.log(`✅ ${providerName} actif (pas de fallback)`);
           }
         }
         
