@@ -1356,8 +1356,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
 
   // Connecter à OpenAI Realtime API
-  let connectionTimeout = null;
   async function connectToOpenAI() {
+    let connectionTimeout = null;
     if (!OPENAI_API_KEY) {
       console.error("❌ OpenAI API key manquante");
       return;
@@ -1420,9 +1420,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           clearTimeout(connectionTimeout);
           connectionTimeout = null;
         }
-        console.log("✅ Connecté à OpenAI Realtime API");
-
-      openaiWs.on("open", () => {
         console.log("✅ Connecté à OpenAI Realtime API");
         console.log("🎛️ OpenAI audio format (forced):", { input: "pcm16", output: "pcm16" });
         console.log("📊 Configuration active:", {
@@ -2184,7 +2181,10 @@ But: être naturel et mettre le client en confiance.`,
       });
 
       openaiWs.on("close", (code, reason) => {
-        clearTimeout(connectionTimeout);
+        if (connectionTimeout) {
+          clearTimeout(connectionTimeout);
+          connectionTimeout = null;
+        }
         console.log("🔌 OpenAI WS fermé", { code, reason: reason?.toString() });
         if (code !== 1000) {
           console.warn("⚠️ OpenAI WS fermé anormalement (code != 1000)");
