@@ -1659,6 +1659,11 @@ ${garageClosed
           session: {
             type: "realtime",
             instructions: `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}`,
+            // Activer explicitement les modalités audio (input et output)
+            modalities: ["audio"],
+            // Activer l'audio de sortie
+            output_audio_format: "pcm16",
+            input_audio_format: "pcm16",
           },
         };
         if (REALTIME_INPUT_TRANSCRIPTION_ENABLED) {
