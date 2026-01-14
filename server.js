@@ -1486,20 +1486,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
         const hoursPolicyLine = `Horaires: l'IA répond H24. Les horaires/vacances sont PUREMENT informatifs pour le client (pas bloquants, pas de raccrochage automatique).`;
         
-        // Construire la ligne des jours de fermeture à partir des horaires
-        // Les jours sans horaire ou avec "fermé" sont des jours de fermeture
+        // Construire la ligne des jours de fermeture hebdomadaires
         let closedDaysLine = "";
-        // Note: opening_hours n'est pas encore transmis via les paramètres, mais on peut l'ajouter plus tard
-        // Pour l'instant, on utilise garageClosed et garageClosedText
+        if (closedDaysText && closedDaysText.trim()) {
+          closedDaysLine = `Jours de fermeture du garage: ${closedDaysText} Tu DOIS communiquer ces jours au client s'il demande un rendez-vous.`;
+        }
         
         const closedInfoLine = garageClosed
           ? `Info horaires (interne): le garage est actuellement indiqué comme fermé. (${garageClosedReason || "closed"}) ${garageClosedText || ""} Tu NE le mentionnes PAS au début. Tu le mentionnes uniquement en fin d'appel, selon les règles ci-dessous.`
           : "Info horaires (interne): garage indiqué ouvert.";
-        
-        // Ajouter une ligne pour les jours de fermeture si disponibles
-        if (garageClosedText && garageClosedText.trim()) {
-          closedDaysLine = `Jours de fermeture du garage: ${garageClosedText}. Tu DOIS communiquer ces jours au client si il demande un rendez-vous.`;
-        }
         const pricingLine = pricingSummary
           ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}
 IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu DOIS donner le prix indiqué ET préciser que le prix peut varier selon le véhicule. Ajoute ensuite: "Tout sera inscrit lorsque vous aurez établi le devis avec le garage." ou une phrase similaire. Exemple: "Pour une vidange, c'est environ 45€, mais le prix peut varier selon le véhicule. Tout sera inscrit lorsque vous aurez établi le devis avec le garage."`
