@@ -1258,14 +1258,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     try {
       // IMPORTANT: `response.voice` n'est pas accepté (erreur: unknown_parameter) sur notre modèle Realtime actuel.
       // Donc on n'envoie PAS de paramètre voice ici.
-      // Spécifier explicitement les modalités de sortie pour forcer l'audio
-      const responseCreatePayload = { 
-        type: "response.create",
-        response: {
-          modalities: ["audio"], // Forcer l'audio de sortie
-        }
-      };
-      openaiWs.send(JSON.stringify(responseCreatePayload));
+      // L'API Realtime génère automatiquement l'audio si output_audio_format est dans l'URL WebSocket
+      // Pas besoin de spécifier modalities dans response.create (ce paramètre n'existe pas)
+      openaiWs.send(JSON.stringify({ type: "response.create" }));
       if (reason) console.log("🗣️ response.create envoyé:", { reason });
     } catch (err) {
       console.error("❌ Erreur response.create:", err);
