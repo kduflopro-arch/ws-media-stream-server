@@ -1980,7 +1980,9 @@ But: être naturel et mettre le client en confiance.`,
               } else if (!rid || !spokenSet.has(rid)) {
                 if (rid) spokenSet.add(rid);
                 // Ici (sans chunking), on démarre la synthèse en une fois.
-                enqueueElevenLabsTts(doneText, { interrupt: true });
+                // Ne pas interrompre si on a déjà commencé à parler (évite les coupures)
+                const alreadySpeaking = rid && spokenSet.has(rid);
+                enqueueElevenLabsTts(doneText, { interrupt: !alreadySpeaking });
               }
             }
           }
@@ -2009,7 +2011,9 @@ But: être naturel et mettre le client en confiance.`,
               } else if (!rid || !spokenSet.has(rid)) {
                 if (rid) spokenSet.add(rid);
                 // Ici (sans chunking), on démarre la synthèse en une fois.
-                enqueueElevenLabsTts(doneText, { interrupt: true });
+                // Ne pas interrompre si on a déjà commencé à parler (évite les coupures)
+                const alreadySpeaking = rid && spokenSet.has(rid);
+                enqueueElevenLabsTts(doneText, { interrupt: !alreadySpeaking });
               }
             }
           }
