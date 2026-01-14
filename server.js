@@ -2065,13 +2065,14 @@ But: être naturel et mettre le client en confiance.`,
             // Si on utilise ElevenLabs en Realtime, on ignore complètement l'audio OpenAI (sinon doublon + backlog).
             // SAUF si ElevenLabs est en erreur (bypass) → on repasse sur OpenAI pour éviter le silence total.
             // premiumTtsBypassUntilMs > nowMs() signifie que le bypass est actif (ElevenLabs en erreur)
-            if (REALTIME_USE_ELEVEN && nowMs() < premiumTtsBypassUntilMs) {
+            // Si ElevenLabs fonctionne (pas en bypass), on ignore l'audio OpenAI
+            if (REALTIME_USE_ELEVEN && nowMs() >= premiumTtsBypassUntilMs) {
               // ElevenLabs actif (pas en bypass), on ignore l'audio OpenAI
               return;
             }
             // Si on arrive ici, soit REALTIME_USE_ELEVEN est false, soit le bypass est actif (ElevenLabs en erreur)
             // Fallback actif : on utilise l'audio OpenAI (moins naturel mais fonctionne)
-            if (REALTIME_USE_ELEVEN && nowMs() >= premiumTtsBypassUntilMs) {
+            if (REALTIME_USE_ELEVEN && nowMs() < premiumTtsBypassUntilMs) {
               const remainingMinutes = Math.ceil((premiumTtsBypassUntilMs - nowMs()) / 60000);
               if (!ws.__loggedFallbackAudio) {
                 ws.__loggedFallbackAudio = true;
