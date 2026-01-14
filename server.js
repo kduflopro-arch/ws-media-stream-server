@@ -1813,6 +1813,7 @@ But: être naturel et mettre le client en confiance.`,
               flushRealtimeElevenChunks(rid, false);
             }
           }
+          // Gestion des transcripts audio (ancien format)
           if (msg.type === "response.output_audio_transcript.done" || msg.type === "response.audio_transcript.done") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
             const doneText = (typeof msg.transcript === "string" ? msg.transcript : "") || (rid ? (transcriptMap.get(rid) || "") : "");
@@ -1838,6 +1839,67 @@ But: être naturel et mettre le client en confiance.`,
                 if (rid) spokenSet.add(rid);
                 // Ici (sans chunking), on démarre la synthèse en une fois.
                 enqueueElevenLabsTts(doneText, { interrupt: true });
+              }
+            }
+          }
+          
+          // Gestion des réponses textuelles (nouveau format GPT-5: response.output_text.done)
+          if (msg.type === "response.output_text.done") {
+            const rid = msg.response_id ?? msg.response?.id ?? null;
+            const doneText = typeof msg.text === "string" ? msg.text : "";
+            if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
+              console.log("📝 Réponse texte IA reçue (GPT-5):", doneText.substring(0, 100));
+              // Remonter l'IA dans AutoGuru (détails d'appel)
+              enqueueIngest("assistant", doneText);
+              // Si l'assistant parle de plaque, proposer SMS MAIS NE PAS ENVOYER avant accord du client.
+              const low = String(doneText || "").toLowerCase();
+              if (low.includes("plaque") || low.includes("immatric")) {
+                // Mode "consentement": on attend un "oui" utilisateur
+                plateSmsConsentPending = true;
+                plateSmsConsentDeadlineMs = nowMs() + 25_000;
+              }
+              // Lancer la voix premium.
+              // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
+              if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
+                // Si chunking actif, on flush le reste et on termine SANS couper l'audio déjà en cours.
+                transcriptMap.set(rid, doneText);
+                flushRealtimeElevenChunks(rid, true);
+              } else if (!rid || !spokenSet.has(rid)) {
+                if (rid) spokenSet.add(rid);
+                // Ici (sans chunking), on démarre la synthèse en une fois.
+                enqueueElevenLabsTts(doneText, { interrupt: true });
+              }
+            }
+          }
+          
+          // Gestion des content_part (nouveau format GPT-5: accumulation du texte)
+          if (msg.type === "response.content_part.added") {
+            const rid = msg.response_id ?? msg.response?.id ?? null;
+            const part = msg.part;
+            if (rid && part && typeof part.text === "string" && part.text.trim()) {
+              // Accumuler le texte dans le transcript
+              const current = transcriptMap.get(rid) || "";
+              transcriptMap.set(rid, current + part.text);
+              // En mode chunking, on peut commencer à parler dès qu'on a assez de texte
+              if (REALTIME_USE_ELEVEN && REALTIME_ELEVEN_CHUNKING_ENABLED) {
+                flushRealtimeElevenChunks(rid, false);
+              }
+            }
+          }
+          
+          // Gestion de response.content_part.done (fin d'un chunk de texte)
+          if (msg.type === "response.content_part.done") {
+            const rid = msg.response_id ?? msg.response?.id ?? null;
+            const part = msg.part;
+            if (rid && part && typeof part.text === "string" && part.text.trim()) {
+              // S'assurer que le texte est dans le transcript
+              const current = transcriptMap.get(rid) || "";
+              if (!current.includes(part.text)) {
+                transcriptMap.set(rid, current + part.text);
+              }
+              // En mode chunking, on peut continuer à parler
+              if (REALTIME_USE_ELEVEN && REALTIME_ELEVEN_CHUNKING_ENABLED) {
+                flushRealtimeElevenChunks(rid, false);
               }
             }
           }
