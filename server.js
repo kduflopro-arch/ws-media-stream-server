@@ -1375,9 +1375,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.log("🔌 URL OpenAI:", openaiUrl.replace(/Bearer\s+\S+/, "Bearer ***"));
       console.log("🔌 OPENAI_API_KEY présente:", !!OPENAI_API_KEY);
       console.log("🔌 OPENAI_API_KEY longueur:", OPENAI_API_KEY ? OPENAI_API_KEY.length : 0);
+      console.log("🔌 OPENAI_API_KEY préfixe:", OPENAI_API_KEY ? OPENAI_API_KEY.substring(0, 7) : "N/A");
       
       if (!OPENAI_API_KEY || OPENAI_API_KEY.trim().length === 0) {
         console.error("❌ OPENAI_API_KEY est vide ou manquante !");
+        return;
+      }
+      
+      // Vérifier que la clé commence par "sk-"
+      const trimmedKey = OPENAI_API_KEY.trim();
+      if (!trimmedKey.startsWith("sk-")) {
+        console.error("❌ OPENAI_API_KEY ne commence pas par 'sk-' - format invalide !");
+        console.error("❌ Préfixe reçu:", trimmedKey.substring(0, 10));
         return;
       }
       
@@ -2195,6 +2204,15 @@ But: être naturel et mettre le client en confiance.`,
           }
         }
       });
+      } catch (wsErr) {
+        console.error("❌ Erreur création WebSocket:", wsErr);
+        console.error("❌ Erreur détails:", {
+          message: wsErr.message,
+          code: wsErr.code,
+          stack: wsErr.stack?.substring(0, 500),
+        });
+        return;
+      }
     } catch (err) {
       console.error("❌ Erreur connexion OpenAI:", err);
       console.error("❌ Erreur détails:", {
