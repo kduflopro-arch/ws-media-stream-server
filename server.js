@@ -926,6 +926,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const resp = await fetch(url, {
         method: "POST",
         signal: premiumTtsAbort.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${MINIMAX_API_KEY}`,
+          "Accept": "application/json, application/octet-stream, audio/*",
+        },
         body: JSON.stringify({
           text: clean,
           voice_id: selectedVoiceId,
@@ -936,6 +941,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           audio_type: "pcm16", // Format PCM 16-bit pour Twilio
           sample_rate: 8000, // 8kHz pour Twilio
         }),
+      });
+      
+      console.log("📡 Minimax API réponse:", {
+        status: resp.status,
+        statusText: resp.statusText,
+        contentType: resp.headers.get("content-type"),
+        contentLength: resp.headers.get("content-length"),
       });
 
       if (!resp.ok) {
