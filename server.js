@@ -926,10 +926,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const resp = await fetch(url, {
         method: "POST",
         signal: premiumTtsAbort.signal,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${MINIMAX_API_KEY}`,
-        },
         body: JSON.stringify({
           text: clean,
           voice_id: selectedVoiceId,
@@ -952,19 +948,46 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         return;
       }
 
-      // Minimax retourne du PCM16 8kHz directement
-      const audioBuffer = await resp.arrayBuffer();
-      const pcm16Buffer = Buffer.from(audioBuffer);
-      const pcm16 = new Int16Array(
-        pcm16Buffer.buffer,
-        pcm16Buffer.byteOffset,
-        pcm16Buffer.length / 2,
-      );
+      // Minimax peut retourner du JSON avec un champ audio en base64, ou directement du binaire
+      const contentType = resp.headers.get("content-type") || "";
+      let audioData = null;
+      
+      if (contentType.includes("application/json")) {
+        // Format JSON avec audio en base64
+        const json = await resp.json();
+        const audioBase64 = json.audio || json.data || json.content;
+        if (!audioBase64) {
+          throw new Error("Minimax: pas de champ audio dans la réponse JSON");
+        }
+        audioData = Buffer.from(audioBase64, "base64");
+      } else {
+        // Format binaire direct
+        audioData = Buffer.from(await resp.arrayBuffer());
+      }
+
+      if (!audioData || audioData.length === 0) {
+        throw new Error("Minimax: audio vide");
+      }
+
+      console.log("🎵 Minimax audio reçu:", { 
+        bytes: audioData.length, 
+        contentType,
+        firstBytes: audioData.slice(0, 20).toString("hex")
+      });
 
       // Convertir PCM16 8kHz → μ-law 8kHz pour Twilio
-      const mulaw = convertPcm24kToMulaw(pcm16); // La fonction fonctionne aussi pour 8kHz
+      // audioData est déjà en PCM16 8kHz selon la requête
+      const pcm16 = new Int16Array(
+        audioData.buffer,
+        audioData.byteOffset,
+        audioData.length / 2,
+      );
 
-      // Envoyer l'audio par chunks de 20ms (160 bytes à 8kHz)
+      // Convertir PCM16 8kHz → μ-law 8kHz
+      // Note: convertPcm24kToMulaw fonctionne aussi pour 8kHz (downsampling)
+      const mulaw = convertPcm24kToMulaw(pcm16);
+
+      // Envoyer l'audio par chunks de 20ms (160 bytes à 8kHz) via enqueueOutboundMulaw
       const chunkSize = 160;
       for (let i = 0; i < mulaw.length; i += chunkSize) {
         const chunk = mulaw.slice(i, i + chunkSize);
@@ -972,11 +995,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         for (let j = 0; j < chunk.length; j++) {
           mulawBuf[j] = chunk[j] & 0xff;
         }
-        outboundQueue.push(mulawBuf);
-        outboundQueuedBytes += mulawBuf.length;
+        enqueueOutboundMulaw(mulawBuf);
+        // Petite pause pour éviter de surcharger
+        if (i % (chunkSize * 10) === 0) {
+          await sleep(5);
+        }
       }
 
-      console.log("🎙️ Minimax TTS terminé.", { chars: clean.length });
+      console.log("🎙️ Minimax TTS terminé.", { 
+        chars: clean.length,
+        audioBytes: audioData.length,
+        mulawBytes: mulaw.length * 1,
+        chunksSent: Math.ceil(mulaw.length / chunkSize)
+      });
       // Si Minimax fonctionne, on réinitialise le fallback
       if (premiumTtsBypassUntilMs > 0) {
         console.log("✅ Minimax fonctionne → réinitialisation du fallback");
