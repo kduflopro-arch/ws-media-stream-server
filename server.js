@@ -2147,6 +2147,25 @@ But: être naturel et mettre le client en confiance.`,
           
           if (msg.type === "response.output_item.added" || msg.type === "response.output_item.done") {
             console.log("✅ Réponse IA:", msg.type, msg.item?.type);
+            // Log détaillé pour diagnostiquer l'absence d'audio
+            if (msg.item) {
+              console.log("📋 Détails item réponse:", {
+                type: msg.item.type,
+                hasContent: !!msg.item.content,
+                contentTypes: msg.item.content ? msg.item.content.map((c: any) => c?.type).filter(Boolean) : [],
+                keys: Object.keys(msg.item),
+              });
+            }
+          }
+          
+          // Log tous les types de messages pour debug audio
+          if (msg.type && (msg.type.includes("audio") || msg.type.includes("output"))) {
+            console.log("🔊 Message audio/output:", msg.type, {
+              hasDelta: !!msg.delta,
+              hasAudio: !!msg.audio,
+              hasChunk: !!msg.chunk,
+              keys: Object.keys(msg).slice(0, 10),
+            });
           }
           
           if (msg.type === "conversation.item.input_audio_transcription.completed") {
