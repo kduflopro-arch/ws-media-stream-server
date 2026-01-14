@@ -1366,14 +1366,40 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.log("🔌 Tentative de connexion à OpenAI Realtime API...");
       // Configurer le format audio dans l'URL de connexion.
       // On force PCM16 pour éviter tout mismatch de format en sortie (sinon Twilio joue du bruit).
+      // IMPORTANT: Utiliser le modèle configuré dans LLM_MODEL, mais pour Realtime API, on doit utiliser gpt-4o-realtime-preview
+      // car GPT-5 n'a pas encore de Realtime API
+      const realtimeModel = "gpt-4o-realtime-preview-2024-12-17"; // Realtime API utilise toujours ce modèle
       const openaiUrl =
-        "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17&input_audio_format=pcm16&output_audio_format=pcm16";
+        `wss://api.openai.com/v1/realtime?model=${realtimeModel}&input_audio_format=pcm16&output_audio_format=pcm16`;
       console.log("🔌 URL OpenAI:", openaiUrl.replace(/Bearer\s+\S+/, "Bearer ***"));
+      console.log("🔌 OPENAI_API_KEY présente:", !!OPENAI_API_KEY);
+      console.log("🔌 OPENAI_API_KEY longueur:", OPENAI_API_KEY ? OPENAI_API_KEY.length : 0);
+      
+      if (!OPENAI_API_KEY || OPENAI_API_KEY.trim().length === 0) {
+        console.error("❌ OPENAI_API_KEY est vide ou manquante !");
+        return;
+      }
+      
       openaiWs = new WebSocket(openaiUrl, {
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
       });
+      
+      // Ajouter un timeout pour la connexion
+      const connectionTimeout = setTimeout(() => {
+        if (openaiWs && openaiWs.readyState !== WebSocket.OPEN) {
+          console.error("❌ Timeout connexion OpenAI WebSocket (10s)");
+          console.error("❌ État WebSocket:", openaiWs.readyState);
+          if (openaiWs) {
+            openaiWs.close();
+          }
+        }
+      }, 10000);
+      
+      openaiWs.on("open", () => {
+        clearTimeout(connectionTimeout);
+        console.log("✅ Connecté à OpenAI Realtime API");
 
       openaiWs.on("open", () => {
         console.log("✅ Connecté à OpenAI Realtime API");
@@ -2126,13 +2152,24 @@ But: être naturel et mettre le client en confiance.`,
       });
 
       openaiWs.on("close", (code, reason) => {
+        clearTimeout(connectionTimeout);
         console.log("🔌 OpenAI WS fermé", { code, reason: reason?.toString() });
         if (code !== 1000) {
           console.warn("⚠️ OpenAI WS fermé anormalement (code != 1000)");
+          // Si fermeture avant connexion (code 1006 = connexion fermée sans handshake)
+          if (code === 1006) {
+            console.error("❌ Connexion OpenAI fermée avant établissement (code 1006)");
+            console.error("❌ Vérifiez OPENAI_API_KEY et la connectivité réseau");
+          }
         }
       });
     } catch (err) {
-      console.error("Erreur connexion OpenAI:", err);
+      console.error("❌ Erreur connexion OpenAI:", err);
+      console.error("❌ Erreur détails:", {
+        message: err.message,
+        code: err.code,
+        stack: err.stack?.substring(0, 500),
+      });
     }
   }
 
