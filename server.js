@@ -1659,11 +1659,8 @@ ${garageClosed
           session: {
             type: "realtime",
             instructions: `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}`,
-            // Activer explicitement les modalités audio (input et output)
-            modalities: ["audio"],
-            // Activer l'audio de sortie
-            output_audio_format: "pcm16",
-            input_audio_format: "pcm16",
+            // Les formats audio sont configurés dans l'URL WebSocket (input_audio_format et output_audio_format)
+            // L'API Realtime génère automatiquement l'audio si output_audio_format est dans l'URL
           },
         };
         if (REALTIME_INPUT_TRANSCRIPTION_ENABLED) {
