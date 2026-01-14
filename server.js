@@ -2686,7 +2686,7 @@ But: être naturel et mettre le client en confiance.`,
             const secretToUse = AUTOGURU_INGEST_SECRET_ENV || "";
             const tokenToUse = autoguruIngestToken || "";
             
-            if (finalGarageId && finalFromNumber && (secretToUse || tokenToUse) && autoguruIngestUrl) {
+            if (finalGarageId && finalFromNumber && autoguruIngestUrl) {
               // Construire l'URL de l'API client-info à partir de autoguruIngestUrl
               const baseUrl = autoguruIngestUrl.replace(/\/api\/twilio\/realtime-ingest.*$/, "");
               let clientInfoUrl = `${baseUrl}/api/twilio/client-info?garageId=${encodeURIComponent(finalGarageId)}&phoneNumber=${encodeURIComponent(finalFromNumber)}`;
@@ -2694,6 +2694,10 @@ But: être naturel et mettre le client en confiance.`,
               // Si on a un token mais pas de secret, passer le token dans l'URL
               if (!secretToUse && tokenToUse) {
                 clientInfoUrl += `&token=${encodeURIComponent(tokenToUse)}`;
+              } else if (!secretToUse && !tokenToUse) {
+                // Si ni secret ni token, on ne peut pas appeler l'API
+                console.warn("⚠️ Pas de secret ni token pour client-info, skip");
+                return;
               }
               
               console.log("🔍 Appel API client-info:", clientInfoUrl.replace(/secret=\S+|token=\S+/, "***"));
