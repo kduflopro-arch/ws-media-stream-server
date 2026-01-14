@@ -2098,6 +2098,13 @@ But: être naturel et mettre le client en confiance.`,
           // - response.audio.delta
           // - response.output_audio.delta
           if (msg.type === "response.audio.delta" || msg.type === "response.output_audio.delta") {
+            console.log("🎵 Delta audio reçu:", {
+              type: msg.type,
+              hasDelta: !!msg.delta,
+              hasAudio: !!msg.audio,
+              hasChunk: !!msg.chunk,
+              keys: Object.keys(msg).slice(0, 10),
+            });
             // Si on utilise ElevenLabs en Realtime, on ignore complètement l'audio OpenAI (sinon doublon + backlog).
             // SAUF si ElevenLabs est en erreur (bypass) → on repasse sur OpenAI pour éviter le silence total.
             // premiumTtsBypassUntilMs > nowMs() signifie que le bypass est actif (ElevenLabs en erreur)
