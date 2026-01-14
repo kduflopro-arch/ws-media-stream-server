@@ -921,8 +921,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     premiumTtsLastError = null;
 
     try {
-      // API Minimax TTS
-      const url = `https://api.minimax.chat/v1/text_to_speech?GroupId=${encodeURIComponent(MINIMAX_GROUP_ID)}`;
+      // API Minimax TTS - utiliser api.minimax.io (hôte global) au lieu de api.minimax.chat
+      const url = `https://api.minimax.io/v1/text_to_speech?GroupId=${encodeURIComponent(MINIMAX_GROUP_ID)}`;
       const resp = await fetch(url, {
         method: "POST",
         signal: premiumTtsAbort.signal,
