@@ -923,14 +923,38 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     let minimaxWs = null;
     try {
       // API Minimax TTS WebSocket selon la documentation: https://platform.minimax.io/docs/guides/speech-t2a-websocket
-      const wsUrl = "wss://api.minimax.io/ws/v1/t2a_v2";
+      // Ajouter GroupId dans l'URL si disponible
+      let wsUrl = "wss://api.minimax.io/ws/v1/t2a_v2";
+      if (MINIMAX_GROUP_ID) {
+        wsUrl += `?GroupId=${encodeURIComponent(MINIMAX_GROUP_ID)}`;
+      }
       const apiKey = MINIMAX_API_KEY.startsWith("Bearer ") ? MINIMAX_API_KEY.substring(7) : MINIMAX_API_KEY;
       
-      console.log("🔌 Connexion Minimax WebSocket...");
+      console.log("🔌 Connexion Minimax WebSocket...", { url: wsUrl.replace(/GroupId=[^&]+/, "GroupId=***") });
       minimaxWs = new WebSocket(wsUrl, {
         headers: {
           "Authorization": `Bearer ${apiKey}`,
         },
+      });
+
+      // Queue pour les messages entrants
+      const messageQueue = [];
+      let messageResolver = null;
+
+      minimaxWs.on("message", (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          console.log("📨 Minimax message:", msg.event || "unknown", Object.keys(msg));
+          
+          if (messageResolver) {
+            messageResolver(msg);
+            messageResolver = null;
+          } else {
+            messageQueue.push(msg);
+          }
+        } catch (e) {
+          console.error("❌ Erreur parsing message Minimax:", e);
+        }
       });
 
       // Attendre la connexion
@@ -951,27 +975,48 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       });
 
       // Attendre le message "connected_success"
-      const connectedMsg = await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error("Timeout attente connected_success"));
-        }, 5000);
-        
-        minimaxWs.once("message", (data) => {
-          clearTimeout(timeout);
-          try {
-            const msg = JSON.parse(data.toString());
-            if (msg.event === "connected_success") {
+      const waitForMessage = (eventName, timeoutMs = 5000) => {
+        return new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error(`Timeout attente ${eventName}`));
+          }, timeoutMs);
+          
+          const checkQueue = () => {
+            const msg = messageQueue.shift();
+            if (msg && msg.event === eventName) {
+              clearTimeout(timeout);
               resolve(msg);
+            } else if (msg) {
+              // Message inattendu, le remettre en queue et continuer à attendre
+              messageQueue.unshift(msg);
+              messageResolver = (msg) => {
+                if (msg.event === eventName) {
+                  clearTimeout(timeout);
+                  resolve(msg);
+                } else {
+                  messageQueue.push(msg);
+                  checkQueue();
+                }
+              };
             } else {
-              reject(new Error(`Message inattendu: ${msg.event}`));
+              messageResolver = (msg) => {
+                if (msg.event === eventName) {
+                  clearTimeout(timeout);
+                  resolve(msg);
+                } else {
+                  messageQueue.push(msg);
+                  checkQueue();
+                }
+              };
             }
-          } catch (e) {
-            reject(e);
-          }
+          };
+          
+          checkQueue();
         });
-      });
+      };
 
-      console.log("✅ Minimax WebSocket connecté");
+      const connectedMsg = await waitForMessage("connected_success");
+      console.log("✅ Minimax WebSocket connecté:", connectedMsg);
 
       // Démarrer la tâche TTS
       const taskStartMsg = {
@@ -992,67 +1037,70 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         },
       };
 
+      console.log("📤 Envoi task_start:", JSON.stringify(taskStartMsg, null, 2));
       minimaxWs.send(JSON.stringify(taskStartMsg));
 
       // Attendre "task_started"
-      const taskStartedMsg = await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error("Timeout attente task_started"));
-        }, 5000);
-        
-        minimaxWs.once("message", (data) => {
-          clearTimeout(timeout);
-          try {
-            const msg = JSON.parse(data.toString());
-            if (msg.event === "task_started") {
-              resolve(msg);
-            } else {
-              reject(new Error(`Message inattendu: ${msg.event}`));
-            }
-          } catch (e) {
-            reject(e);
-          }
-        });
-      });
-
-      console.log("✅ Tâche Minimax démarrée");
+      const taskStartedMsg = await waitForMessage("task_started");
+      console.log("✅ Tâche Minimax démarrée:", taskStartedMsg);
 
       // Envoyer le texte
-      minimaxWs.send(JSON.stringify({
+      const continueMsg = {
         event: "task_continue",
         text: clean,
-      }));
+      };
+      console.log("📤 Envoi task_continue:", { textLength: clean.length });
+      minimaxWs.send(JSON.stringify(continueMsg));
 
-      // Collecter l'audio en streaming
+      // Collecter l'audio en streaming - écouter tous les messages
       let audioData = Buffer.alloc(0);
       let chunkCounter = 0;
       let isFinal = false;
+      let lastMessageTime = nowMs();
 
       while (!isFinal && !premiumTtsAbort.signal.aborted) {
         const msg = await new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
-            reject(new Error("Timeout attente réponse Minimax"));
+            const elapsed = nowMs() - lastMessageTime;
+            reject(new Error(`Timeout attente réponse Minimax (${elapsed}ms depuis dernier message)`));
           }, 30000);
           
-          minimaxWs.once("message", (data) => {
-            clearTimeout(timeout);
-            resolve(data);
-          });
+          const checkForMessage = () => {
+            if (messageQueue.length > 0) {
+              clearTimeout(timeout);
+              const msg = messageQueue.shift();
+              lastMessageTime = nowMs();
+              resolve(msg);
+            } else {
+              messageResolver = (msg) => {
+                clearTimeout(timeout);
+                lastMessageTime = nowMs();
+                resolve(msg);
+              };
+            }
+          };
           
-          minimaxWs.once("error", (err) => {
-            clearTimeout(timeout);
-            reject(err);
-          });
+          checkForMessage();
         });
 
-        const msgObj = JSON.parse(msg.toString());
+        console.log("📨 Minimax réponse:", msg.event || "data", {
+          hasData: !!(msg.data),
+          hasAudio: !!(msg.data && msg.data.audio),
+          isFinal: msg.is_final,
+          audioLength: msg.data?.audio ? msg.data.audio.length : 0,
+        });
         
-        if (msgObj.data && msgObj.data.audio) {
+        if (msg.data && msg.data.audio) {
           // Audio en hexadécimal selon la doc
-          const audioHex = msgObj.data.audio;
+          const audioHex = msg.data.audio;
           const audioBytes = Buffer.from(audioHex, "hex");
           audioData = Buffer.concat([audioData, audioBytes]);
           chunkCounter++;
+          
+          console.log(`🎵 Minimax audio chunk ${chunkCounter}:`, { 
+            hexLength: audioHex.length, 
+            bytesLength: audioBytes.length 
+          });
           
           // Envoyer immédiatement par chunks
           const pcm16 = new Int16Array(
@@ -1065,9 +1113,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           enqueueOutboundMulaw(mulawBuf);
         }
 
-        if (msgObj.is_final) {
+        if (msg.is_final || msg.event === "task_finished") {
           isFinal = true;
           console.log(`✅ Minimax TTS terminé: ${chunkCounter} chunks, ${audioData.length} bytes`);
+        }
+        
+        if (msg.event === "task_failed") {
+          throw new Error(`Minimax TTS failed: ${msg.error || JSON.stringify(msg)}`);
         }
       }
 
