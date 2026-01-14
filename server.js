@@ -2164,7 +2164,7 @@ But: être naturel et mettre le client en confiance.`,
               console.log("📋 Détails item réponse:", {
                 type: msg.item.type,
                 hasContent: !!msg.item.content,
-                contentTypes: msg.item.content ? msg.item.content.map((c: any) => c?.type).filter(Boolean) : [],
+                contentTypes: msg.item.content ? msg.item.content.map((c) => c?.type).filter(Boolean) : [],
                 keys: Object.keys(msg.item),
               });
             }
