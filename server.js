@@ -2329,10 +2329,19 @@ But: être naturel et mettre le client en confiance.`,
         // IMPORTANT: faire cette requête de manière asynchrone, ne pas bloquer le démarrage du stream
         (async () => {
           try {
+            console.log("🔍 Tentative récupération infos client:", {
+              garageId: finalGarageId,
+              fromNumber: finalFromNumber,
+              hasSecret: !!AUTOGURU_INGEST_SECRET_ENV,
+              hasIngestUrl: !!autoguruIngestUrl,
+            });
+            
             if (finalGarageId && finalFromNumber && AUTOGURU_INGEST_SECRET_ENV && autoguruIngestUrl) {
               // Construire l'URL de l'API client-info à partir de autoguruIngestUrl
               const baseUrl = autoguruIngestUrl.replace(/\/api\/twilio\/realtime-ingest.*$/, "");
               const clientInfoUrl = `${baseUrl}/api/twilio/client-info?garageId=${encodeURIComponent(finalGarageId)}&phoneNumber=${encodeURIComponent(finalFromNumber)}`;
+              
+              console.log("🔍 Appel API client-info:", clientInfoUrl.replace(/secret=\S+/, "secret=***"));
               
               const response = await fetch(clientInfoUrl, {
                 method: "GET",
@@ -2341,8 +2350,19 @@ But: être naturel et mettre le client en confiance.`,
                 },
               });
               
+              console.log("🔍 Réponse API client-info:", {
+                status: response.status,
+                ok: response.ok,
+              });
+              
               if (response.ok) {
                 const data = await response.json();
+                console.log("🔍 Données reçues:", {
+                  hasClient: !!data.client,
+                  clientName: data.client?.name || "N/A",
+                  clientPlate: data.client?.plate || "Aucune plaque",
+                });
+                
                 if (data.client) {
                   clientInfo = data.client;
                   console.log("✅ Infos client récupérées:", {
@@ -2350,20 +2370,39 @@ But: être naturel et mettre le client en confiance.`,
                     plate: clientInfo.plate || "Aucune plaque",
                     appointmentsCount: clientInfo.appointments?.length || 0,
                   });
+                  
                   // Mettre à jour le prompt si OpenAI est déjà connecté
-                  if (openaiWs && openaiWs.readyState === WebSocket.OPEN && ws.__updatePromptWithClientInfo) {
-                    console.log("🔄 Mise à jour du prompt avec les infos client (incluant plaque)");
-                    ws.__updatePromptWithClientInfo();
+                  if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+                    if (ws.__updatePromptWithClientInfo) {
+                      console.log("🔄 Mise à jour du prompt avec les infos client (incluant plaque)");
+                      ws.__updatePromptWithClientInfo();
+                    } else {
+                      console.warn("⚠️ Fonction updatePromptWithClientInfo non disponible");
+                    }
                   } else {
-                    console.warn("⚠️ OpenAI pas connecté ou fonction updatePromptWithClientInfo non disponible");
+                    console.warn("⚠️ OpenAI pas connecté (état:", openaiWs?.readyState, ")");
                   }
+                } else {
+                  console.log("ℹ️ Aucun client trouvé pour ce numéro");
                 }
               } else {
-                console.log("ℹ️ Client non trouvé ou erreur récupération infos client");
+                const errorText = await response.text().catch(() => "");
+                console.log("ℹ️ Client non trouvé ou erreur récupération infos client:", {
+                  status: response.status,
+                  error: errorText.substring(0, 200),
+                });
               }
+            } else {
+              console.warn("⚠️ Paramètres manquants pour récupération infos client:", {
+                hasGarageId: !!finalGarageId,
+                hasFromNumber: !!finalFromNumber,
+                hasSecret: !!AUTOGURU_INGEST_SECRET_ENV,
+                hasIngestUrl: !!autoguruIngestUrl,
+              });
             }
           } catch (e) {
             console.error("❌ Erreur récupération infos client:", e);
+            console.error("❌ Stack:", e.stack?.substring(0, 500));
           }
         })();
 
