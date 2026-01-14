@@ -1898,6 +1898,7 @@ But: être naturel et mettre le client en confiance.`,
               if (chunk.length >= REALTIME_ELEVEN_CHUNK_MIN_CHARS || st.started) {
                 // Dès qu'on commence à parler sur ce response_id, on le marque pour éviter les doublons.
                 spokenSet.add(rid);
+                // Ne pas interrompre si on a déjà commencé à parler (évite les coupures)
                 enqueueElevenLabsTts(chunk, { interrupt: !st.started });
                 st.started = true;
                 st.cursor += cutIdx;
