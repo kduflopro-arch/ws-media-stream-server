@@ -1876,10 +1876,14 @@ But: être naturel et mettre le client en confiance.`,
           if (msg.type === "response.content_part.added") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
             const part = msg.part;
-            if (rid && part && typeof part.text === "string" && part.text.trim()) {
+            // Le texte peut être dans part.text ou directement dans part
+            const text = (part && typeof part.text === "string" ? part.text : null) || 
+                        (part && typeof part === "string" ? part : null) ||
+                        (typeof msg.text === "string" ? msg.text : null);
+            if (rid && text && text.trim()) {
               // Accumuler le texte dans le transcript
               const current = transcriptMap.get(rid) || "";
-              transcriptMap.set(rid, current + part.text);
+              transcriptMap.set(rid, current + text);
               // En mode chunking, on peut commencer à parler dès qu'on a assez de texte
               if (REALTIME_USE_ELEVEN && REALTIME_ELEVEN_CHUNKING_ENABLED) {
                 flushRealtimeElevenChunks(rid, false);
@@ -1891,11 +1895,15 @@ But: être naturel et mettre le client en confiance.`,
           if (msg.type === "response.content_part.done") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
             const part = msg.part;
-            if (rid && part && typeof part.text === "string" && part.text.trim()) {
+            // Le texte peut être dans part.text ou directement dans part
+            const text = (part && typeof part.text === "string" ? part.text : null) || 
+                        (part && typeof part === "string" ? part : null) ||
+                        (typeof msg.text === "string" ? msg.text : null);
+            if (rid && text && text.trim()) {
               // S'assurer que le texte est dans le transcript
               const current = transcriptMap.get(rid) || "";
-              if (!current.includes(part.text)) {
-                transcriptMap.set(rid, current + part.text);
+              if (!current.includes(text)) {
+                transcriptMap.set(rid, current + text);
               }
               // En mode chunking, on peut continuer à parler
               if (REALTIME_USE_ELEVEN && REALTIME_ELEVEN_CHUNKING_ENABLED) {
