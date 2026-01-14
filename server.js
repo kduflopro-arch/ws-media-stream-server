@@ -950,9 +950,27 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         contentLength: resp.headers.get("content-length"),
       });
 
+      // Vérifier d'abord si la réponse contient une erreur même si status est 200
+      const respText = await resp.text();
+      let respJson = null;
+      try {
+        respJson = JSON.parse(respText);
+        if (respJson.base_resp && respJson.base_resp.status_code !== 0) {
+          // Minimax retourne parfois 200 avec une erreur dans base_resp
+          const errorMsg = `Minimax TTS error: ${respJson.base_resp.status_msg || "Erreur inconnue"} (code: ${respJson.base_resp.status_code})`;
+          console.error("❌", errorMsg);
+          console.error("❌ Détails:", JSON.stringify(respJson, null, 2));
+          premiumTtsLastError = errorMsg;
+          premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
+          premiumTtsInFlight = false;
+          return;
+        }
+      } catch {
+        // Pas de JSON, continuer
+      }
+
       if (!resp.ok) {
-        const errorText = await resp.text().catch(() => "");
-        const errorMsg = `Minimax TTS error ${resp.status}: ${errorText.slice(0, 200)}`;
+        const errorMsg = `Minimax TTS error ${resp.status}: ${respText.slice(0, 200)}`;
         console.error("❌", errorMsg);
         premiumTtsLastError = errorMsg;
         premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
