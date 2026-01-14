@@ -1402,11 +1402,24 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
       }
       
-      openaiWs = new WebSocket(openaiUrl, {
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-      });
+      // Créer la connexion WebSocket avec gestion d'erreur immédiate
+      try {
+        openaiWs = new WebSocket(openaiUrl, {
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY.trim()}`,
+          },
+        });
+        
+        console.log("🔌 WebSocket créé, état initial:", openaiWs.readyState);
+      } catch (wsErr) {
+        console.error("❌ Erreur création WebSocket:", wsErr);
+        console.error("❌ Erreur détails:", {
+          message: wsErr.message,
+          code: wsErr.code,
+          stack: wsErr.stack?.substring(0, 500),
+        });
+        return;
+      }
       
       // Ajouter un timeout pour la connexion
       connectionTimeout = setTimeout(() => {
@@ -2204,15 +2217,6 @@ But: être naturel et mettre le client en confiance.`,
           }
         }
       });
-      } catch (wsErr) {
-        console.error("❌ Erreur création WebSocket:", wsErr);
-        console.error("❌ Erreur détails:", {
-          message: wsErr.message,
-          code: wsErr.code,
-          stack: wsErr.stack?.substring(0, 500),
-        });
-        return;
-      }
     } catch (err) {
       console.error("❌ Erreur connexion OpenAI:", err);
       console.error("❌ Erreur détails:", {
