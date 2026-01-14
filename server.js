@@ -1669,10 +1669,31 @@ ${garageClosed
         }
         // Fonction pour mettre à jour le prompt avec les infos client (si récupérées après)
         const updatePromptWithClientInfo = () => {
-          if (!clientInfo || !openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+          console.log("🔄 updatePromptWithClientInfo appelée:", {
+            hasClientInfo: !!clientInfo,
+            hasOpenAI: !!openaiWs,
+            openAIState: openaiWs?.readyState,
+            clientName: clientInfo?.name || "N/A",
+            clientPlate: clientInfo?.plate || "Aucune",
+          });
+          
+          if (!clientInfo) {
+            console.warn("⚠️ Pas d'infos client disponibles pour mise à jour prompt");
+            return;
+          }
+          
+          if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) {
+            console.warn("⚠️ OpenAI WebSocket pas connecté (état:", openaiWs?.readyState, ")");
+            return;
+          }
           
           const newClientInfoLine = buildClientInfoLine();
-          if (!newClientInfoLine) return;
+          if (!newClientInfoLine) {
+            console.warn("⚠️ buildClientInfoLine retourne vide");
+            return;
+          }
+          
+          console.log("📋 Section DÉTECTION CLIENT générée:", newClientInfoLine.substring(0, 400));
           
           // Reconstruire baseInstructions avec les nouvelles infos client
           const updatedBaseInstructions = `Tu es ${assistantName}, l'assistant(e) téléphonique de ${garageLabel}.
@@ -1697,7 +1718,13 @@ Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, 
             },
           }));
           ws.__sessionInstructions = String(updatedInstructions || "");
-          console.log("✅ Prompt mis à jour avec infos client");
+          console.log("✅ Prompt mis à jour avec infos client", {
+            hasClientInfo: !!clientInfo,
+            hasPlate: !!clientInfo?.plate,
+            plate: clientInfo?.plate || "Aucune",
+            clientName: clientInfo?.name || "N/A",
+            promptLength: updatedInstructions.length,
+          });
         };
         
         // On ajoute des contraintes fortes (évite les réponses "hors sujet" type coach de vie).
