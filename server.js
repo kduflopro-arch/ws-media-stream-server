@@ -2363,18 +2363,31 @@ But: être naturel et mettre le client en confiance.`,
               hasIngestUrl: !!autoguruIngestUrl,
             });
             
-            if (finalGarageId && finalFromNumber && AUTOGURU_INGEST_SECRET_ENV && autoguruIngestUrl) {
+            // Utiliser le token pour authentifier si AUTOGURU_INGEST_SECRET_ENV n'est pas défini
+            // L'API accepte soit x-secret (REALTIME_INGEST_SECRET) soit le token dans les query params
+            const secretToUse = AUTOGURU_INGEST_SECRET_ENV || "";
+            const tokenToUse = autoguruIngestToken || "";
+            
+            if (finalGarageId && finalFromNumber && (secretToUse || tokenToUse) && autoguruIngestUrl) {
               // Construire l'URL de l'API client-info à partir de autoguruIngestUrl
               const baseUrl = autoguruIngestUrl.replace(/\/api\/twilio\/realtime-ingest.*$/, "");
-              const clientInfoUrl = `${baseUrl}/api/twilio/client-info?garageId=${encodeURIComponent(finalGarageId)}&phoneNumber=${encodeURIComponent(finalFromNumber)}`;
+              let clientInfoUrl = `${baseUrl}/api/twilio/client-info?garageId=${encodeURIComponent(finalGarageId)}&phoneNumber=${encodeURIComponent(finalFromNumber)}`;
               
-              console.log("🔍 Appel API client-info:", clientInfoUrl.replace(/secret=\S+/, "secret=***"));
+              // Si on a un token mais pas de secret, passer le token dans l'URL
+              if (!secretToUse && tokenToUse) {
+                clientInfoUrl += `&token=${encodeURIComponent(tokenToUse)}`;
+              }
+              
+              console.log("🔍 Appel API client-info:", clientInfoUrl.replace(/secret=\S+|token=\S+/, "***"));
+              
+              const headers = {};
+              if (secretToUse) {
+                headers["x-secret"] = secretToUse;
+              }
               
               const response = await fetch(clientInfoUrl, {
                 method: "GET",
-                headers: {
-                  "x-secret": AUTOGURU_INGEST_SECRET_ENV,
-                },
+                headers,
               });
               
               console.log("🔍 Réponse API client-info:", {
