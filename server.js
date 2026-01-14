@@ -1894,9 +1894,9 @@ Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, 
           return greetings[Math.floor(Math.random() * greetings.length)];
         }
 
-        // Si on a déjà joué un greeting local (ElevenLabs) avant l'ouverture OpenAI,
+        // Si on a déjà joué un greeting local (TTS premium) avant l'ouverture OpenAI,
         // on l'injecte dans la conversation pour éviter que le modèle le répète.
-        // IMPORTANT: Normaliser le texte pour cohérence de prononciation avec ElevenLabs
+        // IMPORTANT: Normaliser le texte pour cohérence de prononciation avec le TTS premium
         if (initialAssistantGreetingText && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
           try {
             // Normaliser le texte pour que les mots soient prononcés de la même manière
@@ -1935,9 +1935,10 @@ Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, 
                 return;
               }
 
-              // Si on a déjà joué un greeting local (ElevenLabs), ne pas en redemander un à OpenAI.
+              // Si on a déjà joué un greeting local (TTS premium), ne pas en redemander un à OpenAI.
               if (initialAssistantGreetingText) {
-                console.log("👋 Greeting OpenAI ignoré (greeting déjà joué via ElevenLabs).", { callSid });
+                const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+                console.log(`👋 Greeting OpenAI ignoré (greeting déjà joué via ${providerName}).`, { callSid });
                 if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
                 return;
               }
@@ -2659,7 +2660,7 @@ But: être naturel et mettre le client en confiance.`,
 
         // 🔥 Greeting immédiat (ultra-réactif) :
         // - doit annoncer l'enregistrement AVANT que le client puisse répondre
-        // - doit utiliser la voix ElevenLabs (pas attendre OpenAI)
+        // - doit utiliser la voix TTS premium (Minimax/ElevenLabs, pas attendre OpenAI)
         // - on injecte ensuite le même texte dans la conversation OpenAI pour éviter les répétitions
         try {
           const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
@@ -2676,12 +2677,14 @@ But: être naturel et mettre le client en confiance.`,
               : "En quoi je peux vous aider ?";
             const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
             initialAssistantGreetingText = greeting;
-            enqueueElevenLabsTts(greeting, { interrupt: true });
-            console.log("👋 Greeting immédiat joué via ElevenLabs.", { callSid, consentRequired });
+            enqueuePremiumTts(greeting, { interrupt: true });
+            const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+            console.log(`👋 Greeting immédiat joué via ${providerName}.`, { callSid, consentRequired });
             if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
           }
         } catch (e) {
-          console.error("❌ Erreur greeting immédiat ElevenLabs:", e);
+          const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+          console.error(`❌ Erreur greeting immédiat ${providerName}:`, e);
         }
         
         // Démarrage selon mode pipeline
