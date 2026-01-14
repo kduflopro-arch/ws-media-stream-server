@@ -1947,10 +1947,25 @@ But: être naturel et mettre le client en confiance.`,
           // Transcripts de sortie (utile pour TTS premium)
           if (msg.type === "response.created") {
             const rid = msg.response?.id ?? msg.response_id ?? null;
+            console.log("📨 response.created reçu:", {
+              rid,
+              responseKeys: msg.response ? Object.keys(msg.response) : [],
+              REALTIME_USE_ELEVEN,
+            });
             if (rid) transcriptMap.set(rid, "");
             if (rid && REALTIME_USE_ELEVEN && REALTIME_ELEVEN_CHUNKING_ENABLED) {
               elevenStateMap.set(rid, { cursor: 0, started: false });
             }
+          }
+          
+          if (msg.type === "response.done") {
+            const rid = msg.response_id ?? msg.response?.id ?? null;
+            console.log("✅ response.done reçu:", {
+              rid,
+              responseKeys: msg.response ? Object.keys(msg.response) : [],
+              hasOutputItems: !!msg.response?.output,
+              allKeys: Object.keys(msg).slice(0, 20),
+            });
           }
           if (msg.type === "response.output_audio_transcript.delta" || msg.type === "response.audio_transcript.delta") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
