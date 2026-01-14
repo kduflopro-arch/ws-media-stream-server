@@ -1606,11 +1606,12 @@ But: préparer le dossier pour l'atelier (que le garage puisse rappeler efficace
 - Tu es un garage auto. Tu parles UNIQUEMENT de véhicules/diagnostic/rendez-vous.
 - Si le client dit "j'ai un problème", tu poses des questions sur le véhicule (bruit/voyant/démarrage/freinage) et tu proposes un RDV.
 - Tu dois collecter la plaque d'immatriculation (ex: AB-123-CD) dès que possible.
-- IMPORTANT - PLAQUE D'IMMATRICULATION:
-  * Si le client a déjà une plaque dans son dossier (voir section "DÉTECTION CLIENT"), tu DOIS demander confirmation de cette plaque. NE PAS demander la plaque à l'oral.
+- IMPORTANT - PLAQUE D'IMMATRICULATION (RÈGLE ABSOLUE):
+  * AVANT de proposer un SMS pour la plaque, tu DOIS TOUJOURS vérifier la section "DÉTECTION CLIENT" dans les instructions.
+  * Si le client a déjà une plaque dans son dossier (voir section "DÉTECTION CLIENT" → "Plaque d'immatriculation enregistrée"), tu DOIS demander confirmation de cette plaque. NE PROPOSE PAS DE SMS. Demande: "Je vois que vous êtes déjà dans nos dossiers. Est-ce que votre plaque est bien [PLAQUE] ?"
   * Si le client confirme que la plaque est correcte, utilise-la. Si le client dit que ce n'est pas la bonne, alors propose d'envoyer un SMS.
-  * Si le client n'a PAS de plaque dans son dossier, propose d'envoyer un SMS pour qu'il envoie sa plaque. NE PAS demander la plaque à l'oral.
-  * Ne demande JAMAIS la plaque à l'oral - utilise toujours le SMS sauf pour confirmer une plaque déjà enregistrée.
+  * Si le client n'a PAS de plaque dans son dossier (voir section "DÉTECTION CLIENT" → "Aucune plaque d'immatriculation enregistrée"), propose d'envoyer un SMS pour qu'il envoie sa plaque. NE PAS demander la plaque à l'oral.
+  * RÈGLE ABSOLUE: Ne propose JAMAIS un SMS pour la plaque si le client a déjà une plaque enregistrée. Vérifie TOUJOURS la section "DÉTECTION CLIENT" avant de proposer un SMS.
 - Si le client demande un tarif ET que le tarif est dans "Tarifs du garage":
   * Si le tarif est fixe (ex: "45€"), tu le donnes directement et tu proposes la suite (RDV ou dépôt). Tu n'exiges pas marque/modèle dans ce cas.
   * Si le tarif est variable (contient "le prix peut varier selon le véhicule"), tu donnes le prix indiqué ET tu précises que le prix peut varier selon le véhicule. Ajoute ensuite: "Tout sera inscrit lorsque vous aurez établi le devis avec le garage." ou une phrase similaire. Exemple: "Pour une vidange, c'est environ 45€, mais le prix peut varier selon le véhicule. Tout sera inscrit lorsque vous aurez établi le devis avec le garage." Dans ce cas, tu peux demander marque/modèle pour affiner, mais ce n'est pas obligatoire.
@@ -1685,7 +1686,7 @@ ${modeLine}
 ${consentLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
-${pricingLine}
+${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
 ${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${newClientInfoLine}\n\nStyle: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
 Format: réponses courtes (1 à 2 phrases), puis UNE question.
 Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, virgules, questions).`;
@@ -2322,6 +2323,12 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalGarageClosed === "string" && finalGarageClosed.trim()) garageClosed = finalGarageClosed.trim().toLowerCase() === "true";
         if (typeof finalGarageClosedReason === "string") garageClosedReason = String(finalGarageClosedReason || "").trim();
         if (typeof finalGarageClosedText === "string") garageClosedText = String(finalGarageClosedText || "").trim();
+        if (typeof finalClosedDaysText === "string") {
+          // Utiliser closedDaysText pour les jours de fermeture si disponible
+          if (finalClosedDaysText.trim()) {
+            garageClosedText = String(finalClosedDaysText || "").trim();
+          }
+        }
         if (typeof finalCollectVehicleInfo === "string" && finalCollectVehicleInfo.trim()) collectVehicleInfo = finalCollectVehicleInfo.trim().toLowerCase() === "true";
         if (typeof finalPricingSummary === "string") pricingSummary = String(finalPricingSummary || "").trim();
         if (typeof finalServicesSummary === "string") servicesSummary = String(finalServicesSummary || "").trim();
