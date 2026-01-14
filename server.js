@@ -891,6 +891,112 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
   }
 
+  async function speakWithMinimaxNow(text, { interrupt = true } = {}) {
+    if (!PREMIUM_TTS_ENABLED) return;
+    if (PREMIUM_TTS_PROVIDER !== "minimax") return;
+    if (nowMs() < premiumTtsBypassUntilMs) return;
+    const selectedVoiceId =
+      assistantVoice === "male"
+        ? (MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT)
+        : (MINIMAX_VOICE_ID_FEMALE || MINIMAX_VOICE_ID_DEFAULT);
+    if (!MINIMAX_API_KEY || !MINIMAX_GROUP_ID || !selectedVoiceId) {
+      console.error("❌ PREMIUM_TTS activé mais MINIMAX_API_KEY/MINIMAX_GROUP_ID/MINIMAX_VOICE_ID manquants.");
+      premiumTtsLastError = "Configuration Minimax incomplète";
+      premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
+      return;
+    }
+    const clean = normalizeFrenchTtsText((text || "").trim());
+    if (!clean) return;
+
+    // Stopper toute synthèse en cours et couper l'audio en file
+    if (interrupt) {
+      try { premiumTtsAbort?.abort?.(); } catch { /* ignore */ }
+      premiumTtsAbort = new AbortController();
+      outboundQueue = [];
+      outboundQueuedBytes = 0;
+    } else if (!premiumTtsAbort) {
+      premiumTtsAbort = new AbortController();
+    }
+    premiumTtsInFlight = true;
+    premiumTtsLastError = null;
+
+    try {
+      // API Minimax TTS
+      const url = `https://api.minimax.chat/v1/text_to_speech?GroupId=${encodeURIComponent(MINIMAX_GROUP_ID)}`;
+      const resp = await fetch(url, {
+        method: "POST",
+        signal: premiumTtsAbort.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${MINIMAX_API_KEY}`,
+        },
+        body: JSON.stringify({
+          text: clean,
+          voice_id: selectedVoiceId,
+          model: MINIMAX_MODEL,
+          speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED)),
+          volume: Math.max(0.0, Math.min(1.0, MINIMAX_VOLUME)),
+          pitch: Math.max(-12, Math.min(12, MINIMAX_PITCH)),
+          audio_type: "pcm16", // Format PCM 16-bit pour Twilio
+          sample_rate: 8000, // 8kHz pour Twilio
+        }),
+      });
+
+      if (!resp.ok) {
+        const errorText = await resp.text().catch(() => "");
+        const errorMsg = `Minimax TTS error ${resp.status}: ${errorText.slice(0, 200)}`;
+        console.error("❌", errorMsg);
+        premiumTtsLastError = errorMsg;
+        premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
+        premiumTtsInFlight = false;
+        return;
+      }
+
+      // Minimax retourne du PCM16 8kHz directement
+      const audioBuffer = await resp.arrayBuffer();
+      const pcm16Buffer = Buffer.from(audioBuffer);
+      const pcm16 = new Int16Array(
+        pcm16Buffer.buffer,
+        pcm16Buffer.byteOffset,
+        pcm16Buffer.length / 2,
+      );
+
+      // Convertir PCM16 8kHz → μ-law 8kHz pour Twilio
+      const mulaw = convertPcm24kToMulaw(pcm16); // La fonction fonctionne aussi pour 8kHz
+
+      // Envoyer l'audio par chunks de 20ms (160 bytes à 8kHz)
+      const chunkSize = 160;
+      for (let i = 0; i < mulaw.length; i += chunkSize) {
+        const chunk = mulaw.slice(i, i + chunkSize);
+        const mulawBuf = Buffer.alloc(chunk.length);
+        for (let j = 0; j < chunk.length; j++) {
+          mulawBuf[j] = chunk[j] & 0xff;
+        }
+        outboundQueue.push(mulawBuf);
+        outboundQueuedBytes += mulawBuf.length;
+      }
+
+      console.log("🎙️ Minimax TTS terminé.", { chars: clean.length });
+      // Si Minimax fonctionne, on réinitialise le fallback
+      if (premiumTtsBypassUntilMs > 0) {
+        console.log("✅ Minimax fonctionne → réinitialisation du fallback");
+        premiumTtsBypassUntilMs = 0;
+        premiumTtsLastError = null;
+      }
+      premiumTtsInFlight = false;
+    } catch (err) {
+      premiumTtsInFlight = false;
+      if (err.name === "AbortError") {
+        console.log("🛑 Minimax TTS annulé (interrupt)");
+        return;
+      }
+      const errorMsg = err?.message || String(err);
+      console.error("❌ Erreur Minimax TTS:", errorMsg);
+      premiumTtsLastError = errorMsg;
+      premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
+    }
+  }
+
   async function speakWithElevenLabsNow(text, { interrupt = true } = {}) {
     if (!PREMIUM_TTS_ENABLED) return;
     if (PREMIUM_TTS_PROVIDER !== "elevenlabs") return;
@@ -1479,8 +1585,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           PIPELINE_MODE,
           REALTIME_USE_ELEVEN,
           PREMIUM_TTS_ENABLED,
+          PREMIUM_TTS_PROVIDER,
           LLM_MODEL,
           ELEVENLABS_VOICE_ID: ELEVENLABS_VOICE_ID_FEMALE || ELEVENLABS_VOICE_ID_MALE || ELEVENLABS_VOICE_ID_DEFAULT,
+          MINIMAX_VOICE_ID: MINIMAX_VOICE_ID_FEMALE || MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT,
         });
         
         // Log état du fallback au démarrage
