@@ -313,6 +313,7 @@ wss.on("connection", (ws, req) => {
   let garageClosed = false;
   let garageClosedReason = "";
   let garageClosedText = "";
+  let closedDaysText = ""; // Jours de fermeture hebdomadaires (ex: "Le garage est fermé le dimanche")
   let collectVehicleInfo = false;
   let pricingSummary = "";
   let servicesSummary = "";
@@ -2323,12 +2324,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalGarageClosed === "string" && finalGarageClosed.trim()) garageClosed = finalGarageClosed.trim().toLowerCase() === "true";
         if (typeof finalGarageClosedReason === "string") garageClosedReason = String(finalGarageClosedReason || "").trim();
         if (typeof finalGarageClosedText === "string") garageClosedText = String(finalGarageClosedText || "").trim();
-        if (typeof finalClosedDaysText === "string") {
-          // Utiliser closedDaysText pour les jours de fermeture si disponible
-          if (finalClosedDaysText.trim()) {
-            garageClosedText = String(finalClosedDaysText || "").trim();
-          }
-        }
+        if (typeof finalClosedDaysText === "string") closedDaysText = String(finalClosedDaysText || "").trim();
         if (typeof finalCollectVehicleInfo === "string" && finalCollectVehicleInfo.trim()) collectVehicleInfo = finalCollectVehicleInfo.trim().toLowerCase() === "true";
         if (typeof finalPricingSummary === "string") pricingSummary = String(finalPricingSummary || "").trim();
         if (typeof finalServicesSummary === "string") servicesSummary = String(finalServicesSummary || "").trim();
