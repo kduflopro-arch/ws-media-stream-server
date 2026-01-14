@@ -967,9 +967,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (contentType.includes("application/json")) {
         // Format JSON avec audio en base64
         const json = await resp.json();
-        const audioBase64 = json.audio || json.data || json.content;
+        console.log("📋 Minimax JSON réponse:", {
+          keys: Object.keys(json),
+          hasAudio: !!(json.audio || json.data || json.content || json.audio_data),
+          sampleKeys: Object.keys(json).slice(0, 10),
+        });
+        
+        // Essayer différents noms de champs possibles
+        const audioBase64 = json.audio || json.data || json.content || json.audio_data || json.audio_base64 || json.base64_audio;
         if (!audioBase64) {
-          throw new Error("Minimax: pas de champ audio dans la réponse JSON");
+          console.error("❌ Minimax JSON réponse complète:", JSON.stringify(json, null, 2));
+          throw new Error(`Minimax: pas de champ audio dans la réponse JSON. Champs disponibles: ${Object.keys(json).join(", ")}`);
         }
         audioData = Buffer.from(audioBase64, "base64");
       } else {
