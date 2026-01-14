@@ -928,7 +928,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         signal: premiumTtsAbort.signal,
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${MINIMAX_API_KEY}`,
+          // Minimax peut utiliser différents formats d'authentification
+          // Essayer Bearer d'abord, sinon essayer directement la clé
+          "Authorization": MINIMAX_API_KEY.startsWith("Bearer ") ? MINIMAX_API_KEY : `Bearer ${MINIMAX_API_KEY}`,
+          // Alternative: certains endpoints Minimax utilisent directement la clé sans Bearer
+          // Si Bearer ne fonctionne pas, essayer: "Authorization": MINIMAX_API_KEY
           "Accept": "application/json, application/octet-stream, audio/*",
         },
         body: JSON.stringify({
