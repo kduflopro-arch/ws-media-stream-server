@@ -1484,9 +1484,21 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             : "Consentement enregistrement: non requis.";
 
         const hoursPolicyLine = `Horaires: l'IA répond H24. Les horaires/vacances sont PUREMENT informatifs pour le client (pas bloquants, pas de raccrochage automatique).`;
+        
+        // Construire la ligne des jours de fermeture à partir des horaires
+        // Les jours sans horaire ou avec "fermé" sont des jours de fermeture
+        let closedDaysLine = "";
+        // Note: opening_hours n'est pas encore transmis via les paramètres, mais on peut l'ajouter plus tard
+        // Pour l'instant, on utilise garageClosed et garageClosedText
+        
         const closedInfoLine = garageClosed
           ? `Info horaires (interne): le garage est actuellement indiqué comme fermé. (${garageClosedReason || "closed"}) ${garageClosedText || ""} Tu NE le mentionnes PAS au début. Tu le mentionnes uniquement en fin d'appel, selon les règles ci-dessous.`
           : "Info horaires (interne): garage indiqué ouvert.";
+        
+        // Ajouter une ligne pour les jours de fermeture si disponibles
+        if (garageClosedText && garageClosedText.trim()) {
+          closedDaysLine = `Jours de fermeture du garage: ${garageClosedText}. Tu DOIS communiquer ces jours au client si il demande un rendez-vous.`;
+        }
         const pricingLine = pricingSummary
           ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}
 IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu DOIS donner le prix indiqué ET préciser que le prix peut varier selon le véhicule. Ajoute ensuite: "Tout sera inscrit lorsque vous aurez établi le devis avec le garage." ou une phrase similaire. Exemple: "Pour une vidange, c'est environ 45€, mais le prix peut varier selon le véhicule. Tout sera inscrit lorsque vous aurez établi le devis avec le garage."`
@@ -1526,11 +1538,12 @@ ${plateInfo}
 Rendez-vous à venir:
 ${appointmentsText}
 
-IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION:
-- Si le client a déjà une plaque enregistrée (voir ci-dessus), tu DOIS demander confirmation: "Je vois que vous êtes déjà dans nos dossiers. Est-ce que votre plaque est bien ${clientPlate} ?" 
+IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
+- AVANT de proposer un SMS pour la plaque, tu DOIS TOUJOURS vérifier la section "DÉTECTION CLIENT" ci-dessus.
+- Si le client a déjà une plaque enregistrée (voir "Plaque d'immatriculation enregistrée" ci-dessus), tu DOIS demander confirmation: "Je vois que vous êtes déjà dans nos dossiers. Est-ce que votre plaque est bien ${clientPlate} ?" 
 - Si le client confirme, utilise cette plaque. Si le client dit que ce n'est pas la bonne plaque, alors tu proposes d'envoyer un SMS pour qu'il envoie la bonne plaque.
-- Si le client n'a PAS de plaque enregistrée, tu proposes d'envoyer un SMS pour qu'il envoie sa plaque (NE PAS demander la plaque à l'oral).
-- IMPORTANT: Ne demande JAMAIS la plaque à l'oral si elle est déjà dans le dossier. Demande uniquement confirmation.
+- Si le client n'a PAS de plaque enregistrée (voir "Aucune plaque d'immatriculation enregistrée" ci-dessus), tu proposes d'envoyer un SMS pour qu'il envoie sa plaque (NE PAS demander la plaque à l'oral).
+- RÈGLE ABSOLUE: Ne propose JAMAIS un SMS pour la plaque si le client a déjà une plaque enregistrée. Demande uniquement confirmation de la plaque existante.
 
 IMPORTANT - GESTION DES RENDEZ-VOUS:
 - Si le client appelle pour MODIFIER un rendez-vous: détecte sa demande et demande la nouvelle date/heure souhaitée.
@@ -1554,7 +1567,7 @@ ${modeLine}
 ${consentLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
-${pricingLine}
+${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
 ${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
 Format: réponses courtes (1 à 2 phrases), puis UNE question.
 Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, virgules, questions).`;
@@ -1606,10 +1619,11 @@ But: préparer le dossier pour l'atelier (que le garage puisse rappeler efficace
 ${vehicleInfoRule}
 - Tu n'inventes JAMAIS une plaque. Si la plaque est partielle, ambiguë, ou trop courte (ex: un seul chiffre), tu dis que ce n'est pas suffisant et tu demandes de la redire lettre par lettre, chiffres par chiffres.
 - Quand tu répètes une plaque, tu la répètes exactement comme donnée. Si tu n'es pas sûr à 100%, tu demandes de confirmer au lieu de valider.
-- Quand tu as besoin de la plaque:
-  * Si le client a déjà une plaque dans son dossier (voir section "DÉTECTION CLIENT"), demande confirmation: "Je vois que vous êtes déjà dans nos dossiers. Est-ce que votre plaque est bien [PLAQUE] ?" Si le client confirme, utilise cette plaque. Si le client dit que ce n'est pas la bonne, alors propose d'envoyer un SMS.
-  * Si le client n'a PAS de plaque dans son dossier, propose d'envoyer un SMS: "Je vais vous envoyer un message pour que vous m'envoyiez votre plaque d'immatriculation et le kilométrage approximatif. À la fin de cet appel, vous aurez juste à répondre et un conseiller vous rappellera au plus vite. Ça vous va ?" Tu DOIS attendre la confirmation explicite du client ("oui", "d'accord", "ok", etc.) avant de dire que tu envoies le SMS. Une fois qu'il a confirmé, tu dis: "Parfait, je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît avec votre plaque et le kilométrage."
-  * IMPORTANT: Ne demande JAMAIS la plaque à l'oral - utilise toujours le SMS sauf pour confirmer une plaque déjà enregistrée.
+- Quand tu as besoin de la plaque (PROCÉDURE OBLIGATOIRE):
+  * ÉTAPE 1: Vérifie TOUJOURS la section "DÉTECTION CLIENT" dans les instructions pour voir si le client a une plaque enregistrée.
+  * ÉTAPE 2A - Si le client a une plaque enregistrée: Demande confirmation: "Je vois que vous êtes déjà dans nos dossiers. Est-ce que votre plaque est bien [PLAQUE] ?" Si le client confirme, utilise cette plaque. Si le client dit que ce n'est pas la bonne, alors propose d'envoyer un SMS.
+  * ÉTAPE 2B - Si le client n'a PAS de plaque enregistrée: Propose d'envoyer un SMS: "Je vais vous envoyer un message pour que vous m'envoyiez votre plaque d'immatriculation et le kilométrage approximatif. À la fin de cet appel, vous aurez juste à répondre et un conseiller vous rappellera au plus vite. Ça vous va ?" Tu DOIS attendre la confirmation explicite du client ("oui", "d'accord", "ok", etc.) avant de dire que tu envoies le SMS. Une fois qu'il a confirmé, tu dis: "Parfait, je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît avec votre plaque et le kilométrage."
+  * RÈGLE ABSOLUE: Ne propose JAMAIS un SMS pour la plaque si le client a déjà une plaque enregistrée. Vérifie TOUJOURS la section "DÉTECTION CLIENT" avant de proposer un SMS.
 - Si le client donne une préférence de créneau (ex: "le matin", "l'après-midi"), tu DOIS la respecter et la reformuler.
 - Tu ne confirmes jamais un rendez-vous à une autre période que celle demandée. Si tu as un doute, tu demandes confirmation.
 - Si mode rendez-vous = demande: tu ne dis jamais "c'est confirmé" / "c'est fixé". Tu dis "je note la demande" et "on vous rappelle pour confirmer".
@@ -2335,11 +2349,15 @@ But: être naturel et mettre le client en confiance.`,
                   clientInfo = data.client;
                   console.log("✅ Infos client récupérées:", {
                     name: clientInfo.name,
+                    plate: clientInfo.plate || "Aucune plaque",
                     appointmentsCount: clientInfo.appointments?.length || 0,
                   });
                   // Mettre à jour le prompt si OpenAI est déjà connecté
                   if (openaiWs && openaiWs.readyState === WebSocket.OPEN && ws.__updatePromptWithClientInfo) {
+                    console.log("🔄 Mise à jour du prompt avec les infos client (incluant plaque)");
                     ws.__updatePromptWithClientInfo();
+                  } else {
+                    console.warn("⚠️ OpenAI pas connecté ou fonction updatePromptWithClientInfo non disponible");
                   }
                 }
               } else {
