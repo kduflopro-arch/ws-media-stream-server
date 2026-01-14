@@ -290,6 +290,17 @@ wss.on("connection", (ws, req) => {
   const ELEVENLABS_SIMILARITY_BOOST = Number(process.env.ELEVENLABS_SIMILARITY_BOOST ?? "0.85"); // 0..1
   const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE ?? "0.35"); // 0..1
   const ELEVENLABS_USE_SPEAKER_BOOST = (process.env.ELEVENLABS_USE_SPEAKER_BOOST ?? "true").toLowerCase() === "true";
+  
+  // Configuration Minimax TTS
+  const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY ?? "";
+  const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID ?? "";
+  const MINIMAX_VOICE_ID_DEFAULT = process.env.MINIMAX_VOICE_ID ?? "";
+  const MINIMAX_VOICE_ID_MALE = process.env.MINIMAX_VOICE_ID_MALE ?? "";
+  const MINIMAX_VOICE_ID_FEMALE = process.env.MINIMAX_VOICE_ID_FEMALE ?? "";
+  const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-01"; // speech-01, speech-02, etc.
+  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1.0"); // 0.5 à 2.0
+  const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0"); // 0.0 à 1.0
+  const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0"); // -12 à 12
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
@@ -1002,7 +1013,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
   }
 
-  function enqueueElevenLabsTts(text, { interrupt = true } = {}) {
+  function enqueuePremiumTts(text, { interrupt = true } = {}) {
     if (!PREMIUM_TTS_ENABLED) return;
     const clean = normalizeFrenchTtsText((text || "").trim());
     if (!clean) return;
@@ -1015,19 +1026,27 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
 
     // Si interrupt: on coupe net et on repart avec la nouvelle phrase
-    if (interrupt) {
+    // MAIS SEULEMENT si aucune synthèse n'est déjà en cours pour éviter les coupures
+    if (interrupt && !premiumTtsInFlight) {
       premiumTtsQueue = [];
       try { premiumTtsAbort?.abort?.(); } catch { /* ignore */ }
       premiumTtsAbort = new AbortController();
       outboundQueue = [];
       outboundQueuedBytes = 0;
+    } else if (!premiumTtsAbort) {
+      premiumTtsAbort = new AbortController();
     }
 
     premiumTtsQueue.push({ text: clean, interrupt });
-    void drainElevenLabsQueue();
+    void drainPremiumTtsQueue();
   }
 
-  async function drainElevenLabsQueue() {
+  // Alias pour compatibilité
+  function enqueueElevenLabsTts(text, { interrupt = true } = {}) {
+    enqueuePremiumTts(text, { interrupt });
+  }
+
+  async function drainPremiumTtsQueue() {
     if (premiumTtsDrainInFlight) return;
     premiumTtsDrainInFlight = true;
     try {
@@ -1035,11 +1054,20 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const job = premiumTtsQueue.shift();
         if (!job) continue;
         // Interrupt a déjà été géré à l'enqueue: ici on ne re-clear pas l'audio.
-        await speakWithElevenLabsNow(job.text, { interrupt: false });
+        if (PREMIUM_TTS_PROVIDER === "minimax") {
+          await speakWithMinimaxNow(job.text, { interrupt: false });
+        } else if (PREMIUM_TTS_PROVIDER === "elevenlabs") {
+          await speakWithElevenLabsNow(job.text, { interrupt: false });
+        }
       }
     } finally {
       premiumTtsDrainInFlight = false;
     }
+  }
+
+  // Alias pour compatibilité
+  async function drainElevenLabsQueue() {
+    await drainPremiumTtsQueue();
   }
 
   // Énergie moyenne sur une frame μ-law (utile pour détecter silence/parole)
