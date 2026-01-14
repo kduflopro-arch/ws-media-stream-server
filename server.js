@@ -1258,7 +1258,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     try {
       // IMPORTANT: `response.voice` n'est pas accepté (erreur: unknown_parameter) sur notre modèle Realtime actuel.
       // Donc on n'envoie PAS de paramètre voice ici.
-      openaiWs.send(JSON.stringify({ type: "response.create" }));
+      // Spécifier explicitement les modalités de sortie pour forcer l'audio
+      const responseCreatePayload = { 
+        type: "response.create",
+        response: {
+          modalities: ["audio"], // Forcer l'audio de sortie
+        }
+      };
+      openaiWs.send(JSON.stringify(responseCreatePayload));
       if (reason) console.log("🗣️ response.create envoyé:", { reason });
     } catch (err) {
       console.error("❌ Erreur response.create:", err);
@@ -1947,11 +1954,18 @@ But: être naturel et mettre le client en confiance.`,
           // Transcripts de sortie (utile pour TTS premium)
           if (msg.type === "response.created") {
             const rid = msg.response?.id ?? msg.response_id ?? null;
+            const outputModalities = msg.response?.output_modalities || [];
+            const hasAudioModality = Array.isArray(outputModalities) && outputModalities.includes("audio");
             console.log("📨 response.created reçu:", {
               rid,
+              outputModalities,
+              hasAudioModality,
               responseKeys: msg.response ? Object.keys(msg.response) : [],
               REALTIME_USE_ELEVEN,
             });
+            if (!hasAudioModality && !REALTIME_USE_ELEVEN) {
+              console.warn("⚠️ ATTENTION: response.created sans modalité audio et REALTIME_USE_ELEVEN=false !");
+            }
             if (rid) transcriptMap.set(rid, "");
             if (rid && REALTIME_USE_ELEVEN && REALTIME_ELEVEN_CHUNKING_ENABLED) {
               elevenStateMap.set(rid, { cursor: 0, started: false });
@@ -1960,12 +1974,19 @@ But: être naturel et mettre le client en confiance.`,
           
           if (msg.type === "response.done") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
+            const outputModalities = msg.response?.output_modalities || [];
+            const hasAudioModality = Array.isArray(outputModalities) && outputModalities.includes("audio");
             console.log("✅ response.done reçu:", {
               rid,
+              outputModalities,
+              hasAudioModality,
               responseKeys: msg.response ? Object.keys(msg.response) : [],
               hasOutputItems: !!msg.response?.output,
               allKeys: Object.keys(msg).slice(0, 20),
             });
+            if (!hasAudioModality && !REALTIME_USE_ELEVEN) {
+              console.error("❌ ERREUR: response.done sans modalité audio et REALTIME_USE_ELEVEN=false - pas d'audio possible !");
+            }
           }
           if (msg.type === "response.output_audio_transcript.delta" || msg.type === "response.audio_transcript.delta") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
