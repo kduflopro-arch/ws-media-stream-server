@@ -1666,8 +1666,9 @@ ${garageClosed
           session: {
             type: "realtime",
             instructions: `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}`,
+            // Activer explicitement les modalités audio de sortie
+            output_modalities: ["audio"],
             // Les formats audio sont configurés dans l'URL WebSocket (input_audio_format et output_audio_format)
-            // L'API Realtime génère automatiquement l'audio si output_audio_format est dans l'URL
           },
         };
         if (REALTIME_INPUT_TRANSCRIPTION_ENABLED) {
