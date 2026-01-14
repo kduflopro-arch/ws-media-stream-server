@@ -920,150 +920,161 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     premiumTtsInFlight = true;
     premiumTtsLastError = null;
 
+    let minimaxWs = null;
     try {
-      // API Minimax TTS - utiliser api.minimax.io (hôte global) au lieu de api.minimax.chat
-      const url = `https://api.minimax.io/v1/text_to_speech?GroupId=${encodeURIComponent(MINIMAX_GROUP_ID)}`;
-      const resp = await fetch(url, {
-        method: "POST",
-        signal: premiumTtsAbort.signal,
+      // API Minimax TTS WebSocket selon la documentation: https://platform.minimax.io/docs/guides/speech-t2a-websocket
+      const wsUrl = "wss://api.minimax.io/ws/v1/t2a_v2";
+      const apiKey = MINIMAX_API_KEY.startsWith("Bearer ") ? MINIMAX_API_KEY.substring(7) : MINIMAX_API_KEY;
+      
+      console.log("🔌 Connexion Minimax WebSocket...");
+      minimaxWs = new WebSocket(wsUrl, {
         headers: {
-          "Content-Type": "application/json",
-          // Minimax peut utiliser différents formats d'authentification
-          // Essayer Bearer d'abord, sinon essayer directement la clé
-          "Authorization": MINIMAX_API_KEY.startsWith("Bearer ") ? MINIMAX_API_KEY : `Bearer ${MINIMAX_API_KEY}`,
-          // Alternative: certains endpoints Minimax utilisent directement la clé sans Bearer
-          // Si Bearer ne fonctionne pas, essayer: "Authorization": MINIMAX_API_KEY
-          "Accept": "application/json, application/octet-stream, audio/*",
+          "Authorization": `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({
-          text: clean,
-          voice_id: selectedVoiceId,
-          model: MINIMAX_MODEL,
-          speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED)),
-          volume: Math.max(0.0, Math.min(1.0, MINIMAX_VOLUME)),
-          pitch: Math.max(-12, Math.min(12, MINIMAX_PITCH)),
-          audio_type: "pcm16", // Format PCM 16-bit pour Twilio
-          sample_rate: 8000, // 8kHz pour Twilio
-        }),
-      });
-      
-      console.log("📡 Minimax API réponse:", {
-        status: resp.status,
-        statusText: resp.statusText,
-        contentType: resp.headers.get("content-type"),
-        contentLength: resp.headers.get("content-length"),
       });
 
-      // Vérifier d'abord si la réponse contient une erreur même si status est 200
-      const respText = await resp.text();
-      let respJson = null;
-      try {
-        respJson = JSON.parse(respText);
-        if (respJson.base_resp && respJson.base_resp.status_code !== 0) {
-          // Minimax retourne parfois 200 avec une erreur dans base_resp
-          const errorMsg = `Minimax TTS error: ${respJson.base_resp.status_msg || "Erreur inconnue"} (code: ${respJson.base_resp.status_code})`;
-          console.error("❌", errorMsg);
-          console.error("❌ Détails:", JSON.stringify(respJson, null, 2));
-          premiumTtsLastError = errorMsg;
-          premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
-          premiumTtsInFlight = false;
-          return;
-        }
-      } catch {
-        // Pas de JSON, continuer
-      }
-
-      if (!resp.ok) {
-        const errorMsg = `Minimax TTS error ${resp.status}: ${respText.slice(0, 200)}`;
-        console.error("❌", errorMsg);
-        premiumTtsLastError = errorMsg;
-        premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
-        premiumTtsInFlight = false;
-        return;
-      }
-
-      // Minimax peut retourner du JSON avec un champ audio en base64, ou directement du binaire
-      const contentType = resp.headers.get("content-type") || "";
-      let audioData = null;
-      
-      if (contentType.includes("application/json")) {
-        // Format JSON avec audio en base64
-        const jsonText = await resp.text();
-        console.log("📋 Minimax JSON réponse brute:", jsonText.substring(0, 500));
-        const json = JSON.parse(jsonText);
-        console.log("📋 Minimax JSON parsé:", {
-          keys: Object.keys(json),
-          hasAudio: !!(json.audio || json.data || json.content || json.audio_data || json.audio_url || json.url),
-          sampleKeys: Object.keys(json).slice(0, 10),
-          firstValues: Object.entries(json).slice(0, 5).map(([k, v]) => [k, typeof v === "string" ? v.substring(0, 50) : v]),
+      // Attendre la connexion
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Timeout connexion Minimax WebSocket (10s)"));
+        }, 10000);
+        
+        minimaxWs.on("open", () => {
+          clearTimeout(timeout);
+          resolve();
         });
         
-        // Essayer différents noms de champs possibles
-        const audioBase64 = json.audio || json.data || json.content || json.audio_data || json.audio_base64 || json.base64_audio;
-        const audioUrl = json.audio_url || json.url || json.download_url;
+        minimaxWs.on("error", (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      });
+
+      // Attendre le message "connected_success"
+      const connectedMsg = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Timeout attente connected_success"));
+        }, 5000);
         
-        if (audioBase64) {
-          audioData = Buffer.from(audioBase64, "base64");
-        } else if (audioUrl) {
-          // Si Minimax retourne une URL, il faut télécharger l'audio
-          console.log("📥 Minimax retourne une URL, téléchargement...", audioUrl);
-          const audioResp = await fetch(audioUrl);
-          if (!audioResp.ok) {
-            throw new Error(`Minimax: erreur téléchargement audio depuis URL: ${audioResp.status}`);
+        minimaxWs.once("message", (data) => {
+          clearTimeout(timeout);
+          try {
+            const msg = JSON.parse(data.toString());
+            if (msg.event === "connected_success") {
+              resolve(msg);
+            } else {
+              reject(new Error(`Message inattendu: ${msg.event}`));
+            }
+          } catch (e) {
+            reject(e);
           }
-          audioData = Buffer.from(await audioResp.arrayBuffer());
-        } else {
-          console.error("❌ Minimax JSON réponse complète:", JSON.stringify(json, null, 2));
-          throw new Error(`Minimax: pas de champ audio dans la réponse JSON. Champs disponibles: ${Object.keys(json).join(", ")}`);
-        }
-      } else {
-        // Format binaire direct
-        audioData = Buffer.from(await resp.arrayBuffer());
-      }
-
-      if (!audioData || audioData.length === 0) {
-        throw new Error("Minimax: audio vide");
-      }
-
-      console.log("🎵 Minimax audio reçu:", { 
-        bytes: audioData.length, 
-        contentType,
-        firstBytes: audioData.slice(0, 20).toString("hex")
+        });
       });
 
-      // Convertir PCM16 8kHz → μ-law 8kHz pour Twilio
-      // audioData est déjà en PCM16 8kHz selon la requête
-      const pcm16 = new Int16Array(
-        audioData.buffer,
-        audioData.byteOffset,
-        audioData.length / 2,
-      );
+      console.log("✅ Minimax WebSocket connecté");
 
-      // Convertir PCM16 8kHz → μ-law 8kHz
-      // Note: convertPcm24kToMulaw fonctionne aussi pour 8kHz (downsampling)
-      const mulaw = convertPcm24kToMulaw(pcm16);
+      // Démarrer la tâche TTS
+      const taskStartMsg = {
+        event: "task_start",
+        model: MINIMAX_MODEL || "speech-2.6-hd",
+        voice_setting: {
+          voice_id: selectedVoiceId,
+          speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 1.0)),
+          vol: Math.max(0.0, Math.min(1.0, MINIMAX_VOLUME || 1.0)),
+          pitch: Math.max(-12, Math.min(12, MINIMAX_PITCH || 0)),
+          english_normalization: false,
+        },
+        audio_setting: {
+          sample_rate: 8000, // 8kHz pour Twilio
+          bitrate: 64000,
+          format: "pcm16", // Format PCM 16-bit pour Twilio
+          channel: 1,
+        },
+      };
 
-      // Envoyer l'audio par chunks de 20ms (160 bytes à 8kHz) via enqueueOutboundMulaw
-      const chunkSize = 160;
-      for (let i = 0; i < mulaw.length; i += chunkSize) {
-        const chunk = mulaw.slice(i, i + chunkSize);
-        const mulawBuf = Buffer.alloc(chunk.length);
-        for (let j = 0; j < chunk.length; j++) {
-          mulawBuf[j] = chunk[j] & 0xff;
+      minimaxWs.send(JSON.stringify(taskStartMsg));
+
+      // Attendre "task_started"
+      const taskStartedMsg = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Timeout attente task_started"));
+        }, 5000);
+        
+        minimaxWs.once("message", (data) => {
+          clearTimeout(timeout);
+          try {
+            const msg = JSON.parse(data.toString());
+            if (msg.event === "task_started") {
+              resolve(msg);
+            } else {
+              reject(new Error(`Message inattendu: ${msg.event}`));
+            }
+          } catch (e) {
+            reject(e);
+          }
+        });
+      });
+
+      console.log("✅ Tâche Minimax démarrée");
+
+      // Envoyer le texte
+      minimaxWs.send(JSON.stringify({
+        event: "task_continue",
+        text: clean,
+      }));
+
+      // Collecter l'audio en streaming
+      let audioData = Buffer.alloc(0);
+      let chunkCounter = 0;
+      let isFinal = false;
+
+      while (!isFinal && !premiumTtsAbort.signal.aborted) {
+        const msg = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error("Timeout attente réponse Minimax"));
+          }, 30000);
+          
+          minimaxWs.once("message", (data) => {
+            clearTimeout(timeout);
+            resolve(data);
+          });
+          
+          minimaxWs.once("error", (err) => {
+            clearTimeout(timeout);
+            reject(err);
+          });
+        });
+
+        const msgObj = JSON.parse(msg.toString());
+        
+        if (msgObj.data && msgObj.data.audio) {
+          // Audio en hexadécimal selon la doc
+          const audioHex = msgObj.data.audio;
+          const audioBytes = Buffer.from(audioHex, "hex");
+          audioData = Buffer.concat([audioData, audioBytes]);
+          chunkCounter++;
+          
+          // Envoyer immédiatement par chunks
+          const pcm16 = new Int16Array(
+            audioBytes.buffer,
+            audioBytes.byteOffset,
+            audioBytes.length / 2,
+          );
+          const mulaw = convertPcm24kToMulaw(pcm16);
+          const mulawBuf = Buffer.from(mulaw);
+          enqueueOutboundMulaw(mulawBuf);
         }
-        enqueueOutboundMulaw(mulawBuf);
-        // Petite pause pour éviter de surcharger
-        if (i % (chunkSize * 10) === 0) {
-          await sleep(5);
+
+        if (msgObj.is_final) {
+          isFinal = true;
+          console.log(`✅ Minimax TTS terminé: ${chunkCounter} chunks, ${audioData.length} bytes`);
         }
       }
 
-      console.log("🎙️ Minimax TTS terminé.", { 
-        chars: clean.length,
-        audioBytes: audioData.length,
-        mulawBytes: mulaw.length * 1,
-        chunksSent: Math.ceil(mulaw.length / chunkSize)
-      });
+      // Fermer la connexion
+      minimaxWs.send(JSON.stringify({ event: "task_finish" }));
+      minimaxWs.close();
+
       // Si Minimax fonctionne, on réinitialise le fallback
       if (premiumTtsBypassUntilMs > 0) {
         console.log("✅ Minimax fonctionne → réinitialisation du fallback");
@@ -1073,14 +1084,25 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       premiumTtsInFlight = false;
     } catch (err) {
       premiumTtsInFlight = false;
+      if (minimaxWs) {
+        try {
+          minimaxWs.close();
+        } catch {}
+      }
       if (err.name === "AbortError") {
         console.log("🛑 Minimax TTS annulé (interrupt)");
         return;
       }
       const errorMsg = err?.message || String(err);
-      console.error("❌ Erreur Minimax TTS:", errorMsg);
+      console.error("❌ Erreur Minimax TTS WebSocket:", errorMsg);
       premiumTtsLastError = errorMsg;
-      premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
+      // En cas d'erreur rate limit, attendre 60 secondes avant de réessayer
+      if (errorMsg.includes("rate limit") || errorMsg.includes("1002")) {
+        premiumTtsBypassUntilMs = nowMs() + 60 * 1000; // 1 min pour rate limit
+        console.log("⏳ Rate limit Minimax → attente 60s");
+      } else {
+        premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min pour autres erreurs
+      }
     }
   }
 
