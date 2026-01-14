@@ -2064,7 +2064,8 @@ But: être naturel et mettre le client en confiance.`,
           if (msg.type === "response.audio.delta" || msg.type === "response.output_audio.delta") {
             // Si on utilise ElevenLabs en Realtime, on ignore complètement l'audio OpenAI (sinon doublon + backlog).
             // SAUF si ElevenLabs est en erreur (bypass) → on repasse sur OpenAI pour éviter le silence total.
-            if (REALTIME_USE_ELEVEN && nowMs() >= premiumTtsBypassUntilMs) {
+            // premiumTtsBypassUntilMs > nowMs() signifie que le bypass est actif (ElevenLabs en erreur)
+            if (REALTIME_USE_ELEVEN && nowMs() < premiumTtsBypassUntilMs) {
               // ElevenLabs actif, on ignore l'audio OpenAI
               return;
             }
