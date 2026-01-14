@@ -415,6 +415,23 @@ wss.on("connection", (ws, req) => {
       }).catch(() => null);
       if (resp && resp.ok) {
         const json = await resp.json().catch(() => ({}));
+        // Si le client existe déjà avec une plaque, ne pas envoyer le SMS
+        if (json?.skipped === "client_has_plate" && json?.existingPlate) {
+          console.log("📩 Client existe avec plaque, SMS non envoyé.", { 
+            trigger, 
+            existingPlate: json.existingPlate,
+            clientName: json.clientName,
+            callSid,
+            fromNumber: to,
+            garageId: garageId || null
+          });
+          // L'IA devra demander confirmation de la plaque au lieu d'envoyer le SMS
+          enqueueElevenLabsTts(
+            `Je vois que vous êtes déjà dans nos dossiers. Est-ce que votre plaque est bien ${json.existingPlate} ?`,
+            { interrupt: true }
+          );
+          return;
+        }
         console.log("📩 SMS plaque demandé à AutoGuru.", { 
           trigger, 
           smsSid: json?.smsSid ?? null,
