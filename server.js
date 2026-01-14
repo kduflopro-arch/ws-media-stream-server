@@ -1356,6 +1356,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
 
   // Connecter à OpenAI Realtime API
+  let connectionTimeout = null;
   async function connectToOpenAI() {
     if (!OPENAI_API_KEY) {
       console.error("❌ OpenAI API key manquante");
@@ -1380,6 +1381,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         return;
       }
       
+      // Nettoyer l'ancienne connexion si elle existe
+      if (openaiWs) {
+        try {
+          openaiWs.removeAllListeners();
+          if (openaiWs.readyState === WebSocket.OPEN || openaiWs.readyState === WebSocket.CONNECTING) {
+            openaiWs.close();
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+      
       openaiWs = new WebSocket(openaiUrl, {
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -1387,18 +1400,26 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       });
       
       // Ajouter un timeout pour la connexion
-      const connectionTimeout = setTimeout(() => {
+      connectionTimeout = setTimeout(() => {
         if (openaiWs && openaiWs.readyState !== WebSocket.OPEN) {
           console.error("❌ Timeout connexion OpenAI WebSocket (10s)");
           console.error("❌ État WebSocket:", openaiWs.readyState);
+          console.error("❌ États possibles: 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED");
           if (openaiWs) {
-            openaiWs.close();
+            try {
+              openaiWs.close();
+            } catch (e) {
+              // ignore
+            }
           }
         }
       }, 10000);
       
       openaiWs.on("open", () => {
-        clearTimeout(connectionTimeout);
+        if (connectionTimeout) {
+          clearTimeout(connectionTimeout);
+          connectionTimeout = null;
+        }
         console.log("✅ Connecté à OpenAI Realtime API");
 
       openaiWs.on("open", () => {
@@ -2143,12 +2164,23 @@ But: être naturel et mettre le client en confiance.`,
       });
 
       openaiWs.on("error", (err) => {
+        clearTimeout(connectionTimeout);
         console.error("❌ Erreur OpenAI WS:", err);
         console.error("❌ OpenAI WS error details:", {
           message: err.message,
           code: err.code,
           stack: err.stack?.substring(0, 500),
         });
+        // Si erreur de connexion, essayer de reconnecter après un délai
+        if (err.message && (err.message.includes("ECONNREFUSED") || err.message.includes("ETIMEDOUT") || err.message.includes("ENOTFOUND"))) {
+          console.warn("⚠️ Erreur réseau OpenAI, tentative de reconnexion dans 2s...");
+          setTimeout(() => {
+            if (ws.readyState === WebSocket.OPEN && (!openaiWs || openaiWs.readyState !== WebSocket.OPEN)) {
+              console.log("🔄 Tentative de reconnexion OpenAI...");
+              connectToOpenAI();
+            }
+          }, 2000);
+        }
       });
 
       openaiWs.on("close", (code, reason) => {
@@ -2750,7 +2782,16 @@ But: être naturel et mettre le client en confiance.`,
         }
         if (openaiWs) {
           console.log("🛑 Fermeture connexion OpenAI...");
-          openaiWs.close();
+          try {
+            // Vérifier l'état avant de fermer
+            if (openaiWs.readyState === WebSocket.OPEN || openaiWs.readyState === WebSocket.CONNECTING) {
+              openaiWs.close();
+            } else {
+              console.log("🛑 OpenAI WS déjà fermé ou en cours de fermeture (état:", openaiWs.readyState, ")");
+            }
+          } catch (err) {
+            console.error("❌ Erreur lors de la fermeture OpenAI WS:", err);
+          }
         }
       } else {
         console.log("ℹ️ Other event:", msg.event);
