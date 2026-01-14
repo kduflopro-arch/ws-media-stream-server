@@ -966,20 +966,34 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       
       if (contentType.includes("application/json")) {
         // Format JSON avec audio en base64
-        const json = await resp.json();
-        console.log("📋 Minimax JSON réponse:", {
+        const jsonText = await resp.text();
+        console.log("📋 Minimax JSON réponse brute:", jsonText.substring(0, 500));
+        const json = JSON.parse(jsonText);
+        console.log("📋 Minimax JSON parsé:", {
           keys: Object.keys(json),
-          hasAudio: !!(json.audio || json.data || json.content || json.audio_data),
+          hasAudio: !!(json.audio || json.data || json.content || json.audio_data || json.audio_url || json.url),
           sampleKeys: Object.keys(json).slice(0, 10),
+          firstValues: Object.entries(json).slice(0, 5).map(([k, v]) => [k, typeof v === "string" ? v.substring(0, 50) : v]),
         });
         
         // Essayer différents noms de champs possibles
         const audioBase64 = json.audio || json.data || json.content || json.audio_data || json.audio_base64 || json.base64_audio;
-        if (!audioBase64) {
+        const audioUrl = json.audio_url || json.url || json.download_url;
+        
+        if (audioBase64) {
+          audioData = Buffer.from(audioBase64, "base64");
+        } else if (audioUrl) {
+          // Si Minimax retourne une URL, il faut télécharger l'audio
+          console.log("📥 Minimax retourne une URL, téléchargement...", audioUrl);
+          const audioResp = await fetch(audioUrl);
+          if (!audioResp.ok) {
+            throw new Error(`Minimax: erreur téléchargement audio depuis URL: ${audioResp.status}`);
+          }
+          audioData = Buffer.from(await audioResp.arrayBuffer());
+        } else {
           console.error("❌ Minimax JSON réponse complète:", JSON.stringify(json, null, 2));
           throw new Error(`Minimax: pas de champ audio dans la réponse JSON. Champs disponibles: ${Object.keys(json).join(", ")}`);
         }
-        audioData = Buffer.from(audioBase64, "base64");
       } else {
         // Format binaire direct
         audioData = Buffer.from(await resp.arrayBuffer());
