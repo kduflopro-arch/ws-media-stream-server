@@ -2502,6 +2502,20 @@ But: être naturel et mettre le client en confiance.`,
           // Ici, OpenAI envoie souvent le texte final dans conversation.item.done plutôt que dans response.output.
           if (msg.type === "conversation.item.done" && msg.item) {
             const item = msg.item;
+            try {
+              console.log("📨 conversation.item.done reçu:", {
+                role: item.role,
+                itemId: item.id,
+                responseId: msg.response_id ?? null,
+                hasContent: !!item.content,
+                contentType: Array.isArray(item.content)
+                  ? "array(" + item.content.length + ")"
+                  : typeof item.content,
+                itemKeys: Object.keys(item || {}).slice(0, 10),
+              });
+            } catch {
+              console.log("📨 conversation.item.done reçu (logging simplifié)");
+            }
             // On ne s'intéresse qu'aux messages de rôle assistant
             if (item.role !== "assistant") {
               // Si c'est un message user, on marque qu'il a parlé (utile pour ignorer le greeting en double)
@@ -2537,6 +2551,7 @@ But: être naturel et mettre le client en confiance.`,
                   }
                   // Synthèse via TTS premium (Minimax/ElevenLabs)
                   if (REALTIME_USE_ELEVEN) {
+                    console.log("🎤 Envoi du texte à enqueuePremiumTts depuis conversation.item.done");
                     enqueuePremiumTts(clean, { interrupt: false });
                   }
                 } else {
