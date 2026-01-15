@@ -1019,6 +1019,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.log("✅ Minimax WebSocket connecté:", connectedMsg);
 
       // Démarrer la tâche TTS
+      // Selon la doc Minimax, les formats supportés sont: mp3, wav, etc.
+      // Pour Twilio, on utilise mp3 à 8kHz puis on convertit en μ-law
       const taskStartMsg = {
         event: "task_start",
         model: MINIMAX_MODEL || "speech-2.6-hd",
@@ -1032,7 +1034,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         audio_setting: {
           sample_rate: 8000, // 8kHz pour Twilio
           bitrate: 64000,
-          format: "pcm16", // Format PCM 16-bit pour Twilio
+          format: "wav", // Format WAV (plus facile à décoder que MP3, format PCM non compressé)
           channel: 1,
         },
       };
@@ -1102,20 +1104,57 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             bytesLength: audioBytes.length 
           });
           
-          // Envoyer immédiatement par chunks
-          const pcm16 = new Int16Array(
-            audioBytes.buffer,
-            audioBytes.byteOffset,
-            audioBytes.length / 2,
-          );
-          const mulaw = convertPcm24kToMulaw(pcm16);
-          const mulawBuf = Buffer.from(mulaw);
-          enqueueOutboundMulaw(mulawBuf);
+          // Si le format est MP3, on doit le décoder en PCM16
+          // Pour l'instant, on accumule tous les chunks MP3 et on les décode à la fin
+          // (décodage MP3 nécessiterait une bibliothèque externe comme ffmpeg)
+          // Solution temporaire: utiliser wav si disponible, sinon on devra décoder MP3
         }
 
         if (msg.is_final || msg.event === "task_finished") {
           isFinal = true;
           console.log(`✅ Minimax TTS terminé: ${chunkCounter} chunks, ${audioData.length} bytes`);
+          
+          // Décoder le WAV en PCM16
+          if (audioData.length > 0) {
+            try {
+              // WAV header: 44 bytes (RIFF header + fmt chunk + data chunk header)
+              // On skip le header et on prend les données PCM
+              let pcmData = audioData;
+              if (audioData.length > 44) {
+                // Vérifier si c'est un WAV valide (commence par "RIFF")
+                if (audioData.toString("ascii", 0, 4) === "RIFF") {
+                  // Trouver le début des données PCM (après "data" chunk)
+                  const dataChunkPos = audioData.indexOf(Buffer.from("data"));
+                  if (dataChunkPos !== -1 && dataChunkPos + 8 < audioData.length) {
+                    // Skip "data" (4 bytes) + chunk size (4 bytes) = 8 bytes
+                    pcmData = audioData.slice(dataChunkPos + 8);
+                    console.log(`🎵 WAV décodé: ${audioData.length} bytes → ${pcmData.length} bytes PCM`);
+                  }
+                }
+              }
+              
+              // Convertir PCM16 en μ-law
+              const pcm16 = new Int16Array(
+                pcmData.buffer,
+                pcmData.byteOffset,
+                pcmData.length / 2,
+              );
+              const mulaw = convertPcm24kToMulaw(pcm16);
+              
+              // Envoyer par chunks de 20ms (160 bytes à 8kHz)
+              const chunkSize = 160;
+              for (let i = 0; i < mulaw.length; i += chunkSize) {
+                const chunk = mulaw.slice(i, i + chunkSize);
+                const mulawBuf = Buffer.from(chunk);
+                enqueueOutboundMulaw(mulawBuf);
+              }
+              
+              console.log(`🎙️ Minimax TTS audio envoyé: ${Math.ceil(mulaw.length / chunkSize)} chunks`);
+            } catch (err) {
+              console.error("❌ Erreur décodage WAV:", err);
+              throw err;
+            }
+          }
         }
         
         if (msg.event === "task_failed") {
