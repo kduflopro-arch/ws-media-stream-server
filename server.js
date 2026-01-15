@@ -115,6 +115,37 @@ function convertPcm24kToMulaw(pcm24k) {
   return mulaw;
 }
 
+// Convertir PCM16 (32kHz) → μ-law (8kHz)
+function convertPcm32kToMulaw(pcm32k) {
+  // Downsample 32kHz -> 8kHz avec une moyenne sur 4 samples (anti-aliasing léger).
+  // Prendre uniquement 1 sample sur 4 crée des artefacts (son "brouillé"/métallique).
+  const outLen = Math.floor(pcm32k.length / 4);
+  const mulaw = new Uint8Array(outLen);
+  // Gain sortie (améliore l'intelligibilité en téléphonie). Ajustable par env.
+  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.0");
+  for (let i = 0; i < outLen; i++) {
+    const a = pcm32k[i * 4];
+    const b = pcm32k[i * 4 + 1];
+    const c = pcm32k[i * 4 + 2];
+    const d = pcm32k[i * 4 + 3];
+    const avg = (a + b + c + d) / 4;
+    const gained = clamp16((avg * outputGain) | 0);
+    mulaw[i] = mulawEncodeSample(gained);
+  }
+  return mulaw;
+}
+
+// Convertir PCM16 (8kHz) → μ-law (8kHz) - pas de downsampling
+function convertPcm8kToMulaw(pcm8k) {
+  const mulaw = new Uint8Array(pcm8k.length);
+  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.0");
+  for (let i = 0; i < pcm8k.length; i++) {
+    const gained = clamp16((pcm8k[i] * outputGain) | 0);
+    mulaw[i] = mulawEncodeSample(gained);
+  }
+  return mulaw;
+}
+
 // Convertir PCM16 (16kHz) → μ-law (8kHz) par blocs 20ms:
 // 20ms @16kHz = 320 samples = 640 bytes → downsample 2:1 → 160 samples → 160 bytes μ-law
 function convertPcm16kBlockToMulaw(pcm16kBlockBuf) {
@@ -1036,8 +1067,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           english_normalization: false,
         },
         audio_setting: {
-          sample_rate: 32000, // 32kHz (selon la doc Minimax)
-          bitrate: 128000, // Bitrate
+          sample_rate: 32000, // 32kHz (Minimax semble ignorer 8kHz, on fait le downsampling nous-mêmes)
+          bitrate: 128000, // Bitrate pour 32kHz
           format: "pcm", // Format PCM (selon la doc: mp3, pcm, flac sont supportés)
           channel: 1,
         },
@@ -1119,31 +1150,38 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           console.log(`✅ Minimax TTS terminé: ${chunkCounter} chunks, ${audioData.length} bytes`);
           
           // Décoder le PCM brut en PCM16
-          // PCM à 32kHz → downsampler à 8kHz → convertir en μ-law
+          // Minimax retourne généralement du PCM à 32kHz même si on demande 8kHz
+          // On détecte automatiquement le sample rate en fonction de la taille des données
           if (audioData.length > 0) {
             try {
               console.log(`🎵 Décodage PCM: ${audioData.length} bytes`);
               
               // Le format "pcm" retourne du PCM16 brut (pas de header WAV/MP3)
               // Convertir directement en Int16Array
-              const pcm32k = new Int16Array(
+              const pcmRaw = new Int16Array(
                 audioData.buffer,
                 audioData.byteOffset,
                 audioData.length / 2,
               );
               
-              console.log(`🎵 PCM reçu: ${pcm32k.length} samples @ 32kHz`);
+              // Détecter le sample rate : si on a demandé 8kHz mais Minimax retourne beaucoup de samples,
+              // c'est probablement du 32kHz. On utilise le ratio attendu pour déterminer.
+              // Pour une phrase de ~2 secondes à 8kHz: ~16000 samples
+              // Pour une phrase de ~2 secondes à 32kHz: ~64000 samples
+              // Si on a plus de 20000 samples, c'est probablement du 32kHz
+              const expectedSampleRate = (pcmRaw.length > 20000) ? 32000 : 8000;
+              console.log(`🎵 PCM reçu: ${pcmRaw.length} samples (détecté: ${expectedSampleRate}Hz)`);
               
-              // Downsampler de 32kHz à 8kHz (prendre 1 échantillon sur 4)
-              const pcm8k = new Int16Array(Math.floor(pcm32k.length / 4));
-              for (let i = 0; i < pcm8k.length; i++) {
-                pcm8k[i] = pcm32k[i * 4];
+              let mulaw;
+              if (expectedSampleRate === 32000) {
+                // Downsampler de 32kHz à 8kHz (1 sur 4)
+                mulaw = convertPcm32kToMulaw(pcmRaw);
+                console.log(`🎵 Downsampled: ${pcmRaw.length} samples @ 32kHz → ${mulaw.length} samples @ 8kHz`);
+              } else {
+                // Déjà à 8kHz, conversion directe
+                mulaw = convertPcm8kToMulaw(pcmRaw);
+                console.log(`🎵 Converti: ${pcmRaw.length} samples @ 8kHz → ${mulaw.length} samples μ-law`);
               }
-              
-              console.log(`🎵 Downsampled: ${pcm32k.length} samples @ 32kHz → ${pcm8k.length} samples @ 8kHz`);
-              
-              // Convertir PCM16 8kHz en μ-law
-              const mulaw = convertPcm24kToMulaw(pcm8k);
               
               // Envoyer par chunks de 20ms (160 bytes à 8kHz)
               const chunkSize = 160;
@@ -1151,6 +1189,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                 const chunk = mulaw.slice(i, i + chunkSize);
                 const mulawBuf = Buffer.from(chunk);
                 enqueueOutboundMulaw(mulawBuf);
+                // Petite pause pour éviter de surcharger
+                if (i % (chunkSize * 10) === 0) {
+                  await sleep(5);
+                }
               }
               
               console.log(`🎙️ Minimax TTS audio envoyé: ${Math.ceil(mulaw.length / chunkSize)} chunks`);
