@@ -2045,13 +2045,9 @@ ${garageClosed
           session: {
             type: "realtime",
             instructions: `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}`,
-            // Activer explicitement les modalités audio de sortie
-            output_modalities: ["audio"],
-            // Activer la transcription de l'audio de sortie pour obtenir le texte (nécessaire pour TTS premium)
-            output_audio_transcription: {
-              model: "whisper-1",
-              language: "fr",
-            },
+            // Utiliser "text" au lieu de "audio" car on utilise Minimax/ElevenLabs pour le TTS
+            // Cela permet d'obtenir directement le texte pour le passer au TTS premium
+            output_modalities: ["text"],
             // Les formats audio sont configurés dans l'URL WebSocket (input_audio_format et output_audio_format)
           },
         };
@@ -2109,13 +2105,8 @@ Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, 
             session: {
               type: "realtime",
               instructions: updatedInstructions,
-              // Maintenir les modalités audio activées
-              output_modalities: ["audio"],
-              // Maintenir la transcription de l'audio de sortie
-              output_audio_transcription: {
-                model: "whisper-1",
-                language: "fr",
-              },
+              // Utiliser "text" pour obtenir le texte directement (TTS via Minimax/ElevenLabs)
+              output_modalities: ["text"],
             },
           }));
           ws.__sessionInstructions = String(updatedInstructions || "");
