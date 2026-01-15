@@ -2366,6 +2366,43 @@ But: être naturel et mettre le client en confiance.`,
             if (!hasAudioModality && !REALTIME_USE_ELEVEN) {
               console.error("❌ ERREUR: response.done sans modalité audio et REALTIME_USE_ELEVEN=false - pas d'audio possible !");
             }
+            
+            // Essayer d'extraire le texte depuis response.output si disponible
+            if (REALTIME_USE_ELEVEN && rid && msg.response?.output) {
+              let extractedText = "";
+              if (Array.isArray(msg.response.output)) {
+                for (const item of msg.response.output) {
+                  if (item.content && Array.isArray(item.content)) {
+                    for (const content of item.content) {
+                      if (content.type === "text" && typeof content.text === "string") {
+                        extractedText += content.text;
+                      } else if (typeof content === "string") {
+                        extractedText += content;
+                      }
+                    }
+                  } else if (typeof item.text === "string") {
+                    extractedText += item.text;
+                  }
+                }
+              } else if (typeof msg.response.output === "string") {
+                extractedText = msg.response.output;
+              }
+              
+              // Si on a du texte mais pas encore dans le transcript, l'ajouter et synthétiser
+              if (extractedText.trim()) {
+                const existingText = transcriptMap.get(rid) || "";
+                if (!existingText.includes(extractedText.trim())) {
+                  console.log("📝 Texte extrait depuis response.done:", extractedText.substring(0, 100));
+                  transcriptMap.set(rid, existingText + extractedText);
+                  if (REALTIME_ELEVEN_CHUNKING_ENABLED) {
+                    flushRealtimeElevenChunks(rid, true);
+                  } else if (!spokenSet.has(rid)) {
+                    spokenSet.add(rid);
+                    enqueuePremiumTts(extractedText, { interrupt: false });
+                  }
+                }
+              }
+            }
           }
           if (msg.type === "response.output_audio_transcript.delta" || msg.type === "response.audio_transcript.delta") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
@@ -2574,6 +2611,33 @@ But: être naturel et mettre le client en confiance.`,
                 contentTypes: msg.item.content ? msg.item.content.map((c) => c?.type).filter(Boolean) : [],
                 keys: Object.keys(msg.item),
               });
+              
+              // Extraire le texte depuis msg.item.content pour le passer au TTS
+              if (msg.item.content && Array.isArray(msg.item.content)) {
+                const rid = msg.response_id ?? msg.response?.id ?? null;
+                let extractedText = "";
+                for (const content of msg.item.content) {
+                  if (content.type === "text" && typeof content.text === "string") {
+                    extractedText += content.text;
+                  } else if (typeof content === "string") {
+                    extractedText += content;
+                  }
+                }
+                if (extractedText.trim() && REALTIME_USE_ELEVEN) {
+                  console.log("📝 Texte extrait depuis output_item:", extractedText.substring(0, 100));
+                  // S'assurer que le texte est dans le transcript
+                  if (rid) {
+                    transcriptMap.set(rid, extractedText);
+                  }
+                  // Lancer la synthèse TTS
+                  if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
+                    flushRealtimeElevenChunks(rid, msg.type === "response.output_item.done");
+                  } else if (!rid || !spokenSet.has(rid)) {
+                    if (rid) spokenSet.add(rid);
+                    enqueuePremiumTts(extractedText, { interrupt: msg.type === "response.output_item.done" });
+                  }
+                }
+              }
             }
           }
           
@@ -2920,7 +2984,7 @@ But: être naturel et mettre le client en confiance.`,
             const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
             const baseHello = `Bonjour ! Ici ${assistantName}, du ${label}.`;
             const consentText = consentRequired
-              ? "Cet appel est enregistré pour préparer votre arrivée au garage. Si vous refusez, vous pouvez raccrocher à tout moment."
+              ? "Cet appel est enregistré. Si vous refusez, vous pouvez raccrocher."
               : "";
             const question = consentRequired
               ? "Est-ce que ça vous convient ?"
