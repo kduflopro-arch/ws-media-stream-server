@@ -1019,11 +1019,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.log("✅ Minimax WebSocket connecté:", connectedMsg);
 
       // Démarrer la tâche TTS
-      // Selon la doc Minimax, les formats supportés sont: mp3, wav, etc.
-      // Pour Twilio, on utilise mp3 à 8kHz puis on convertit en μ-law
+      // Selon la doc Minimax WebSocket, les modèles supportés sont:
+      // - speech-2.6-hd
+      // - speech-2.6-turbo
+      // - speech-02-hd
+      // - speech-02-turbo
+      // Le modèle "speech-01" n'est PAS supporté pour l'API WebSocket t2a_v2
       const taskStartMsg = {
         event: "task_start",
-        model: MINIMAX_MODEL || "speech-2.6-hd",
+        model: MINIMAX_MODEL || "speech-2.6-hd", // Utiliser un modèle supporté pour WebSocket
         voice_setting: {
           voice_id: selectedVoiceId,
           speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 1.0)),
