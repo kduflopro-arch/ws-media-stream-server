@@ -2435,8 +2435,14 @@ But: être naturel et mettre le client en confiance.`,
                 } else if (msg.response?.output) {
                   // Debug approfondi si aucun texte n'a pu être extrait alors que output existe
                   console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
-                  if (process.env.OPENAI_OUTPUT_DEBUG === "true") {
-                    console.log("📋 DEBUG structure response.output:", JSON.stringify(rawOutput, null, 2).substring(0, 800));
+                  // Toujours logguer la structure brute (tronquée) pour pouvoir ajuster l'extracteur
+                  try {
+                    console.log(
+                      "📋 DEBUG structure response.output:",
+                      JSON.stringify(rawOutput, null, 2).substring(0, 1200),
+                    );
+                  } catch (jsonErr) {
+                    console.error("❌ Impossible de sérialiser response.output pour debug:", jsonErr);
                   }
                 }
               } catch (e) {
