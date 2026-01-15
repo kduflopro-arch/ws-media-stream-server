@@ -2263,6 +2263,45 @@ But: être naturel et mettre le client en confiance.`,
           if (!ws.__realtimeElevenStateByResponseId) ws.__realtimeElevenStateByResponseId = new Map();
           const elevenStateMap = ws.__realtimeElevenStateByResponseId;
 
+          /**
+           * Extraction robuste de texte depuis la structure "response.output"
+           * de l'API Realtime (le format varie souvent entre les versions).
+           */
+          function extractTextFromResponseOutput(output, maxLen = 4000) {
+            let collected = "";
+            const visited = new Set();
+            function walk(node, depth) {
+              if (!node || collected.length >= maxLen) return;
+              if (depth > 6) return; // éviter les cycles profonds
+              if (typeof node === "string") {
+                collected += node;
+                return;
+              }
+              if (typeof node !== "object") return;
+              if (visited.has(node)) return;
+              visited.add(node);
+
+              // Quelques chemins probables d'abord
+              if (Array.isArray(node)) {
+                for (const item of node) walk(item, depth + 1);
+                return;
+              }
+              if (typeof node.text === "string") {
+                collected += node.text;
+              }
+              if (Array.isArray(node.content)) {
+                for (const c of node.content) walk(c, depth + 1);
+              }
+              // Parcourir les autres propriétés
+              for (const key of Object.keys(node)) {
+                if (key === "text" || key === "content") continue;
+                walk(node[key], depth + 1);
+              }
+            }
+            walk(output, 0);
+            return collected.trim();
+          }
+
           function flushRealtimeElevenChunks(rid, final = false) {
             if (!REALTIME_USE_ELEVEN || !REALTIME_ELEVEN_CHUNKING_ENABLED) return;
             if (!rid) return;
@@ -2375,37 +2414,35 @@ But: être naturel et mettre le client en confiance.`,
             
             // Essayer d'extraire le texte depuis response.output si disponible
             if (REALTIME_USE_ELEVEN && rid && msg.response?.output) {
-              let extractedText = "";
-              if (Array.isArray(msg.response.output)) {
-                for (const item of msg.response.output) {
-                  if (item.content && Array.isArray(item.content)) {
-                    for (const content of item.content) {
-                      if (content.type === "text" && typeof content.text === "string") {
-                        extractedText += content.text;
-                      } else if (typeof content === "string") {
-                        extractedText += content;
-                      }
+              const rawOutput = msg.response.output;
+              try {
+                const extractedText = extractTextFromResponseOutput(rawOutput);
+                if (extractedText) {
+                  const existingText = transcriptMap.get(rid) || "";
+                  if (!existingText.includes(extractedText)) {
+                    console.log("📝 Texte extrait depuis response.done:", extractedText.substring(0, 160));
+                    if (process.env.OPENAI_OUTPUT_DEBUG === "true") {
+                      console.log("📋 DEBUG response.output brut:", JSON.stringify(rawOutput).substring(0, 400));
                     }
-                  } else if (typeof item.text === "string") {
-                    extractedText += item.text;
+                    transcriptMap.set(rid, (existingText + " " + extractedText).trim());
+                    if (REALTIME_ELEVEN_CHUNKING_ENABLED) {
+                      flushRealtimeElevenChunks(rid, true);
+                    } else if (!spokenSet.has(rid)) {
+                      spokenSet.add(rid);
+                      enqueuePremiumTts(extractedText, { interrupt: false });
+                    }
+                  }
+                } else if (msg.response?.output) {
+                  // Debug approfondi si aucun texte n'a pu être extrait alors que output existe
+                  console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
+                  if (process.env.OPENAI_OUTPUT_DEBUG === "true") {
+                    console.log("📋 DEBUG structure response.output:", JSON.stringify(rawOutput, null, 2).substring(0, 800));
                   }
                 }
-              } else if (typeof msg.response.output === "string") {
-                extractedText = msg.response.output;
-              }
-              
-              // Si on a du texte mais pas encore dans le transcript, l'ajouter et synthétiser
-              if (extractedText.trim()) {
-                const existingText = transcriptMap.get(rid) || "";
-                if (!existingText.includes(extractedText.trim())) {
-                  console.log("📝 Texte extrait depuis response.done:", extractedText.substring(0, 100));
-                  transcriptMap.set(rid, existingText + extractedText);
-                  if (REALTIME_ELEVEN_CHUNKING_ENABLED) {
-                    flushRealtimeElevenChunks(rid, true);
-                  } else if (!spokenSet.has(rid)) {
-                    spokenSet.add(rid);
-                    enqueuePremiumTts(extractedText, { interrupt: false });
-                  }
+              } catch (e) {
+                console.error("❌ Erreur extraction texte depuis response.output:", e);
+                if (process.env.OPENAI_OUTPUT_DEBUG === "true") {
+                  console.log("📋 DEBUG response.output (erreur extraction):", JSON.stringify(rawOutput).substring(0, 800));
                 }
               }
             }
