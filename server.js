@@ -2409,6 +2409,29 @@ But: être naturel et mettre le client en confiance.`,
               hasOutputItems: !!msg.response?.output,
               allKeys: Object.keys(msg).slice(0, 20),
             });
+            // Log détaillé du status OpenAI pour comprendre les réponses vides
+            try {
+              const resp = msg.response || {};
+              const status = resp.status;
+              const statusDetails = resp.status_details || resp.statusDetails || null;
+              const usage = resp.usage || null;
+              const meta = resp.metadata || null;
+              const safeOutputPreview = Array.isArray(resp.output)
+                ? resp.output.slice(0, 2) // au cas où, on limite à 2 items
+                : resp.output;
+
+              console.log("🔎 Détails response.done OpenAI:", {
+                rid,
+                status,
+                statusDetails,
+                usage,
+                metadataKeys: meta ? Object.keys(meta).slice(0, 10) : null,
+                outputPreviewType: Array.isArray(resp.output) ? `array(${resp.output.length})` : typeof resp.output,
+                outputPreview: safeOutputPreview,
+              });
+            } catch (e) {
+              console.error("❌ Erreur lors du log détaillé de response.done:", e);
+            }
             if (!hasAudioModality && !REALTIME_USE_ELEVEN) {
               console.error("❌ ERREUR: response.done sans modalité audio et REALTIME_USE_ELEVEN=false - pas d'audio possible !");
             }
