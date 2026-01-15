@@ -338,6 +338,7 @@ wss.on("connection", (ws, req) => {
   let premiumTtsLastError = null;
   let premiumTtsQueue = []; // Array<{ text: string, interrupt: boolean }>
   let premiumTtsDrainInFlight = false;
+  let premiumTtsLastText = ""; // Dernier texte effectivement envoyé au TTS (pour éviter les répétitions exactes)
 
   // AutoGuru ingest (pour remplir "détails d'appel" même en mode Realtime)
   // AutoGuru ingest: par défaut via env (legacy), mais en multi-garages on préfère
@@ -1371,6 +1372,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const clean = normalizeFrenchTtsText((text || "").trim());
     if (!clean) return;
 
+    // Éviter de rejouer en boucle exactement la même phrase (ex: greeting)
+    if (premiumTtsLastText && premiumTtsLastText === clean) {
+      console.log("🔁 TTS ignoré (texte identique au précédent, on évite la répétition):", clean.substring(0, 120));
+      return;
+    }
+
     // Si le client parle, on retarde la réponse (sinon ça parle par-dessus).
     if (OUTPUT_WAIT_FOR_USER_SILENCE && outUserSpeaking) {
       if (interrupt) pendingSpeakQueue = [];
@@ -1391,6 +1398,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
 
     premiumTtsQueue.push({ text: clean, interrupt });
+    premiumTtsLastText = clean;
     void drainPremiumTtsQueue();
   }
 
