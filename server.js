@@ -2267,6 +2267,7 @@ But: être naturel et mettre le client en confiance.`,
            * Extraction robuste de texte depuis la structure "response.output"
            * de l'API Realtime (le format varie souvent entre les versions).
            */
+          // Extraction générique de texte depuis une structure arbitraire (response.output, item.content, etc.)
           function extractTextFromResponseOutput(output, maxLen = 4000) {
             let collected = "";
             const visited = new Set();
@@ -2375,7 +2376,7 @@ But: être naturel et mettre le client en confiance.`,
             console.log("📝 Transcription IA:", msg.transcript);
           }
           
-          // Transcripts de sortie (utile pour TTS premium)
+          // Transcripts de sortie (utile pour TTS premium) via events response.*
           if (msg.type === "response.created") {
             const rid = msg.response?.id ?? msg.response_id ?? null;
             const outputModalities = msg.response?.output_modalities || [];
@@ -2452,6 +2453,9 @@ But: être naturel et mettre le client en confiance.`,
                 }
               }
             }
+
+            // NOTE: sur les dernières versions Realtime, le texte est parfois uniquement dans conversation.item.done
+            // avec output = []. On gère donc aussi ce cas plus bas.
           }
           if (msg.type === "response.output_audio_transcript.delta" || msg.type === "response.audio_transcript.delta") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
@@ -2490,6 +2494,62 @@ But: être naturel et mettre le client en confiance.`,
                 // Ne pas interrompre si on a déjà commencé à parler (évite les coupures)
                 const alreadySpeaking = rid && spokenSet.has(rid);
                 enqueueElevenLabsTts(doneText, { interrupt: !alreadySpeaking });
+              }
+            }
+          }
+          
+          // Gestion des messages de conversation (nouveau format Realtime)
+          // Ici, OpenAI envoie souvent le texte final dans conversation.item.done plutôt que dans response.output.
+          if (msg.type === "conversation.item.done" && msg.item) {
+            const item = msg.item;
+            // On ne s'intéresse qu'aux messages de rôle assistant
+            if (item.role !== "assistant") {
+              // Si c'est un message user, on marque qu'il a parlé (utile pour ignorer le greeting en double)
+              if (item.role === "user") {
+                userHasSpoken = true;
+              }
+            } else {
+              // Éviter de rejouer la phrase d'accueil qu'on a déjà synthétisée en local
+              if (initialAssistantGreetingText && !userHasSpoken) {
+                console.log("👂 Ignorer conversation.item.done pour le greeting (déjà joué via Minimax).");
+              } else {
+                const rid = msg.response_id ?? null;
+                let extracted = "";
+                try {
+                  // Le texte peut être dans item.content, item.output_text, ou ailleurs
+                  if (item.content) {
+                    extracted = extractTextFromResponseOutput(item.content);
+                  }
+                  if (!extracted && typeof item.text === "string") {
+                    extracted = item.text;
+                  }
+                } catch (e) {
+                  console.error("❌ Erreur extraction texte depuis conversation.item.done:", e);
+                }
+
+                if (extracted && extracted.trim()) {
+                  const clean = extracted.trim();
+                  console.log("📝 Texte assistant depuis conversation.item.done:", clean.substring(0, 160));
+                  // Stocker dans transcriptMap si on a un response_id
+                  if (rid) {
+                    const existing = transcriptMap.get(rid) || "";
+                    transcriptMap.set(rid, (existing + " " + clean).trim());
+                  }
+                  // Synthèse via TTS premium (Minimax/ElevenLabs)
+                  if (REALTIME_USE_ELEVEN) {
+                    enqueuePremiumTts(clean, { interrupt: false });
+                  }
+                } else {
+                  console.warn("⚠️ Aucun texte assistant extrait depuis conversation.item.done");
+                  try {
+                    console.log(
+                      "📋 DEBUG conversation.item (assistant):",
+                      JSON.stringify(item, null, 2).substring(0, 1200),
+                    );
+                  } catch {
+                    // ignore
+                  }
+                }
               }
             }
           }
