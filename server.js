@@ -1489,6 +1489,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     
     // Mots courants du garage (normalisation pour cohérence)
     // Ces mots sont souvent mal prononcés différemment selon le contexte
+    // Expressions fréquentes de liaison / questions
+    // On aide le TTS à mieux articuler certains groupes de mots
+    t = t.replace(/\best-ce que\b/gi, "ès ce que");
+    t = t.replace(/\best ce que\b/gi, "ès ce que");
     t = t.replace(/\brécupérer\b/gi, "récupérer");
     t = t.replace(/\bimmatriculation\b/gi, "immatriculation");
     t = t.replace(/\bplaque\b/gi, "plaque");
