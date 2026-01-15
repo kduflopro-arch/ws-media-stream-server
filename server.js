@@ -1061,7 +1061,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         model: MINIMAX_MODEL || "speech-2.6-hd", // Utiliser un modèle supporté pour WebSocket
         voice_setting: {
           voice_id: selectedVoiceId,
-          speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 1.0)),
+          // Ralentir légèrement la cadence par défaut pour un rendu plus humain
+          speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 0.85)),
           vol: Math.max(0.0, Math.min(1.0, MINIMAX_VOLUME || 1.0)),
           pitch: Math.max(-12, Math.min(12, MINIMAX_PITCH || 0)),
           english_normalization: false,
@@ -2999,13 +3000,14 @@ But: être naturel et mettre le client en confiance.`,
           if ((!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN) {
             const rawName = String(garageName || "AutoGuru").trim();
             const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
-            const baseHello = `Bonjour ! Ici ${assistantName}, du ${label}.`;
+            // Salutation plus naturelle, avec des virgules pour forcer des pauses à l'oral
+            const baseHello = `Bonjour, ici ${assistantName}, l'assistante du ${label}.`;
             const consentText = consentRequired
-              ? "Cet appel est enregistré. Si vous refusez, vous pouvez raccrocher."
+              ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
               : "";
             const question = consentRequired
-              ? "Est-ce que ça vous convient ?"
-              : "En quoi je peux vous aider ?";
+              ? "Est-ce que cela vous convient ?"
+              : "Dites-moi, quel est le souci avec votre véhicule ?";
             const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
             initialAssistantGreetingText = greeting;
             enqueuePremiumTts(greeting, { interrupt: true });
