@@ -1032,9 +1032,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           english_normalization: false,
         },
         audio_setting: {
-          sample_rate: 32000, // 32kHz (format supporté par Minimax selon la doc)
-          bitrate: 128000, // Bitrate pour MP3/WAV
-          format: "wav", // Format WAV (PCM non compressé, plus facile à décoder que MP3)
+          sample_rate: 32000, // 32kHz (selon la doc Minimax)
+          bitrate: 128000, // Bitrate
+          format: "pcm", // Format PCM (selon la doc: mp3, pcm, flac sont supportés)
           channel: 1,
         },
       };
@@ -1114,36 +1114,21 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           isFinal = true;
           console.log(`✅ Minimax TTS terminé: ${chunkCounter} chunks, ${audioData.length} bytes`);
           
-          // Décoder le WAV en PCM16
-          // WAV à 32kHz → downsampler à 8kHz → convertir en μ-law
+          // Décoder le PCM brut en PCM16
+          // PCM à 32kHz → downsampler à 8kHz → convertir en μ-law
           if (audioData.length > 0) {
             try {
-              console.log(`🎵 Décodage WAV: ${audioData.length} bytes`);
+              console.log(`🎵 Décodage PCM: ${audioData.length} bytes`);
               
-              // WAV header: 44 bytes (RIFF header + fmt chunk + data chunk header)
-              let pcmData = audioData;
-              if (audioData.length > 44) {
-                // Vérifier si c'est un WAV valide (commence par "RIFF")
-                if (audioData.toString("ascii", 0, 4) === "RIFF") {
-                  // Trouver le début des données PCM (après "data" chunk)
-                  const dataChunkPos = audioData.indexOf(Buffer.from("data"));
-                  if (dataChunkPos !== -1 && dataChunkPos + 8 < audioData.length) {
-                    // Skip "data" (4 bytes) + chunk size (4 bytes) = 8 bytes
-                    pcmData = audioData.slice(dataChunkPos + 8);
-                    console.log(`🎵 WAV décodé: ${audioData.length} bytes → ${pcmData.length} bytes PCM`);
-                  }
-                } else {
-                  // Peut-être que Minimax retourne du PCM brut sans header WAV
-                  console.log("⚠️ Pas de header RIFF, traitement comme PCM brut");
-                }
-              }
-              
-              // Convertir PCM16 32kHz en Int16Array
+              // Le format "pcm" retourne du PCM16 brut (pas de header WAV/MP3)
+              // Convertir directement en Int16Array
               const pcm32k = new Int16Array(
-                pcmData.buffer,
-                pcmData.byteOffset,
-                pcmData.length / 2,
+                audioData.buffer,
+                audioData.byteOffset,
+                audioData.length / 2,
               );
+              
+              console.log(`🎵 PCM reçu: ${pcm32k.length} samples @ 32kHz`);
               
               // Downsampler de 32kHz à 8kHz (prendre 1 échantillon sur 4)
               const pcm8k = new Int16Array(Math.floor(pcm32k.length / 4));
@@ -1166,7 +1151,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               
               console.log(`🎙️ Minimax TTS audio envoyé: ${Math.ceil(mulaw.length / chunkSize)} chunks`);
             } catch (err) {
-              console.error("❌ Erreur décodage WAV:", err);
+              console.error("❌ Erreur décodage PCM:", err);
               throw err;
             }
           }
