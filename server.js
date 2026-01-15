@@ -2047,6 +2047,11 @@ ${garageClosed
             instructions: `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}`,
             // Activer explicitement les modalités audio de sortie
             output_modalities: ["audio"],
+            // Activer la transcription de l'audio de sortie pour obtenir le texte (nécessaire pour TTS premium)
+            output_audio_transcription: {
+              model: "whisper-1",
+              language: "fr",
+            },
             // Les formats audio sont configurés dans l'URL WebSocket (input_audio_format et output_audio_format)
           },
         };
@@ -2106,6 +2111,11 @@ Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, 
               instructions: updatedInstructions,
               // Maintenir les modalités audio activées
               output_modalities: ["audio"],
+              // Maintenir la transcription de l'audio de sortie
+              output_audio_transcription: {
+                model: "whisper-1",
+                language: "fr",
+              },
             },
           }));
           ws.__sessionInstructions = String(updatedInstructions || "");
