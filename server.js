@@ -2446,10 +2446,26 @@ But: être naturel et mettre le client en confiance.`,
             }
           }
           
+          // Gestion des réponses textuelles en streaming (nouveau format GPT-5: response.output_text.delta)
+          if (msg.type === "response.output_text.delta") {
+            const rid = msg.response_id ?? msg.response?.id ?? null;
+            const delta = typeof msg.delta === "string" ? msg.delta : "";
+            if (rid && delta && delta.trim()) {
+              // Accumuler le texte dans le transcript
+              const current = transcriptMap.get(rid) || "";
+              transcriptMap.set(rid, current + delta);
+              // En mode chunking, on peut commencer à parler dès qu'on a assez de texte
+              if (REALTIME_USE_ELEVEN && REALTIME_ELEVEN_CHUNKING_ENABLED) {
+                flushRealtimeElevenChunks(rid, false);
+              }
+            }
+          }
+          
           // Gestion des réponses textuelles (nouveau format GPT-5: response.output_text.done)
           if (msg.type === "response.output_text.done") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
-            const doneText = typeof msg.text === "string" ? msg.text : "";
+            // Récupérer le texte depuis le transcript (accumulé via delta) ou directement depuis msg.text
+            const doneText = (rid ? (transcriptMap.get(rid) || "") : "") || (typeof msg.text === "string" ? msg.text : "");
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
               console.log("📝 Réponse texte IA reçue (GPT-5):", doneText.substring(0, 100));
               // Remonter l'IA dans AutoGuru (détails d'appel)
@@ -2472,7 +2488,7 @@ But: être naturel et mettre le client en confiance.`,
                 // Ici (sans chunking), on démarre la synthèse en une fois.
                 // Ne pas interrompre si on a déjà commencé à parler (évite les coupures)
                 const alreadySpeaking = rid && spokenSet.has(rid);
-                enqueueElevenLabsTts(doneText, { interrupt: !alreadySpeaking });
+                enqueuePremiumTts(doneText, { interrupt: !alreadySpeaking });
               }
             }
           }
