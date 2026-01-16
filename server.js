@@ -924,9 +924,22 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
 
   async function speakWithMinimaxNow(text, { interrupt = true } = {}) {
-    if (!PREMIUM_TTS_ENABLED) return;
-    if (PREMIUM_TTS_PROVIDER !== "minimax") return;
-    if (nowMs() < premiumTtsBypassUntilMs) return;
+    // LOG TRÈS VISIBLE au tout début pour tracer chaque appel
+    console.log(`🚨🚨🚨 speakWithMinimaxNow ENTRÉE (raw text):`, String(text || "").substring(0, 200));
+    console.log(`🚨🚨🚨 speakWithMinimaxNow ENTRÉE (interrupt=${interrupt}, inFlight=${premiumTtsInFlight}, lastText=${premiumTtsLastText ? premiumTtsLastText.substring(0, 50) : "null"})`);
+    
+    if (!PREMIUM_TTS_ENABLED) {
+      console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_ENABLED=false`);
+      return;
+    }
+    if (PREMIUM_TTS_PROVIDER !== "minimax") {
+      console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_PROVIDER=${PREMIUM_TTS_PROVIDER} !== minimax`);
+      return;
+    }
+    if (nowMs() < premiumTtsBypassUntilMs) {
+      console.log(`🚨 speakWithMinimaxNow SORTIE: bypass actif jusqu'à ${premiumTtsBypassUntilMs}`);
+      return;
+    }
     const selectedVoiceId =
       assistantVoice === "male"
         ? (MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT)
@@ -1381,9 +1394,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
 
   function enqueuePremiumTts(text, { interrupt = true, source = "unknown" } = {}) {
-    if (!PREMIUM_TTS_ENABLED) return;
+    // LOG TRÈS VISIBLE au tout début pour tracer chaque appel
+    console.log(`🚨🚨🚨 enqueuePremiumTts ENTRÉE [source: ${source}]:`, String(text || "").substring(0, 200));
+    console.log(`🚨🚨🚨 enqueuePremiumTts ENTRÉE (interrupt=${interrupt}, queueLen=${premiumTtsQueue.length}, inFlight=${premiumTtsInFlight})`);
+    
+    if (!PREMIUM_TTS_ENABLED) {
+      console.log(`🚨 enqueuePremiumTts SORTIE: PREMIUM_TTS_ENABLED=false`);
+      return;
+    }
     const clean = normalizeFrenchTtsText((text || "").trim());
-    if (!clean) return;
+    if (!clean) {
+      console.log(`🚨 enqueuePremiumTts SORTIE: texte vide après normalisation`);
+      return;
+    }
 
     // Normalisation agressive pour la comparaison (ignore ponctuation et casse)
     const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
@@ -1393,7 +1416,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (premiumTtsLastText) {
       const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/[.,!?;:]/g, "").trim();
       if (lastNormalized === normalizedForCompare) {
-        console.log(`🔁 TTS ignoré (texte identique au précédent, on évite la répétition) [source: ${source}]:`, clean.substring(0, 120));
+        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (texte identique au précédent) [source: ${source}]:`, clean.substring(0, 120));
+        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
         return;
       }
     }
@@ -1402,7 +1426,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const jobNormalized = normalizeFrenchTtsText(job.text.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim();
       return jobNormalized === normalizedForCompare;
     })) {
-      console.log(`🔁 TTS ignoré (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
+      console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
       return;
     }
 
@@ -1427,7 +1451,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
     premiumTtsQueue.push({ text: clean, interrupt });
     premiumTtsLastText = clean;
-    console.log(`🎤 TTS enqueued [source: ${source}]:`, clean.substring(0, 120));
+    console.log(`🚨🚨🚨 TTS ENQUEUED (ajouté à la queue) [source: ${source}]:`, clean.substring(0, 200));
+    console.log(`🚨🚨🚨 TTS ENQUEUED (queueLen=${premiumTtsQueue.length}, interrupt=${interrupt})`);
     void drainPremiumTtsQueue();
   }
 
