@@ -1367,14 +1367,29 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
   }
 
-  function enqueuePremiumTts(text, { interrupt = true } = {}) {
+  function enqueuePremiumTts(text, { interrupt = true, source = "unknown" } = {}) {
     if (!PREMIUM_TTS_ENABLED) return;
     const clean = normalizeFrenchTtsText((text || "").trim());
     if (!clean) return;
 
+    // Normalisation agressive pour la comparaison (ignore ponctuation et casse)
+    const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
+
     // Éviter de rejouer en boucle exactement la même phrase (ex: greeting)
-    if (premiumTtsLastText && premiumTtsLastText === clean) {
-      console.log("🔁 TTS ignoré (texte identique au précédent, on évite la répétition):", clean.substring(0, 120));
+    // On vérifie aussi dans la queue pour éviter les doublons même si les événements arrivent en même temps
+    if (premiumTtsLastText) {
+      const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/[.,!?;:]/g, "").trim();
+      if (lastNormalized === normalizedForCompare) {
+        console.log(`🔁 TTS ignoré (texte identique au précédent, on évite la répétition) [source: ${source}]:`, clean.substring(0, 120));
+        return;
+      }
+    }
+    // Vérifier aussi dans la queue actuelle
+    if (premiumTtsQueue.some(job => {
+      const jobNormalized = normalizeFrenchTtsText(job.text.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim();
+      return jobNormalized === normalizedForCompare;
+    })) {
+      console.log(`🔁 TTS ignoré (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
       return;
     }
 
@@ -1399,6 +1414,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
     premiumTtsQueue.push({ text: clean, interrupt });
     premiumTtsLastText = clean;
+    console.log(`🎤 TTS enqueued [source: ${source}]:`, clean.substring(0, 120));
     void drainPremiumTtsQueue();
   }
 
@@ -2461,7 +2477,7 @@ But: être naturel et mettre le client en confiance.`,
                       flushRealtimeElevenChunks(rid, true);
                     } else if (!spokenSet.has(rid)) {
                       spokenSet.add(rid);
-                      enqueuePremiumTts(extractedText, { interrupt: false });
+                      enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done" });
                     }
                   }
                 } else if (msg.response?.output) {
@@ -2583,7 +2599,7 @@ But: être naturel et mettre le client en confiance.`,
                   // Synthèse via TTS premium (Minimax/ElevenLabs)
                   if (REALTIME_USE_ELEVEN) {
                     console.log("🎤 Envoi du texte à enqueuePremiumTts depuis conversation.item.done");
-                    enqueuePremiumTts(clean, { interrupt: false });
+                    enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done" });
                   }
                 } else {
                   console.warn("⚠️ Aucun texte assistant extrait depuis conversation.item.done");
@@ -2642,7 +2658,7 @@ But: être naturel et mettre le client en confiance.`,
                 // Ici (sans chunking), on démarre la synthèse en une fois.
                 // Ne pas interrompre si on a déjà commencé à parler (évite les coupures)
                 const alreadySpeaking = rid && spokenSet.has(rid);
-                enqueuePremiumTts(doneText, { interrupt: !alreadySpeaking });
+                enqueuePremiumTts(doneText, { interrupt: !alreadySpeaking, source: "response.output_text.done" });
               }
             }
           }
@@ -2805,7 +2821,7 @@ But: être naturel et mettre le client en confiance.`,
                     flushRealtimeElevenChunks(rid, msg.type === "response.output_item.done");
                   } else if (!rid || !spokenSet.has(rid)) {
                     if (rid) spokenSet.add(rid);
-                    enqueuePremiumTts(extractedText, { interrupt: msg.type === "response.output_item.done" });
+                    enqueuePremiumTts(extractedText, { interrupt: msg.type === "response.output_item.done", source: msg.type });
                   }
                 }
               }
@@ -3163,7 +3179,7 @@ But: être naturel et mettre le client en confiance.`,
               : "Dites-moi, quel est le souci avec votre véhicule ?";
             const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
             initialAssistantGreetingText = greeting;
-            enqueuePremiumTts(greeting, { interrupt: true });
+            enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting" });
             const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
             console.log(`👋 Greeting immédiat joué via ${providerName}.`, { callSid, consentRequired });
             if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
