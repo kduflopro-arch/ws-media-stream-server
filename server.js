@@ -1427,6 +1427,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.log(`🚨 enqueuePremiumTts SORTIE: texte vide après normalisation`);
       return;
     }
+    // Log explicite du texte qui va être prononcé (l'utilisateur pourra le copier facilement)
+    console.log(`[AI-SAYS] ${clean}`);
     const lowerClean = clean.toLowerCase().trim();
     if (lowerClean === "output" || lowerClean === "outpout" || lowerClean.startsWith("output ")) {
       console.log(`[TTS-ENQUEUE] BLOQUÉ: texte suspect (logs)`, clean.substring(0, 120));
