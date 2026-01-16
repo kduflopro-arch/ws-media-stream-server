@@ -334,7 +334,7 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_VOICE_ID_MALE = process.env.MINIMAX_VOICE_ID_MALE ?? "";
   const MINIMAX_VOICE_ID_FEMALE = process.env.MINIMAX_VOICE_ID_FEMALE ?? "";
   const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-01"; // speech-01, speech-02, etc.
-  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1.0"); // 0.5 à 2.0
+  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "0.9"); // 0.5 à 2.0
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0"); // 0.0 à 1.0
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0"); // -12 à 12
   let premiumTtsAbort = null;
@@ -346,6 +346,7 @@ wss.on("connection", (ws, req) => {
   let premiumTtsLastText = ""; // Dernier texte effectivement envoyé au TTS (pour éviter les répétitions exactes)
   let spokenResponseIds = new Map(); // responseId -> timestamp (anti-répétitions par réponse)
   let recentAssistantTexts = []; // Array<{ text: string, ts: number }>
+  const MAX_TTS_CHARS = Number(process.env.MAX_TTS_CHARS ?? "520");
 
   // AutoGuru ingest (pour remplir "détails d'appel" même en mode Realtime)
   // AutoGuru ingest: par défaut via env (legacy), mais en multi-garages on préfère
@@ -440,16 +441,16 @@ wss.on("connection", (ws, req) => {
   async function requestPlateSmsIfNeeded(trigger = "assistant_plate_request") {
     try {
       const ingestUrl = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
-      if (!ingestUrl) return;
+      if (!ingestUrl) return { sent: false, reason: "no_ingest_url" };
       const token = autoguruIngestToken;
       const secret = AUTOGURU_INGEST_SECRET_ENV;
-      if (!token && !secret) return;
-      if (!callSid) return;
+      if (!token && !secret) return { sent: false, reason: "no_auth" };
+      if (!callSid) return { sent: false, reason: "no_callsid" };
       const to = String(fromNumber || "").trim();
-      if (!/^\+\d{8,15}$/.test(to)) return;
+      if (!/^\+\d{8,15}$/.test(to)) return { sent: false, reason: "invalid_phone" };
 
       // Anti-spam: une fois par appel
-      if (ws.__plateSmsRequested) return;
+      if (ws.__plateSmsRequested) return { sent: false, reason: "already_requested" };
       ws.__plateSmsRequested = true;
 
       const url = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/plate-sms/request");
@@ -481,7 +482,7 @@ wss.on("connection", (ws, req) => {
             `Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${json.existingPlate}. Est-ce bien correct ?`,
             { interrupt: true }
           );
-          return;
+          return { sent: false, skipped: true, reason: "client_has_plate", existingPlate: json.existingPlate };
         }
         console.log("📩 SMS plaque demandé à AutoGuru.", { 
           trigger, 
@@ -491,6 +492,7 @@ wss.on("connection", (ws, req) => {
           garageId: garageId || null,
           url
         });
+        return { sent: true, smsSid: json?.smsSid ?? null };
       } else if (resp) {
         const t = await resp.text().catch(() => "");
         console.warn("⚠️ SMS plaque request non-ok:", { status: resp.status, trigger, body: t.slice(0, 180) });
@@ -499,15 +501,17 @@ wss.on("connection", (ws, req) => {
           "Je n’arrive pas à vous envoyer le SMS. Dites-moi la plaque à l’oral, lettre par lettre s’il vous plaît.",
           { interrupt: true },
         );
+        return { sent: false, reason: "http_error", status: resp.status };
       } else {
         console.warn("⚠️ SMS plaque request: aucune réponse (fetch échoué).", { trigger });
         enqueueElevenLabsTts(
           "Petit souci d’envoi du SMS. Dites-moi la plaque à l’oral, lettre par lettre s’il vous plaît.",
           { interrupt: true },
         );
+        return { sent: false, reason: "fetch_failed" };
       }
     } catch {
-      // ignore
+      return { sent: false, reason: "exception" };
     }
   }
 
@@ -1422,11 +1426,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.log(`🚨 enqueuePremiumTts SORTIE: PREMIUM_TTS_ENABLED=false`);
       return;
     }
-    const clean = normalizeFrenchTtsText((text || "").trim());
-    if (!clean) {
+    const normalized = normalizeFrenchTtsText((text || "").trim());
+    if (!normalized) {
       console.log(`[TTS-ENQUEUE] SORTIE: texte vide après normalisation`);
       console.log(`🚨 enqueuePremiumTts SORTIE: texte vide après normalisation`);
       return;
+    }
+    const clean = clipTtsText(normalized, MAX_TTS_CHARS);
+    if (clean.length < normalized.length) {
+      console.log(`[TTS-ENQUEUE] TEXTE TRONQUÉ: ${normalized.length} -> ${clean.length} chars`);
     }
     // Log explicite du texte qui va être prononcé (l'utilisateur pourra le copier facilement)
     console.log(`[AI-SAYS] ${clean}`);
@@ -1726,6 +1734,25 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Eviter les très longues phrases (téléphonie)
     if (t.length > 220 && !/[.!?]/.test(t.slice(-20))) t += ".";
     return t.trim();
+  }
+
+  function clipTtsText(input, maxChars) {
+    const t = String(input || "").trim();
+    if (!t) return "";
+    if (!maxChars || t.length <= maxChars) return t;
+    const slice = t.slice(0, maxChars);
+    const lastPunct = Math.max(
+      slice.lastIndexOf(". "),
+      slice.lastIndexOf("! "),
+      slice.lastIndexOf("? "),
+      slice.lastIndexOf("… "),
+    );
+    if (lastPunct > 40) {
+      return slice.slice(0, lastPunct + 1).trim();
+    }
+    const lastSpace = slice.lastIndexOf(" ");
+    if (lastSpace > 40) return slice.slice(0, lastSpace).trim() + "…";
+    return slice.trim() + "…";
   }
 
   // Détection parole côté Twilio (pour barge-in) : plus stable que les events VAD OpenAI en environnement bruyant.
@@ -2105,7 +2132,7 @@ ${consentLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
 ${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
-${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
+${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant. Utilise parfois de petits marqueurs d'écoute ("d'accord", "je vois") sans surjouer.
 Format: réponses courtes (1 à 2 phrases), puis UNE question.
 Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, virgules, questions).`;
 
@@ -2249,7 +2276,7 @@ ${consentLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
 ${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
-${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${newClientInfoLine}\n\nStyle: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant.
+${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${newClientInfoLine}\n\nStyle: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant. Utilise parfois de petits marqueurs d'écoute ("d'accord", "je vois") sans surjouer.
 Format: réponses courtes (1 à 2 phrases), puis UNE question.
 Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, virgules, questions).`;
           
@@ -2421,34 +2448,58 @@ But: être naturel et mettre le client en confiance.`,
           function extractTextFromResponseOutput(output, maxLen = 4000) {
             let collected = "";
             const visited = new Set();
+            const TEXT_TYPES = new Set(["text", "output_text", "input_text"]);
+            const BLOCKED_STRINGS = /^(output|output_text|output_item|message|messaging|text|content|assistant|user|system)$/i;
+
+            function addText(str) {
+              if (!str) return;
+              if (collected.length >= maxLen) return;
+              const s = String(str);
+              if (!s) return;
+              // Éviter de collecter des labels techniques
+              if (BLOCKED_STRINGS.test(s.trim())) return;
+              collected += s;
+            }
+
             function walk(node, depth) {
               if (!node || collected.length >= maxLen) return;
               if (depth > 6) return; // éviter les cycles profonds
               if (typeof node === "string") {
-                collected += node;
+                // N'ajouter que si ça ressemble à du texte humain
+                const t = node.trim();
+                if (t.length >= 3 && /[a-zàâçéèêëîïôûùüÿœ]/i.test(t)) {
+                  addText(t);
+                }
                 return;
               }
               if (typeof node !== "object") return;
               if (visited.has(node)) return;
               visited.add(node);
 
-              // Quelques chemins probables d'abord
               if (Array.isArray(node)) {
                 for (const item of node) walk(item, depth + 1);
                 return;
               }
-              if (typeof node.text === "string") {
-                collected += node.text;
-              }
+
+              if (typeof node.text === "string") addText(node.text);
+              if (typeof node.output_text === "string") addText(node.output_text);
+              if (typeof node.transcript === "string") addText(node.transcript);
+
               if (Array.isArray(node.content)) {
-                for (const c of node.content) walk(c, depth + 1);
-              }
-              // Parcourir les autres propriétés
-              for (const key of Object.keys(node)) {
-                if (key === "text" || key === "content") continue;
-                walk(node[key], depth + 1);
+                for (const c of node.content) {
+                  if (c && typeof c === "object") {
+                    if (TEXT_TYPES.has(c.type) && typeof c.text === "string") {
+                      addText(c.text);
+                    } else {
+                      walk(c, depth + 1);
+                    }
+                  } else if (typeof c === "string") {
+                    addText(c);
+                  }
+                }
               }
             }
+
             walk(output, 0);
             return collected.trim();
           }
@@ -3547,14 +3598,18 @@ But: être naturel et mettre le client en confiance.`,
                         if (plateSmsConsentPending && nowMs() <= plateSmsConsentDeadlineMs) {
                           if (isAffirmativeFr(txt)) {
                             plateSmsConsentPending = false;
-                            // Envoyer le SMS maintenant
-                            requestPlateSmsIfNeeded("user_accepted_plate_sms");
-                            // Démarrer le polling
-                            plateSmsWaitingForReply = true;
-                            if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
-                            plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
-                            // Petite phrase "j'attends votre réponse au SMS"
-                            enqueueElevenLabsTts("Parfait. Je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît.", { interrupt: true });
+                            // Envoyer le SMS maintenant (seulement si OK)
+                            const smsResult = await requestPlateSmsIfNeeded("user_accepted_plate_sms");
+                            if (smsResult && smsResult.sent) {
+                              // Démarrer le polling
+                              plateSmsWaitingForReply = true;
+                              if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
+                              plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
+                              // Petite phrase "j'attends votre réponse au SMS"
+                              enqueueElevenLabsTts("Parfait. Je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît.", { interrupt: true });
+                            } else {
+                              console.warn("⚠️ SMS non envoyé malgré accord client:", smsResult);
+                            }
                           } else if (isNegativeFr(txt)) {
                             plateSmsConsentPending = false;
                             enqueueElevenLabsTts("D'accord. Dans ce cas, dites-moi la plaque lettre par lettre, s'il vous plaît.", { interrupt: true });
@@ -3798,4 +3853,3 @@ But: être naturel et mettre le client en confiance.`,
     });
   });
 });
-
