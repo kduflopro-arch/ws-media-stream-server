@@ -940,6 +940,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const clean = normalizeFrenchTtsText((text || "").trim());
     if (!clean) return;
 
+    // Éviter de rejouer exactement la même phrase (même si elle arrive via différents événements)
+    const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
+    if (premiumTtsLastText) {
+      const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/[.,!?;:]/g, "").trim();
+      if (lastNormalized === normalizedForCompare && premiumTtsInFlight) {
+        console.log(`🔁 speakWithMinimaxNow ignoré (même texte en cours de synthèse):`, clean.substring(0, 120));
+        return;
+      }
+    }
+
+    console.log(`🎤 speakWithMinimaxNow appelé:`, clean.substring(0, 120));
+    premiumTtsLastText = clean;
+
     // Stopper toute synthèse en cours et couper l'audio en file
     if (interrupt) {
       try { premiumTtsAbort?.abort?.(); } catch { /* ignore */ }
@@ -1427,9 +1440,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (premiumTtsDrainInFlight) return;
     premiumTtsDrainInFlight = true;
     try {
+      let lastProcessedText = "";
       while (premiumTtsQueue.length > 0) {
         const job = premiumTtsQueue.shift();
         if (!job) continue;
+        // Vérifier si ce texte est identique au précédent (normalisé)
+        const jobNormalized = normalizeFrenchTtsText(job.text.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim();
+        const lastNormalized = lastProcessedText ? normalizeFrenchTtsText(lastProcessedText.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim() : "";
+        if (lastNormalized && jobNormalized === lastNormalized) {
+          console.log(`🔁 drainPremiumTtsQueue ignoré (doublon dans la queue):`, job.text.substring(0, 120));
+          continue;
+        }
+        lastProcessedText = job.text;
         // Interrupt a déjà été géré à l'enqueue: ici on ne re-clear pas l'audio.
         if (PREMIUM_TTS_PROVIDER === "minimax") {
           await speakWithMinimaxNow(job.text, { interrupt: false });
