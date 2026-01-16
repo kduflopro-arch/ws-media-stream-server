@@ -264,6 +264,8 @@ wss.on("connection", (ws, req) => {
   let lastResponseCreatedAt = 0;
   let lastResponseCreateRequestedAt = 0;
   let userHasSpoken = false;
+  let lastAssistantSpokenAt = 0;
+  let lastAssistantSpokenResponseId = null;
   // Buffer des frames Twilio reçues avant que OpenAI WS soit "open"
   let preOpenFrames = []; // Array<{ audioBase64: string, mulawLen: number, ts: number }>
   let preOpenBytes = 0;
@@ -287,6 +289,8 @@ wss.on("connection", (ws, req) => {
   const OUTPUT_USER_SPEECH_FRAMES = Number(process.env.OUTPUT_USER_SPEECH_FRAMES ?? "6"); // ~120ms
   const OUTPUT_USER_SILENCE_THRESHOLD = Number(process.env.OUTPUT_USER_SILENCE_THRESHOLD ?? "1100");
   const OUTPUT_USER_SILENCE_FRAMES = Number(process.env.OUTPUT_USER_SILENCE_FRAMES ?? "18"); // ~360ms
+  // N'autoriser une réponse IA que dans une fenêtre proche de la dernière prise de parole utilisateur
+  const ASSISTANT_RESPONSE_WINDOW_MS = Number(process.env.ASSISTANT_RESPONSE_WINDOW_MS ?? "15000");
   let outUserSpeechFrames = 0;
   let outUserSilenceFrames = 0;
   let outUserSpeaking = false;
@@ -339,6 +343,8 @@ wss.on("connection", (ws, req) => {
   let premiumTtsQueue = []; // Array<{ text: string, interrupt: boolean }>
   let premiumTtsDrainInFlight = false;
   let premiumTtsLastText = ""; // Dernier texte effectivement envoyé au TTS (pour éviter les répétitions exactes)
+  let spokenResponseIds = new Map(); // responseId -> timestamp (anti-répétitions par réponse)
+  let recentAssistantTexts = []; // Array<{ text: string, ts: number }>
 
   // AutoGuru ingest (pour remplir "détails d'appel" même en mode Realtime)
   // AutoGuru ingest: par défaut via env (legacy), mais en multi-garages on préfère
@@ -1402,7 +1408,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
   }
 
-  function enqueuePremiumTts(text, { interrupt = true, source = "unknown" } = {}) {
+  function enqueuePremiumTts(text, { interrupt = true, source = "unknown", responseId = null, allowWithoutUser = false } = {}) {
     // LOG TRÈS VISIBLE au tout début pour tracer chaque appel (avec et sans emojis pour compatibilité)
     const rawText = String(text || "").substring(0, 200);
     console.log(`[TTS-ENQUEUE] ENTRÉE [source: ${source}] [interrupt=${interrupt}] [queueLen=${premiumTtsQueue.length}] [inFlight=${premiumTtsInFlight}]`);
@@ -1421,9 +1427,40 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.log(`🚨 enqueuePremiumTts SORTIE: texte vide après normalisation`);
       return;
     }
+    const lowerClean = clean.toLowerCase().trim();
+    if (lowerClean === "output" || lowerClean === "outpout" || lowerClean.startsWith("output ")) {
+      console.log(`[TTS-ENQUEUE] BLOQUÉ: texte suspect (logs)`, clean.substring(0, 120));
+      return;
+    }
 
     // Normalisation agressive pour la comparaison (ignore ponctuation et casse)
     const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
+    const now = nowMs();
+
+    // Garder la parole uniquement si une prise de parole utilisateur est récente
+    if (!allowWithoutUser) {
+      const hasRecentUserSpeech = lastCommittedAt > 0 && (now - lastCommittedAt) <= ASSISTANT_RESPONSE_WINDOW_MS;
+      if (!hasRecentUserSpeech) {
+        console.log(`[TTS-ENQUEUE] BLOQUÉ: pas de parole utilisateur récente (lastCommittedAt=${lastCommittedAt})`);
+        return;
+      }
+    }
+
+    // Anti-répétition par responseId
+    if (responseId) {
+      const prev = spokenResponseIds.get(responseId);
+      if (prev) {
+        console.log(`[TTS-ENQUEUE] BLOQUÉ: responseId déjà parlé`, { responseId });
+        return;
+      }
+    }
+
+    // Anti-répétition par texte sur fenêtre courte (même si responseId change)
+    recentAssistantTexts = recentAssistantTexts.filter((t) => (now - t.ts) < 60_000);
+    if (recentAssistantTexts.some((t) => t.text === normalizedForCompare)) {
+      console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment`, clean.substring(0, 120));
+      return;
+    }
 
     // Éviter de rejouer en boucle exactement la même phrase (ex: greeting)
     // On vérifie aussi dans la queue pour éviter les doublons même si les événements arrivent en même temps
@@ -1468,6 +1505,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
     premiumTtsQueue.push({ text: clean, interrupt });
     premiumTtsLastText = clean;
+    lastAssistantSpokenAt = now;
+    lastAssistantSpokenResponseId = responseId ?? lastAssistantSpokenResponseId;
+    if (responseId) {
+      spokenResponseIds.set(responseId, now);
+      if (spokenResponseIds.size > 500) {
+        for (const [rid, ts] of spokenResponseIds) {
+          if ((now - ts) > 300_000) spokenResponseIds.delete(rid);
+        }
+      }
+    }
+    recentAssistantTexts.push({ text: normalizedForCompare, ts: now });
     console.log(`[TTS-ENQUEUE] ENQUEUED (ajouté à la queue) [source: ${source}] [queueLen=${premiumTtsQueue.length}] [interrupt=${interrupt}]`);
     console.log(`[TTS-ENQUEUE] TEXTE ENQUEUED:`, clean.substring(0, 200));
     console.log(`🚨🚨🚨 TTS ENQUEUED (ajouté à la queue) [source: ${source}]:`, clean.substring(0, 200));
@@ -1477,7 +1525,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
   // Alias pour compatibilité
   function enqueueElevenLabsTts(text, { interrupt = true } = {}) {
-    enqueuePremiumTts(text, { interrupt });
+    enqueuePremiumTts(text, { interrupt, source: "legacy_elevenlabs" });
   }
 
   async function drainPremiumTtsQueue() {
@@ -2544,7 +2592,7 @@ But: être naturel et mettre le client en confiance.`,
                       flushRealtimeElevenChunks(rid, true);
                     } else if (!spokenSet.has(rid)) {
                       spokenSet.add(rid);
-                      enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done" });
+                      enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid });
                     }
                   }
                 } else if (msg.response?.output) {
@@ -2666,7 +2714,7 @@ But: être naturel et mettre le client en confiance.`,
                   // Synthèse via TTS premium (Minimax/ElevenLabs)
                   if (REALTIME_USE_ELEVEN) {
                     console.log("🎤 Envoi du texte à enqueuePremiumTts depuis conversation.item.done");
-                    enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done" });
+                    enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid });
                   }
                 } else {
                   console.warn("⚠️ Aucun texte assistant extrait depuis conversation.item.done");
@@ -2725,7 +2773,7 @@ But: être naturel et mettre le client en confiance.`,
                 // Ici (sans chunking), on démarre la synthèse en une fois.
                 // Ne pas interrompre si on a déjà commencé à parler (évite les coupures)
                 const alreadySpeaking = rid && spokenSet.has(rid);
-                enqueuePremiumTts(doneText, { interrupt: !alreadySpeaking, source: "response.output_text.done" });
+                enqueuePremiumTts(doneText, { interrupt: !alreadySpeaking, source: "response.output_text.done", responseId: rid });
               }
             }
           }
@@ -2888,7 +2936,7 @@ But: être naturel et mettre le client en confiance.`,
                     flushRealtimeElevenChunks(rid, msg.type === "response.output_item.done");
                   } else if (!rid || !spokenSet.has(rid)) {
                     if (rid) spokenSet.add(rid);
-                    enqueuePremiumTts(extractedText, { interrupt: msg.type === "response.output_item.done", source: msg.type });
+                    enqueuePremiumTts(extractedText, { interrupt: msg.type === "response.output_item.done", source: msg.type, responseId: rid });
                   }
                 }
               }
@@ -3246,7 +3294,7 @@ But: être naturel et mettre le client en confiance.`,
               : "Dites-moi, quel est le souci avec votre véhicule ?";
             const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
             initialAssistantGreetingText = greeting;
-            enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting" });
+            enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
             const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
             console.log(`👋 Greeting immédiat joué via ${providerName}.`, { callSid, consentRequired });
             if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
