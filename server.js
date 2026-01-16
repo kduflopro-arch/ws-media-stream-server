@@ -266,6 +266,7 @@ wss.on("connection", (ws, req) => {
   let userHasSpoken = false;
   let lastAssistantSpokenAt = 0;
   let lastAssistantSpokenResponseId = null;
+  let lastSpokenCommitAt = 0;
   // Buffer des frames Twilio reçues avant que OpenAI WS soit "open"
   let preOpenFrames = []; // Array<{ audioBase64: string, mulawLen: number, ts: number }>
   let preOpenBytes = 0;
@@ -1446,6 +1447,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         console.log(`[TTS-ENQUEUE] BLOQUÉ: pas de parole utilisateur récente (lastCommittedAt=${lastCommittedAt})`);
         return;
       }
+      // Une seule réponse TTS par commit utilisateur (évite les répétitions multi-events)
+      if (lastSpokenCommitAt && lastCommittedAt && lastSpokenCommitAt === lastCommittedAt) {
+        console.log(`[TTS-ENQUEUE] BLOQUÉ: déjà parlé pour ce commit`, { lastCommittedAt });
+        return;
+      }
     }
 
     // Anti-répétition par responseId
@@ -1516,6 +1522,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           if ((now - ts) > 300_000) spokenResponseIds.delete(rid);
         }
       }
+    }
+    if (!allowWithoutUser && lastCommittedAt) {
+      lastSpokenCommitAt = lastCommittedAt;
     }
     recentAssistantTexts.push({ text: normalizedForCompare, ts: now });
     console.log(`[TTS-ENQUEUE] ENQUEUED (ajouté à la queue) [source: ${source}] [queueLen=${premiumTtsQueue.length}] [interrupt=${interrupt}]`);
