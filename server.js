@@ -1758,7 +1758,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Abbréviations courantes
     t = t.replace(/\bRDV\b/gi, "rendez-vous");
     t = t.replace(/\bOK\b/g, "ok");
-    t = t.replace(/\bSMS\b/gi, "un message"); // Dire "un message" au lieu de "SMS"
+    // Dire "message" à la place de "SMS" en gardant une grammaire naturelle
+    t = t.replace(/\ble\s+SMS\b/gi, "le message");
+    t = t.replace(/\bun\s+SMS\b/gi, "un message");
+    t = t.replace(/\bdes\s+SMS\b/gi, "des messages");
+    t = t.replace(/\bpar\s+SMS\b/gi, "par message");
+    t = t.replace(/\bvia\s+SMS\b/gi, "par message");
+    t = t.replace(/\ben\s+SMS\b/gi, "par message");
+    t = t.replace(/\bl['’]SMS\b/gi, "le message");
+    t = t.replace(/\bSMS\b/gi, "un message");
     // Sigles auto (prononcer lettre par lettre)
     t = t.replace(/\bFAP\b/gi, "F A P");
     t = t.replace(/\bABS\b/gi, "A B S");
@@ -2287,7 +2295,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           : "Info horaires (interne): garage indiqué ouvert.";
         const hoursReminderLine =
           hoursInfoLine || closedDaysLine
-            ? `AVANT de demander les préférences de rendez-vous, annonce clairement: "Les horaires d'ouverture du garage sont: ${garageHoursText || "non précisés"}."${closedDaysText ? ` Puis ajoute: "Jours de fermeture: ${closedDaysText}."` : ""}`
+            ? `AVANT de demander les préférences de rendez-vous, tu DOIS dire: "Avant de me communiquer vos préférences de rendez-vous, le garage est ouvert ${garageHoursText || "aux horaires habituels"}."${closedDaysText ? ` Puis ajoute: "Jours de fermeture: ${closedDaysText}."` : ""} Ensuite, demande UNIQUEMENT le jour qui convient le mieux.`
             : "";
         const pricingLine = pricingSummary
           ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}
@@ -2417,6 +2425,10 @@ ${vehicleInfoRule}
   * ÉTAPE 2B - Si le client n'a PAS de plaque enregistrée: Propose d'envoyer un SMS: "Je vais vous envoyer un message pour que vous m'envoyiez votre plaque d'immatriculation et le kilométrage approximatif. À la fin de cet appel, vous aurez juste à répondre et un conseiller vous rappellera au plus vite. Ça vous va ?" Tu DOIS attendre la confirmation explicite du client ("oui", "d'accord", "ok", etc.) avant de dire que tu envoies le SMS. Une fois qu'il a confirmé, tu dis: "Parfait, je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît avec votre plaque et le kilométrage."
   * RÈGLE ABSOLUE: Ne propose JAMAIS un SMS pour la plaque si le client a déjà une plaque enregistrée. Annonce directement la plaque enregistrée et demande confirmation.
 - Si le client donne une préférence de créneau (ex: "le matin", "l'après-midi"), tu DOIS la respecter et la reformuler.
+- Procédure RDV OBLIGATOIRE pour les préférences:
+  * Étape 1: annoncer les horaires d'ouverture (et jours de fermeture si disponibles) AVANT toute question de préférence.
+  * Étape 2: demander le JOUR qui convient le mieux.
+  * Étape 3: APRES la réponse du client, demander "plutôt le matin ou l'après-midi ?"
 - Tu ne confirmes jamais un rendez-vous à une autre période que celle demandée. Si tu as un doute, tu demandes confirmation.
 - Si mode rendez-vous = demande: tu ne dis jamais "c'est confirmé" / "c'est fixé". Tu dis "je note la demande" et "on vous rappelle pour confirmer".
 - Si mode rendez-vous = demande: tu demandes UNIQUEMENT les disponibilités (jour + plutôt matin/après-midi). Tu peux suggérer des options ("demain / après-demain") mais tu précises que ce n'est pas confirmé. Tu communiques les jours de fermeture du garage si disponibles.
