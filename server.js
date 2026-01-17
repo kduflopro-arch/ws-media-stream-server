@@ -375,6 +375,7 @@ wss.on("connection", (ws, req) => {
   let garageClosed = false;
   let garageClosedReason = "";
   let garageClosedText = "";
+  let garageHoursText = "";
   let closedDaysText = ""; // Jours de fermeture hebdomadaires (ex: "Le garage est fermé le dimanche")
   let collectVehicleInfo = false;
   let pricingSummary = "";
@@ -541,6 +542,7 @@ wss.on("connection", (ws, req) => {
   let plateSmsConsentDeadlineMs = 0;
   let plateSmsWaitingForReply = false;
   let plateSmsPollTimer = null;
+  let plateSmsSendOnFinalize = false;
 
   function isAffirmativeFr(text) {
     const t = String(text || "").toLowerCase();
@@ -1896,6 +1898,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\b(\d{1,4})\s*km\b/gi, (_, n) => `${numberToFrenchWords(n)} kilomètres`);
     t = t.replace(/\b(\d{1,4})\s*minutes?\b/gi, (_, n) => `${numberToFrenchWords(n)} minutes`);
     t = t.replace(/\b(\d{1,4})\s*min\b/gi, (_, n) => `${numberToFrenchWords(n)} minutes`);
+    // Tous les nombres restants → en lettres (ou par chiffres séparés si trop grand)
+    t = t.replace(/\b(\d{1,6})\b/g, (_, n) => numberToFrenchWords(n));
     // Heures (ex: 9h, 9h30, 9 h 30)
     t = t.replace(/\b(\d{1,2})\s*h\s*(\d{1,2})?\b/gi, (_, h, m) => {
       const hoursNum = Number(h);
@@ -2245,6 +2249,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             : "Consentement enregistrement: non requis.";
 
         const hoursPolicyLine = `Horaires: l'IA répond H24. Les horaires/vacances sont PUREMENT informatifs pour le client (pas bloquants, pas de raccrochage automatique).`;
+        const hoursInfoLine = garageHoursText
+          ? `Horaires d'ouverture du garage: ${garageHoursText}`
+          : "";
         
         // Construire la ligne des jours de fermeture hebdomadaires
         let closedDaysLine = "";
@@ -2257,7 +2264,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           : "Info horaires (interne): garage indiqué ouvert.";
         const hoursReminderLine =
           appointmentMode === "request"
-            ? `Quand tu demandes des préférences de rendez-vous, rappelle que le garage est ${garageClosed ? "fermé" : "ouvert"} actuellement${garageClosedText ? ` (${garageClosedText})` : ""}. Indique aussi les jours de fermeture si disponibles.`
+            ? `AVANT de demander les préférences de rendez-vous, annonce clairement les horaires d'ouverture${hoursInfoLine ? ` (${garageHoursText})` : ""} et les jours de fermeture si disponibles.`
             : "";
         const pricingLine = pricingSummary
           ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}
@@ -2326,6 +2333,7 @@ Objectif: comprendre précisément le besoin, rassurer, et avancer vers une pris
 ${modeLine}
 ${consentLine}
 ${hoursPolicyLine}
+${hoursInfoLine ? `${hoursInfoLine}\n` : ""}
 ${closedInfoLine}
 ${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
 ${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}${hoursReminderLine ? `${hoursReminderLine}\n` : ""}Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant. Utilise parfois de petits marqueurs d'écoute ("d'accord", "je vois") sans surjouer.
@@ -2470,6 +2478,7 @@ Objectif: comprendre précisément le besoin, rassurer, et avancer vers une pris
 ${modeLine}
 ${consentLine}
 ${hoursPolicyLine}
+${hoursInfoLine ? `${hoursInfoLine}\n` : ""}
 ${closedInfoLine}
 ${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
 ${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${newClientInfoLine}\n\n${hoursReminderLine ? `${hoursReminderLine}\n` : ""}Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant. Utilise parfois de petits marqueurs d'écoute ("d'accord", "je vois") sans surjouer.
@@ -3390,6 +3399,11 @@ But: être naturel et mettre le client en confiance.`,
         const finalGarageClosed = startParams.garageClosed || "";
         const finalGarageClosedReason = startParams.garageClosedReason || "";
         const finalGarageClosedText = startParams.garageClosedText || "";
+        const finalGarageHoursText =
+          startParams.garageHoursText ||
+          startParams.openingHours ||
+          startParams.hoursText ||
+          "";
         const finalCollectVehicleInfo = startParams.collectVehicleInfo || "";
         const finalPricingSummary = startParams.pricingSummary || "";
         const finalServicesSummary = startParams.servicesSummary || "";
@@ -3425,6 +3439,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalGarageClosed === "string" && finalGarageClosed.trim()) garageClosed = finalGarageClosed.trim().toLowerCase() === "true";
         if (typeof finalGarageClosedReason === "string") garageClosedReason = String(finalGarageClosedReason || "").trim();
         if (typeof finalGarageClosedText === "string") garageClosedText = String(finalGarageClosedText || "").trim();
+        if (typeof finalGarageHoursText === "string") garageHoursText = String(finalGarageHoursText || "").trim();
         if (typeof finalClosedDaysText === "string") closedDaysText = String(finalClosedDaysText || "").trim();
         if (typeof finalCollectVehicleInfo === "string" && finalCollectVehicleInfo.trim()) collectVehicleInfo = finalCollectVehicleInfo.trim().toLowerCase() === "true";
         if (typeof finalPricingSummary === "string") pricingSummary = String(finalPricingSummary || "").trim();
@@ -3794,22 +3809,12 @@ But: être naturel et mettre le client en confiance.`,
                         if (plateSmsConsentPending && nowMs() <= plateSmsConsentDeadlineMs) {
                           if (isAffirmativeFr(txt)) {
                             plateSmsConsentPending = false;
-                            // Envoyer le SMS maintenant (seulement si OK)
-                            const smsResult = await requestPlateSmsIfNeeded("user_accepted_plate_sms");
-                            if (smsResult && smsResult.sent) {
-                              // Démarrer le polling
-                              plateSmsWaitingForReply = true;
-                              if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
-                              plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
-                              // Petite phrase "j'attends votre réponse au SMS"
-                              enqueueElevenLabsTts("Parfait. Je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît.", { interrupt: true });
-                            } else {
-                              console.warn("⚠️ SMS non envoyé malgré accord client:", smsResult);
-                              enqueueElevenLabsTts(
-                                "Désolé, le SMS n'est pas parti. Je vais vous l'envoyer dès que possible. Vous pourrez répondre par SMS avec votre plaque.",
-                                { interrupt: true },
-                              );
-                            }
+                            // Envoyer le SMS à la fin de l'appel
+                            plateSmsSendOnFinalize = true;
+                            enqueueElevenLabsTts(
+                              "Parfait. Je vous enverrai le SMS à la fin de l'appel. Vous pourrez répondre par SMS avec votre plaque.",
+                              { interrupt: true },
+                            );
                           } else if (isNegativeFr(txt)) {
                             plateSmsConsentPending = false;
                             enqueueElevenLabsTts("D'accord. Dans ce cas, dites-moi la plaque lettre par lettre, s'il vous plaît.", { interrupt: true });
@@ -4006,6 +4011,10 @@ But: être naturel et mettre le client en confiance.`,
       } else if (msg.event === "stop") {
         console.log("🛑 Stream stop (Twilio a demandé l'arrêt)");
         console.log("🛑 Raison possible: timeout, erreur Twilio, ou fin d'appel normale");
+        if (plateSmsSendOnFinalize) {
+          plateSmsSendOnFinalize = false;
+          requestPlateSmsIfNeeded("send_plate_sms_on_finalize").catch(() => {});
+        }
         finalizeCallToAutoGuru("twilio_stop");
         if (outboundTimer) {
           clearInterval(outboundTimer);
@@ -4034,6 +4043,10 @@ But: être naturel et mettre le client en confiance.`,
 
   ws.on("close", () => {
     console.log("🔌 Connection closed. Media frames total:", mediaCount);
+    if (plateSmsSendOnFinalize) {
+      plateSmsSendOnFinalize = false;
+      requestPlateSmsIfNeeded("send_plate_sms_on_finalize_ws_close").catch(() => {});
+    }
     finalizeCallToAutoGuru("ws_close");
     if (outboundTimer) {
       clearInterval(outboundTimer);
