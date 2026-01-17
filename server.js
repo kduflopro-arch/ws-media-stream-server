@@ -489,7 +489,7 @@ wss.on("connection", (ws, req) => {
         if (!isSent) {
           console.warn("⚠️ SMS plaque: réponse OK mais pas de smsSid", { trigger, json });
           enqueueElevenLabsTts(
-            "Je n’arrive pas à vous envoyer le SMS. Dites-moi la plaque à l’oral, lettre par lettre s’il vous plaît.",
+            "Désolé, le SMS n'est pas parti. Je vais vous l'envoyer dès que possible. Vous pourrez répondre par SMS avec votre plaque.",
             { interrupt: true },
           );
           return { sent: false, reason: "no_sms_sid" };
@@ -506,16 +506,16 @@ wss.on("connection", (ws, req) => {
       } else if (resp) {
         const t = await resp.text().catch(() => "");
         console.warn("⚠️ SMS plaque request non-ok:", { status: resp.status, trigger, body: t.slice(0, 180) });
-        // Fallback UX: si le SMS ne peut pas partir, on repasse en collecte orale
+        // Fallback UX: si le SMS ne peut pas partir, on informe sans demander la plaque à l'oral
         enqueueElevenLabsTts(
-          "Je n’arrive pas à vous envoyer le SMS. Dites-moi la plaque à l’oral, lettre par lettre s’il vous plaît.",
+          "Désolé, le SMS n'est pas parti. Je vais vous l'envoyer dès que possible. Vous pourrez répondre par SMS avec votre plaque.",
           { interrupt: true },
         );
         return { sent: false, reason: "http_error", status: resp.status };
       } else {
         console.warn("⚠️ SMS plaque request: aucune réponse (fetch échoué).", { trigger });
         enqueueElevenLabsTts(
-          "Petit souci d’envoi du SMS. Dites-moi la plaque à l’oral, lettre par lettre s’il vous plaît.",
+          "Petit souci d’envoi du SMS. Je vais vous l'envoyer dès que possible. Vous pourrez répondre par SMS avec votre plaque.",
           { interrupt: true },
         );
         return { sent: false, reason: "fetch_failed" };
@@ -3690,6 +3690,10 @@ But: être naturel et mettre le client en confiance.`,
                               enqueueElevenLabsTts("Parfait. Je vous envoie le SMS maintenant. Répondez au SMS s'il vous plaît.", { interrupt: true });
                             } else {
                               console.warn("⚠️ SMS non envoyé malgré accord client:", smsResult);
+                              enqueueElevenLabsTts(
+                                "Désolé, le SMS n'est pas parti. Je vais vous l'envoyer dès que possible. Vous pourrez répondre par SMS avec votre plaque.",
+                                { interrupt: true },
+                              );
                             }
                           } else if (isNegativeFr(txt)) {
                             plateSmsConsentPending = false;
