@@ -1884,11 +1884,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bexcuse\b/gi, "excuse");
     t = t.replace(/\bexcuses\b/gi, "excuses");
     
-    // Normalisation des montants en euros (1-99) pour éviter "1 et 2"
-    t = t.replace(/\b(\d{1,2})\s*€\b/gi, (_, n) => `${numberToFrenchWords(n)} euros`);
-    t = t.replace(/\b(\d{1,2})\s*euros?\b/gi, (_, n) => `${numberToFrenchWords(n)} euros`);
-    // Décimales en euros (ex: 12,50€)
-    t = t.replace(/\b(\d{1,4})[.,](\d{1,2})\s*€\b/gi, (_, n, d) => {
+    // Normalisation des montants en euros (1-9999) pour éviter "1 et 2"
+    t = t.replace(/\b(\d{1,4})\s*(?:€|euros?)\b/gi, (_, n) => `${numberToFrenchWords(n)} euros`);
+    // Décimales en euros (ex: 12,50€ / 12.50 euros)
+    t = t.replace(/\b(\d{1,4})[.,](\d{1,2})\s*(?:€|euros?)\b/gi, (_, n, d) => {
       const major = numberToFrenchWords(n);
       const minor = numberToFrenchWords(d);
       return `${major} euros ${minor}`;
@@ -2258,7 +2257,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           : "Info horaires (interne): garage indiqué ouvert.";
         const hoursReminderLine =
           appointmentMode === "request"
-            ? `Quand tu demandes des préférences de rendez-vous, rappelle les horaires d'ouverture et les jours de fermeture au client (si disponibles).`
+            ? `Quand tu demandes des préférences de rendez-vous, rappelle que le garage est ${garageClosed ? "fermé" : "ouvert"} actuellement${garageClosedText ? ` (${garageClosedText})` : ""}. Indique aussi les jours de fermeture si disponibles.`
             : "";
         const pricingLine = pricingSummary
           ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}
