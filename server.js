@@ -489,6 +489,11 @@ wss.on("connection", (ws, req) => {
             fromNumber: to,
             garageId: garageId || null
           });
+          try {
+            if (!clientInfo) clientInfo = {};
+            clientInfo.plate = json.existingPlate;
+          } catch {}
+          enqueueIngest("assistant", `Plaque client existante: ${json.existingPlate}.`);
           // L'IA devra demander confirmation de la plaque au lieu d'envoyer le SMS
           enqueueElevenLabsTts(
             `Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${json.existingPlate}. Est-ce bien correct ?`,
@@ -598,6 +603,13 @@ wss.on("connection", (ws, req) => {
         clearInterval(plateSmsPollTimer);
         plateSmsPollTimer = null;
       }
+
+      // Mettre à jour les infos client / détails d'appel
+      try {
+        if (!clientInfo) clientInfo = {};
+        clientInfo.plate = plate;
+      } catch {}
+      enqueueIngest("assistant", `Plaque reçue par SMS: ${plate}.`);
 
       // Dire au client qu'on a bien reçu la plaque, puis continuer
       const confirmText = `Parfait, j'ai bien reçu votre plaque ${plate}. Merci. Je continue maintenant.`;
@@ -4013,7 +4025,15 @@ But: être naturel et mettre le client en confiance.`,
         console.log("🛑 Raison possible: timeout, erreur Twilio, ou fin d'appel normale");
         if (plateSmsSendOnFinalize) {
           plateSmsSendOnFinalize = false;
-          requestPlateSmsIfNeeded("send_plate_sms_on_finalize").catch(() => {});
+          requestPlateSmsIfNeeded("send_plate_sms_on_finalize")
+            .then((res) => {
+              if (res && res.sent) {
+                plateSmsWaitingForReply = true;
+                if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
+                plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
+              }
+            })
+            .catch(() => {});
         }
         finalizeCallToAutoGuru("twilio_stop");
         if (outboundTimer) {
@@ -4045,7 +4065,15 @@ But: être naturel et mettre le client en confiance.`,
     console.log("🔌 Connection closed. Media frames total:", mediaCount);
     if (plateSmsSendOnFinalize) {
       plateSmsSendOnFinalize = false;
-      requestPlateSmsIfNeeded("send_plate_sms_on_finalize_ws_close").catch(() => {});
+      requestPlateSmsIfNeeded("send_plate_sms_on_finalize_ws_close")
+        .then((res) => {
+          if (res && res.sent) {
+            plateSmsWaitingForReply = true;
+            if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
+            plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
+          }
+        })
+        .catch(() => {});
     }
     finalizeCallToAutoGuru("ws_close");
     if (outboundTimer) {
