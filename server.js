@@ -484,15 +484,25 @@ wss.on("connection", (ws, req) => {
           );
           return { sent: false, skipped: true, reason: "client_has_plate", existingPlate: json.existingPlate };
         }
+        const smsSid = json?.smsSid ?? null;
+        const isSent = Boolean(smsSid || json?.status === "sent");
+        if (!isSent) {
+          console.warn("⚠️ SMS plaque: réponse OK mais pas de smsSid", { trigger, json });
+          enqueueElevenLabsTts(
+            "Je n’arrive pas à vous envoyer le SMS. Dites-moi la plaque à l’oral, lettre par lettre s’il vous plaît.",
+            { interrupt: true },
+          );
+          return { sent: false, reason: "no_sms_sid" };
+        }
         console.log("📩 SMS plaque demandé à AutoGuru.", { 
           trigger, 
-          smsSid: json?.smsSid ?? null,
+          smsSid,
           callSid,
           fromNumber: to,
           garageId: garageId || null,
           url
         });
-        return { sent: true, smsSid: json?.smsSid ?? null };
+        return { sent: true, smsSid };
       } else if (resp) {
         const t = await resp.text().catch(() => "");
         console.warn("⚠️ SMS plaque request non-ok:", { status: resp.status, trigger, body: t.slice(0, 180) });
@@ -1439,7 +1449,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Log explicite du texte qui va être prononcé (l'utilisateur pourra le copier facilement)
     console.log(`[AI-SAYS] ${clean}`);
     const lowerClean = clean.toLowerCase().trim();
-    if (lowerClean === "output" || lowerClean === "outpout" || lowerClean.startsWith("output ")) {
+    if (
+      lowerClean === "output" ||
+      lowerClean === "outpout" ||
+      lowerClean.startsWith("output ") ||
+      lowerClean.includes("output item") ||
+      lowerClean.includes("output_item") ||
+      lowerClean.includes("output text") ||
+      lowerClean.includes("output_text") ||
+      lowerClean.includes("messaging")
+    ) {
       console.log(`[TTS-ENQUEUE] BLOQUÉ: texte suspect (logs)`, clean.substring(0, 120));
       return;
     }
@@ -1592,6 +1611,61 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     return sum / mulawBuf.length;
   }
 
+  function numberToFrenchWords(n) {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return String(n);
+    if (num < 0 || num > 99) return String(n);
+    const units = [
+      "zéro",
+      "un",
+      "deux",
+      "trois",
+      "quatre",
+      "cinq",
+      "six",
+      "sept",
+      "huit",
+      "neuf",
+      "dix",
+      "onze",
+      "douze",
+      "treize",
+      "quatorze",
+      "quinze",
+      "seize",
+      "dix-sept",
+      "dix-huit",
+      "dix-neuf",
+    ];
+    if (num < 20) return units[num];
+    const tensMap = {
+      20: "vingt",
+      30: "trente",
+      40: "quarante",
+      50: "cinquante",
+      60: "soixante",
+    };
+    if (num < 70) {
+      const tens = Math.floor(num / 10) * 10;
+      const unit = num % 10;
+      if (unit === 0) return tensMap[tens];
+      if (unit === 1) return `${tensMap[tens]} et un`;
+      return `${tensMap[tens]}-${units[unit]}`;
+    }
+    if (num < 80) {
+      const rest = num - 60;
+      if (rest === 11) return "soixante et onze";
+      return `soixante-${units[rest]}`;
+    }
+    if (num < 90) {
+      const rest = num - 80;
+      if (rest === 0) return "quatre-vingt";
+      return `quatre-vingt-${units[rest]}`;
+    }
+    const rest = num - 80;
+    return `quatre-vingt-${units[rest]}`;
+  }
+
   // Pré-traitement TTS (améliore articulation/intonation en téléphonie)
   // IMPORTANT: Ce dictionnaire doit être appliqué de manière cohérente pour éviter les variations de prononciation
   // entre la phrase d'accueil et le reste de la conversation
@@ -1713,7 +1787,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bexcuse\b/gi, "excuse");
     t = t.replace(/\bexcuses\b/gi, "excuses");
     
-    // Normalisation des nombres pour cohérence
+    // Normalisation des montants en euros (1-99) pour éviter "1 et 2"
+    t = t.replace(/\b(\d{1,2})\s*€\b/gi, (_, n) => `${numberToFrenchWords(n)} euros`);
+    t = t.replace(/\b(\d{1,2})\s*euros?\b/gi, (_, n) => `${numberToFrenchWords(n)} euros`);
+    // Normalisation des nombres pour cohérence (fallback)
     t = t.replace(/\b(\d+)\s*€\b/gi, "$1 euros");
     t = t.replace(/\b(\d+)\s*euros?\b/gi, "$1 euros");
     t = t.replace(/\b(\d+)\s*km\b/gi, "$1 kilomètres");
@@ -2063,6 +2140,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const closedInfoLine = garageClosed
           ? `Info horaires (interne): le garage est actuellement indiqué comme fermé. (${garageClosedReason || "closed"}) ${garageClosedText || ""} Tu NE le mentionnes PAS au début. Tu le mentionnes uniquement en fin d'appel, selon les règles ci-dessous.`
           : "Info horaires (interne): garage indiqué ouvert.";
+        const hoursReminderLine =
+          appointmentMode === "request"
+            ? `Quand tu demandes des préférences de rendez-vous, rappelle les horaires d'ouverture et les jours de fermeture au client (si disponibles).`
+            : "";
         const pricingLine = pricingSummary
           ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}
 IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu DOIS donner le prix indiqué ET préciser que le prix peut varier selon le véhicule. Ajoute ensuite: "Tout sera inscrit lorsque vous aurez établi le devis avec le garage." ou une phrase similaire. Exemple: "Pour une vidange, c'est environ 45€, mais le prix peut varier selon le véhicule. Tout sera inscrit lorsque vous aurez établi le devis avec le garage."`
@@ -2132,7 +2213,7 @@ ${consentLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
 ${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
-${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant. Utilise parfois de petits marqueurs d'écoute ("d'accord", "je vois") sans surjouer.
+${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}${hoursReminderLine ? `${hoursReminderLine}\n` : ""}Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant. Utilise parfois de petits marqueurs d'écoute ("d'accord", "je vois") sans surjouer.
 Format: réponses courtes (1 à 2 phrases), puis UNE question.
 Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, virgules, questions).`;
 
@@ -2214,7 +2295,7 @@ ${garageClosed
 - N'enchaîne pas deux fois "Garage X, bonjour" dans la même phrase.`;
 
         const neutralPersona =
-          `Persona: assistant téléphonique professionnel, cordial et concis.`;
+          `Persona: assistant téléphonique professionnel, cordial, chaleureux et concis.`;
 
         // IMPORTANT: sur notre modèle Realtime actuel, `session.input_audio_transcription` n'est PAS supporté
         // (Render logs: unknown_parameter). On le désactive par défaut.
@@ -2276,7 +2357,7 @@ ${consentLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
 ${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
-${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${newClientInfoLine}\n\nStyle: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant. Utilise parfois de petits marqueurs d'écoute ("d'accord", "je vois") sans surjouer.
+${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${newClientInfoLine}\n\n${hoursReminderLine ? `${hoursReminderLine}\n` : ""}Style: chaleureux, pro, un peu "commercial" (donner envie), mais jamais insistant. Utilise parfois de petits marqueurs d'écoute ("d'accord", "je vois") sans surjouer.
 Format: réponses courtes (1 à 2 phrases), puis UNE question.
 Intonation/rythme: utilise la ponctuation pour sonner naturel (phrases courtes, virgules, questions).`;
           
