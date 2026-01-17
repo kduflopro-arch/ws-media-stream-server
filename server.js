@@ -1758,7 +1758,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Abbréviations courantes
     t = t.replace(/\bRDV\b/gi, "rendez-vous");
     t = t.replace(/\bOK\b/g, "ok");
-    t = t.replace(/\bSMS\b/gi, "S M S"); // Prononcer lettre par lettre pour SMS
+    t = t.replace(/\bSMS\b/gi, "un message"); // Dire "un message" au lieu de "SMS"
     // Sigles auto (prononcer lettre par lettre)
     t = t.replace(/\bFAP\b/gi, "F A P");
     t = t.replace(/\bABS\b/gi, "A B S");
