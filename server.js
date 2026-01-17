@@ -292,6 +292,17 @@ wss.on("connection", (ws, req) => {
   const OUTPUT_USER_SILENCE_FRAMES = Number(process.env.OUTPUT_USER_SILENCE_FRAMES ?? "18"); // ~360ms
   // N'autoriser une réponse IA que dans une fenêtre proche de la dernière prise de parole utilisateur
   const ASSISTANT_RESPONSE_WINDOW_MS = Number(process.env.ASSISTANT_RESPONSE_WINDOW_MS ?? "15000");
+  const LOG_TTS = (process.env.LOG_TTS ?? "false").toLowerCase() === "true";
+  const LOG_MINIMAX_CHUNKS = (process.env.LOG_MINIMAX_CHUNKS ?? "false").toLowerCase() === "true";
+  const LOG_MINIMAX_CHUNK_EVERY = Number(process.env.LOG_MINIMAX_CHUNK_EVERY ?? "50");
+  const LOG_TTS_VERBOSE = (process.env.LOG_TTS_VERBOSE ?? "false").toLowerCase() === "true";
+
+  function ttsVerbose(...args) {
+    if (LOG_TTS_VERBOSE) console.log(...args);
+  }
+  const LOG_MINIMAX_EVENTS = (process.env.LOG_MINIMAX_EVENTS ?? "false").toLowerCase() === "true";
+  const LOG_TWILIO_FRAMES = (process.env.LOG_TWILIO_FRAMES ?? "false").toLowerCase() === "true";
+  const LOG_VAD = (process.env.LOG_VAD ?? "false").toLowerCase() === "true";
   let outUserSpeechFrames = 0;
   let outUserSilenceFrames = 0;
   let outUserSpeaking = false;
@@ -948,24 +959,32 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // LOG TRÈS VISIBLE au tout début pour tracer chaque appel (avec et sans emojis pour compatibilité)
     const rawText = String(text || "").substring(0, 200);
     const lastTextPreview = premiumTtsLastText ? premiumTtsLastText.substring(0, 50) : "null";
-    console.log(`[TTS-MINIMAX] ENTRÉE [interrupt=${interrupt}] [inFlight=${premiumTtsInFlight}] [lastText=${lastTextPreview}]`);
-    console.log(`[TTS-MINIMAX] TEXTE:`, rawText);
-    console.log(`🚨🚨🚨 speakWithMinimaxNow ENTRÉE (raw text):`, rawText);
-    console.log(`🚨🚨🚨 speakWithMinimaxNow ENTRÉE (interrupt=${interrupt}, inFlight=${premiumTtsInFlight}, lastText=${lastTextPreview})`);
+    if (LOG_TTS) {
+      console.log(`[TTS-MINIMAX] ENTRÉE [interrupt=${interrupt}] [inFlight=${premiumTtsInFlight}] [lastText=${lastTextPreview}]`);
+      console.log(`[TTS-MINIMAX] TEXTE:`, rawText);
+      console.log(`🚨🚨🚨 speakWithMinimaxNow ENTRÉE (raw text):`, rawText);
+      console.log(`🚨🚨🚨 speakWithMinimaxNow ENTRÉE (interrupt=${interrupt}, inFlight=${premiumTtsInFlight}, lastText=${lastTextPreview})`);
+    }
     
     if (!PREMIUM_TTS_ENABLED) {
-      console.log(`[TTS-MINIMAX] SORTIE: PREMIUM_TTS_ENABLED=false`);
-      console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_ENABLED=false`);
+      if (LOG_TTS) {
+        console.log(`[TTS-MINIMAX] SORTIE: PREMIUM_TTS_ENABLED=false`);
+        console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_ENABLED=false`);
+      }
       return;
     }
     if (PREMIUM_TTS_PROVIDER !== "minimax") {
-      console.log(`[TTS-MINIMAX] SORTIE: PREMIUM_TTS_PROVIDER=${PREMIUM_TTS_PROVIDER} !== minimax`);
-      console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_PROVIDER=${PREMIUM_TTS_PROVIDER} !== minimax`);
+      if (LOG_TTS) {
+        console.log(`[TTS-MINIMAX] SORTIE: PREMIUM_TTS_PROVIDER=${PREMIUM_TTS_PROVIDER} !== minimax`);
+        console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_PROVIDER=${PREMIUM_TTS_PROVIDER} !== minimax`);
+      }
       return;
     }
     if (nowMs() < premiumTtsBypassUntilMs) {
-      console.log(`[TTS-MINIMAX] SORTIE: bypass actif jusqu'à ${premiumTtsBypassUntilMs}`);
-      console.log(`🚨 speakWithMinimaxNow SORTIE: bypass actif jusqu'à ${premiumTtsBypassUntilMs}`);
+      if (LOG_TTS) {
+        console.log(`[TTS-MINIMAX] SORTIE: bypass actif jusqu'à ${premiumTtsBypassUntilMs}`);
+        console.log(`🚨 speakWithMinimaxNow SORTIE: bypass actif jusqu'à ${premiumTtsBypassUntilMs}`);
+      }
       return;
     }
     const selectedVoiceId =
@@ -986,14 +1005,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (premiumTtsLastText) {
       const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/[.,!?;:]/g, "").trim();
       if (lastNormalized === normalizedForCompare && premiumTtsInFlight) {
-        console.log(`[TTS-MINIMAX] IGNORÉ (même texte en cours de synthèse):`, clean.substring(0, 120));
-        console.log(`🔁 speakWithMinimaxNow ignoré (même texte en cours de synthèse):`, clean.substring(0, 120));
+        if (LOG_TTS) {
+          console.log(`[TTS-MINIMAX] IGNORÉ (même texte en cours de synthèse):`, clean.substring(0, 120));
+          console.log(`🔁 speakWithMinimaxNow ignoré (même texte en cours de synthèse):`, clean.substring(0, 120));
+        }
         return;
       }
     }
 
-    console.log(`[TTS-MINIMAX] APPELÉ (démarrage synthèse):`, clean.substring(0, 120));
-    console.log(`🎤 speakWithMinimaxNow appelé:`, clean.substring(0, 120));
+    if (LOG_TTS) {
+      console.log(`[TTS-MINIMAX] APPELÉ (démarrage synthèse):`, clean.substring(0, 120));
+      console.log(`🎤 speakWithMinimaxNow appelé:`, clean.substring(0, 120));
+    }
     premiumTtsLastText = clean;
 
     // Stopper toute synthèse en cours et couper l'audio en file
@@ -1018,7 +1041,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       const apiKey = MINIMAX_API_KEY.startsWith("Bearer ") ? MINIMAX_API_KEY.substring(7) : MINIMAX_API_KEY;
       
-      console.log("🔌 Connexion Minimax WebSocket...", { url: wsUrl.replace(/GroupId=[^&]+/, "GroupId=***") });
+      if (LOG_MINIMAX_EVENTS) {
+        console.log("🔌 Connexion Minimax WebSocket...", { url: wsUrl.replace(/GroupId=[^&]+/, "GroupId=***") });
+      }
       minimaxWs = new WebSocket(wsUrl, {
         headers: {
           "Authorization": `Bearer ${apiKey}`,
@@ -1032,7 +1057,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       minimaxWs.on("message", (data) => {
         try {
           const msg = JSON.parse(data.toString());
-          console.log("📨 Minimax message:", msg.event || "unknown", Object.keys(msg));
+          if (LOG_MINIMAX_EVENTS) {
+            console.log("📨 Minimax message:", msg.event || "unknown", Object.keys(msg));
+          }
           
           if (messageResolver) {
             messageResolver(msg);
@@ -1104,7 +1131,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       };
 
       const connectedMsg = await waitForMessage("connected_success");
-      console.log("✅ Minimax WebSocket connecté:", connectedMsg);
+      if (LOG_MINIMAX_EVENTS) console.log("✅ Minimax WebSocket connecté:", connectedMsg);
 
       // Démarrer la tâche TTS
       // Selon la doc Minimax WebSocket, les modèles supportés sont:
@@ -1132,19 +1159,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         },
       };
 
-      console.log("📤 Envoi task_start:", JSON.stringify(taskStartMsg, null, 2));
+      if (LOG_MINIMAX_EVENTS) console.log("📤 Envoi task_start:", JSON.stringify(taskStartMsg, null, 2));
       minimaxWs.send(JSON.stringify(taskStartMsg));
 
       // Attendre "task_started"
       const taskStartedMsg = await waitForMessage("task_started");
-      console.log("✅ Tâche Minimax démarrée:", taskStartedMsg);
+      if (LOG_MINIMAX_EVENTS) console.log("✅ Tâche Minimax démarrée:", taskStartedMsg);
 
       // Envoyer le texte
       const continueMsg = {
         event: "task_continue",
         text: clean,
       };
-      console.log("📤 Envoi task_continue:", { textLength: clean.length });
+      if (LOG_MINIMAX_EVENTS) console.log("📤 Envoi task_continue:", { textLength: clean.length });
       minimaxWs.send(JSON.stringify(continueMsg));
 
       // Collecter l'audio en streaming - écouter tous les messages
@@ -1178,12 +1205,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           checkForMessage();
         });
 
-        console.log("📨 Minimax réponse:", msg.event || "data", {
-          hasData: !!(msg.data),
-          hasAudio: !!(msg.data && msg.data.audio),
-          isFinal: msg.is_final,
-          audioLength: msg.data?.audio ? msg.data.audio.length : 0,
-        });
+        if (LOG_MINIMAX_EVENTS) {
+          console.log("📨 Minimax réponse:", msg.event || "data", {
+            hasData: !!(msg.data),
+            hasAudio: !!(msg.data && msg.data.audio),
+            isFinal: msg.is_final,
+            audioLength: msg.data?.audio ? msg.data.audio.length : 0,
+          });
+        }
         
         if (msg.data && msg.data.audio) {
           // Audio en hexadécimal selon la doc
@@ -1192,10 +1221,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           audioData = Buffer.concat([audioData, audioBytes]);
           chunkCounter++;
           
-          console.log(`🎵 Minimax audio chunk ${chunkCounter}:`, { 
-            hexLength: audioHex.length, 
-            bytesLength: audioBytes.length 
-          });
+          if (LOG_MINIMAX_CHUNKS && (chunkCounter % LOG_MINIMAX_CHUNK_EVERY === 0 || msg.is_final)) {
+            console.log(`🎵 Minimax audio chunk ${chunkCounter}:`, { 
+              hexLength: audioHex.length, 
+              bytesLength: audioBytes.length 
+            });
+          }
           
           // Si le format est MP3, on doit le décoder en PCM16
           // Pour l'instant, on accumule tous les chunks MP3 et on les décode à la fin
@@ -1212,7 +1243,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           // On détecte automatiquement le sample rate en fonction de la taille des données
           if (audioData.length > 0) {
             try {
-              console.log(`🎵 Décodage PCM: ${audioData.length} bytes`);
+          if (LOG_MINIMAX_EVENTS) console.log(`🎵 Décodage PCM: ${audioData.length} bytes`);
               
               // Le format "pcm" retourne du PCM16 brut (pas de header WAV/MP3)
               // Convertir directement en Int16Array
@@ -1228,13 +1259,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               // Pour une phrase de ~2 secondes à 32kHz: ~64000 samples
               // Si on a plus de 20000 samples, c'est probablement du 32kHz
               const expectedSampleRate = (pcmRaw.length > 20000) ? 32000 : 8000;
-              console.log(`🎵 PCM reçu: ${pcmRaw.length} samples (détecté: ${expectedSampleRate}Hz)`);
+              if (LOG_MINIMAX_EVENTS) {
+                console.log(`🎵 PCM reçu: ${pcmRaw.length} samples (détecté: ${expectedSampleRate}Hz)`);
+              }
               
               let mulaw;
               if (expectedSampleRate === 32000) {
                 // Downsampler de 32kHz à 8kHz (1 sur 4)
                 mulaw = convertPcm32kToMulaw(pcmRaw);
-                console.log(`🎵 Downsampled: ${pcmRaw.length} samples @ 32kHz → ${mulaw.length} samples @ 8kHz`);
+                if (LOG_MINIMAX_EVENTS) {
+                  console.log(`🎵 Downsampled: ${pcmRaw.length} samples @ 32kHz → ${mulaw.length} samples @ 8kHz`);
+                }
               } else {
                 // Déjà à 8kHz, conversion directe
                 mulaw = convertPcm8kToMulaw(pcmRaw);
@@ -1426,25 +1461,31 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   function enqueuePremiumTts(text, { interrupt = true, source = "unknown", responseId = null, allowWithoutUser = false } = {}) {
     // LOG TRÈS VISIBLE au tout début pour tracer chaque appel (avec et sans emojis pour compatibilité)
     const rawText = String(text || "").substring(0, 200);
-    console.log(`[TTS-ENQUEUE] ENTRÉE [source: ${source}] [interrupt=${interrupt}] [queueLen=${premiumTtsQueue.length}] [inFlight=${premiumTtsInFlight}]`);
-    console.log(`[TTS-ENQUEUE] TEXTE:`, rawText);
-    console.log(`🚨🚨🚨 enqueuePremiumTts ENTRÉE [source: ${source}]:`, rawText);
-    console.log(`🚨🚨🚨 enqueuePremiumTts ENTRÉE (interrupt=${interrupt}, queueLen=${premiumTtsQueue.length}, inFlight=${premiumTtsInFlight})`);
+    if (LOG_TTS) {
+      console.log(`[TTS-ENQUEUE] ENTRÉE [source: ${source}] [interrupt=${interrupt}] [queueLen=${premiumTtsQueue.length}] [inFlight=${premiumTtsInFlight}]`);
+      console.log(`[TTS-ENQUEUE] TEXTE:`, rawText);
+      console.log(`🚨🚨🚨 enqueuePremiumTts ENTRÉE [source: ${source}]:`, rawText);
+      console.log(`🚨🚨🚨 enqueuePremiumTts ENTRÉE (interrupt=${interrupt}, queueLen=${premiumTtsQueue.length}, inFlight=${premiumTtsInFlight})`);
+    }
     
     if (!PREMIUM_TTS_ENABLED) {
-      console.log(`[TTS-ENQUEUE] SORTIE: PREMIUM_TTS_ENABLED=false`);
-      console.log(`🚨 enqueuePremiumTts SORTIE: PREMIUM_TTS_ENABLED=false`);
+      if (LOG_TTS) {
+        console.log(`[TTS-ENQUEUE] SORTIE: PREMIUM_TTS_ENABLED=false`);
+        console.log(`🚨 enqueuePremiumTts SORTIE: PREMIUM_TTS_ENABLED=false`);
+      }
       return;
     }
     const normalized = normalizeFrenchTtsText((text || "").trim());
     if (!normalized) {
-      console.log(`[TTS-ENQUEUE] SORTIE: texte vide après normalisation`);
-      console.log(`🚨 enqueuePremiumTts SORTIE: texte vide après normalisation`);
+      if (LOG_TTS) {
+        console.log(`[TTS-ENQUEUE] SORTIE: texte vide après normalisation`);
+        console.log(`🚨 enqueuePremiumTts SORTIE: texte vide après normalisation`);
+      }
       return;
     }
     const clean = clipTtsText(normalized, MAX_TTS_CHARS);
     if (clean.length < normalized.length) {
-      console.log(`[TTS-ENQUEUE] TEXTE TRONQUÉ: ${normalized.length} -> ${clean.length} chars`);
+      if (LOG_TTS) console.log(`[TTS-ENQUEUE] TEXTE TRONQUÉ: ${normalized.length} -> ${clean.length} chars`);
     }
     // Log explicite du texte qui va être prononcé (l'utilisateur pourra le copier facilement)
     console.log(`[AI-SAYS] ${clean}`);
@@ -1459,7 +1500,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       lowerClean.includes("output_text") ||
       lowerClean.includes("messaging")
     ) {
-      console.log(`[TTS-ENQUEUE] BLOQUÉ: texte suspect (logs)`, clean.substring(0, 120));
+      if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: texte suspect (logs)`, clean.substring(0, 120));
       return;
     }
 
@@ -1471,12 +1512,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!allowWithoutUser) {
       const hasRecentUserSpeech = lastCommittedAt > 0 && (now - lastCommittedAt) <= ASSISTANT_RESPONSE_WINDOW_MS;
       if (!hasRecentUserSpeech) {
-        console.log(`[TTS-ENQUEUE] BLOQUÉ: pas de parole utilisateur récente (lastCommittedAt=${lastCommittedAt})`);
+        if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: pas de parole utilisateur récente (lastCommittedAt=${lastCommittedAt})`);
         return;
       }
       // Une seule réponse TTS par commit utilisateur (évite les répétitions multi-events)
       if (lastSpokenCommitAt && lastCommittedAt && lastSpokenCommitAt === lastCommittedAt) {
-        console.log(`[TTS-ENQUEUE] BLOQUÉ: déjà parlé pour ce commit`, { lastCommittedAt });
+        if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: déjà parlé pour ce commit`, { lastCommittedAt });
         return;
       }
     }
@@ -1485,7 +1526,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (responseId) {
       const prev = spokenResponseIds.get(responseId);
       if (prev) {
-        console.log(`[TTS-ENQUEUE] BLOQUÉ: responseId déjà parlé`, { responseId });
+        if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: responseId déjà parlé`, { responseId });
         return;
       }
     }
@@ -1493,7 +1534,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Anti-répétition par texte sur fenêtre courte (même si responseId change)
     recentAssistantTexts = recentAssistantTexts.filter((t) => (now - t.ts) < 60_000);
     if (recentAssistantTexts.some((t) => t.text === normalizedForCompare)) {
-      console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment`, clean.substring(0, 120));
+      if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment`, clean.substring(0, 120));
       return;
     }
 
@@ -1502,10 +1543,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (premiumTtsLastText) {
       const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/[.,!?;:]/g, "").trim();
       if (lastNormalized === normalizedForCompare) {
-        console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (identique au précédent) [source: ${source}]:`, clean.substring(0, 120));
-        console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
-        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (texte identique au précédent) [source: ${source}]:`, clean.substring(0, 120));
-        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
+        if (LOG_TTS) {
+          console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (identique au précédent) [source: ${source}]:`, clean.substring(0, 120));
+          console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
+          console.log(`🚨🚨🚨 REPETITION BLOQUÉE (texte identique au précédent) [source: ${source}]:`, clean.substring(0, 120));
+          console.log(`🚨🚨🚨 REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
+        }
         return;
       }
     }
@@ -1514,8 +1557,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const jobNormalized = normalizeFrenchTtsText(job.text.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim();
       return jobNormalized === normalizedForCompare;
     })) {
-      console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
-      console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
+      if (LOG_TTS) {
+        console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
+        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
+      }
       return;
     }
 
@@ -1554,10 +1599,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       lastSpokenCommitAt = lastCommittedAt;
     }
     recentAssistantTexts.push({ text: normalizedForCompare, ts: now });
-    console.log(`[TTS-ENQUEUE] ENQUEUED (ajouté à la queue) [source: ${source}] [queueLen=${premiumTtsQueue.length}] [interrupt=${interrupt}]`);
-    console.log(`[TTS-ENQUEUE] TEXTE ENQUEUED:`, clean.substring(0, 200));
-    console.log(`🚨🚨🚨 TTS ENQUEUED (ajouté à la queue) [source: ${source}]:`, clean.substring(0, 200));
-    console.log(`🚨🚨🚨 TTS ENQUEUED (queueLen=${premiumTtsQueue.length}, interrupt=${interrupt})`);
+    if (LOG_TTS) {
+      console.log(`[TTS-ENQUEUE] ENQUEUED (ajouté à la queue) [source: ${source}] [queueLen=${premiumTtsQueue.length}] [interrupt=${interrupt}]`);
+      console.log(`[TTS-ENQUEUE] TEXTE ENQUEUED:`, clean.substring(0, 200));
+      console.log(`🚨🚨🚨 TTS ENQUEUED (ajouté à la queue) [source: ${source}]:`, clean.substring(0, 200));
+      console.log(`🚨🚨🚨 TTS ENQUEUED (queueLen=${premiumTtsQueue.length}, interrupt=${interrupt})`);
+    }
     void drainPremiumTtsQueue();
   }
 
@@ -1578,8 +1625,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const jobNormalized = normalizeFrenchTtsText(job.text.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim();
         const lastNormalized = lastProcessedText ? normalizeFrenchTtsText(lastProcessedText.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim() : "";
         if (lastNormalized && jobNormalized === lastNormalized) {
-          console.log(`[TTS-DRAIN] IGNORÉ (doublon dans la queue):`, job.text.substring(0, 120));
-          console.log(`🔁 drainPremiumTtsQueue ignoré (doublon dans la queue):`, job.text.substring(0, 120));
+          if (LOG_TTS) {
+            console.log(`[TTS-DRAIN] IGNORÉ (doublon dans la queue):`, job.text.substring(0, 120));
+            console.log(`🔁 drainPremiumTtsQueue ignoré (doublon dans la queue):`, job.text.substring(0, 120));
+          }
           continue;
         }
         lastProcessedText = job.text;
@@ -1614,7 +1663,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   function numberToFrenchWords(n) {
     const num = Number(n);
     if (!Number.isFinite(num)) return String(n);
-    if (num < 0 || num > 99) return String(n);
+    if (num < 0 || num > 9999) return String(n);
     const units = [
       "zéro",
       "un",
@@ -1637,7 +1686,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       "dix-huit",
       "dix-neuf",
     ];
-    if (num < 20) return units[num];
     const tensMap = {
       20: "vingt",
       30: "trente",
@@ -1645,25 +1693,44 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       50: "cinquante",
       60: "soixante",
     };
-    if (num < 70) {
-      const tens = Math.floor(num / 10) * 10;
-      const unit = num % 10;
-      if (unit === 0) return tensMap[tens];
-      if (unit === 1) return `${tensMap[tens]} et un`;
-      return `${tensMap[tens]}-${units[unit]}`;
-    }
-    if (num < 80) {
-      const rest = num - 60;
-      if (rest === 11) return "soixante et onze";
-      return `soixante-${units[rest]}`;
-    }
-    if (num < 90) {
-      const rest = num - 80;
-      if (rest === 0) return "quatre-vingt";
-      return `quatre-vingt-${units[rest]}`;
-    }
-    const rest = num - 80;
-    return `quatre-vingt-${units[rest]}`;
+    const twoDigits = (n2) => {
+      if (n2 < 20) return units[n2];
+      if (n2 < 70) {
+        const tens = Math.floor(n2 / 10) * 10;
+        const unit = n2 % 10;
+        if (unit === 0) return tensMap[tens];
+        if (unit === 1) return `${tensMap[tens]} et un`;
+        return `${tensMap[tens]}-${units[unit]}`;
+      }
+      if (n2 < 80) {
+        const rest = n2 - 60;
+        if (rest === 11) return "soixante et onze";
+        return `soixante-${units[rest]}`;
+      }
+      if (n2 < 100) {
+        const rest = n2 - 80;
+        if (rest === 0) return "quatre-vingt";
+        return `quatre-vingt-${units[rest]}`;
+      }
+      return String(n2);
+    };
+
+    const threeDigits = (n3) => {
+      if (n3 < 100) return twoDigits(n3);
+      const hundreds = Math.floor(n3 / 100);
+      const rest = n3 % 100;
+      const hundredWord = hundreds === 1 ? "cent" : `${units[hundreds]} cent`;
+      if (rest === 0) return hundreds > 1 ? `${hundredWord}s` : hundredWord;
+      return `${hundredWord} ${twoDigits(rest)}`;
+    };
+
+    if (num < 100) return twoDigits(num);
+    if (num < 1000) return threeDigits(num);
+    const thousands = Math.floor(num / 1000);
+    const rest = num % 1000;
+    const thousandWord = thousands === 1 ? "mille" : `${threeDigits(thousands)} mille`;
+    if (rest === 0) return thousandWord;
+    return `${thousandWord} ${threeDigits(rest)}`;
   }
 
   // Pré-traitement TTS (améliore articulation/intonation en téléphonie)
@@ -1678,6 +1745,36 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bRDV\b/gi, "rendez-vous");
     t = t.replace(/\bOK\b/g, "ok");
     t = t.replace(/\bSMS\b/gi, "S M S"); // Prononcer lettre par lettre pour SMS
+    // Sigles auto (prononcer lettre par lettre)
+    t = t.replace(/\bFAP\b/gi, "F A P");
+    t = t.replace(/\bABS\b/gi, "A B S");
+    t = t.replace(/\bESP\b/gi, "E S P");
+    t = t.replace(/\bEGR\b/gi, "E G R");
+    t = t.replace(/\bOBD\b/gi, "O B D");
+    t = t.replace(/\bTDI\b/gi, "T D I");
+    t = t.replace(/\bHDI\b/gi, "H D I");
+    t = t.replace(/\bTSI\b/gi, "T S I");
+    t = t.replace(/\bGPL\b/gi, "G P L");
+    t = t.replace(/\bSUV\b/gi, "S U V");
+    t = t.replace(/\bBVA\b/gi, "B V A");
+    t = t.replace(/\bBVM\b/gi, "B V M");
+    t = t.replace(/\bCT\b/gi, "contrôle technique");
+    t = t.replace(/\bTVA\b/gi, "T V A");
+    t = t.replace(/\bTTC\b/gi, "T T C");
+    t = t.replace(/\bHT\b/gi, "H T");
+    t = t.replace(/\bABS\b/gi, "A B S");
+    t = t.replace(/\bESP\b/gi, "E S P");
+    t = t.replace(/\bEGR\b/gi, "E G R");
+    t = t.replace(/\bFAP\b/gi, "F A P");
+    t = t.replace(/\bDPF\b/gi, "D P F");
+    t = t.replace(/\bOBD\b/gi, "O B D");
+    t = t.replace(/\bVIN\b/gi, "V I N");
+    t = t.replace(/\bSUV\b/gi, "S U V");
+    t = t.replace(/\bHDI\b/gi, "H D I");
+    t = t.replace(/\bTSI\b/gi, "T S I");
+    t = t.replace(/\bTDI\b/gi, "T D I");
+    t = t.replace(/\bSAV\b/gi, "S A V");
+    t = t.replace(/\bAdBlue\b/gi, "Ad Blu");
     
     // Prononciations FR (téléphonie): dictionnaire complet pour cohérence
     // Marques automobiles (prononciation française standardisée)
@@ -1723,8 +1820,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Ces mots sont souvent mal prononcés différemment selon le contexte
     // Expressions fréquentes de liaison / questions
     // On aide le TTS à mieux articuler certains groupes de mots
-    t = t.replace(/\best-ce que\b/gi, "ès ce que");
-    t = t.replace(/\best ce que\b/gi, "ès ce que");
+    t = t.replace(/\best-ce que\b/gi, "est ce que");
+    t = t.replace(/\best ce que\b/gi, "est ce que");
     t = t.replace(/\brécupérer\b/gi, "récupérer");
     t = t.replace(/\bimmatriculation\b/gi, "immatriculation");
     t = t.replace(/\bplaque\b/gi, "plaque");
@@ -1790,6 +1887,25 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Normalisation des montants en euros (1-99) pour éviter "1 et 2"
     t = t.replace(/\b(\d{1,2})\s*€\b/gi, (_, n) => `${numberToFrenchWords(n)} euros`);
     t = t.replace(/\b(\d{1,2})\s*euros?\b/gi, (_, n) => `${numberToFrenchWords(n)} euros`);
+    // Décimales en euros (ex: 12,50€)
+    t = t.replace(/\b(\d{1,4})[.,](\d{1,2})\s*€\b/gi, (_, n, d) => {
+      const major = numberToFrenchWords(n);
+      const minor = numberToFrenchWords(d);
+      return `${major} euros ${minor}`;
+    });
+    // Kilomètres / minutes
+    t = t.replace(/\b(\d{1,4})\s*km\b/gi, (_, n) => `${numberToFrenchWords(n)} kilomètres`);
+    t = t.replace(/\b(\d{1,4})\s*minutes?\b/gi, (_, n) => `${numberToFrenchWords(n)} minutes`);
+    t = t.replace(/\b(\d{1,4})\s*min\b/gi, (_, n) => `${numberToFrenchWords(n)} minutes`);
+    // Heures (ex: 9h, 9h30, 9 h 30)
+    t = t.replace(/\b(\d{1,2})\s*h\s*(\d{1,2})?\b/gi, (_, h, m) => {
+      const hoursNum = Number(h);
+      const minutesNum = m != null && m !== "" ? Number(m) : null;
+      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWords(hoursNum)} heures`;
+      if (!minutesNum && minutesNum !== 0) return hoursWord;
+      const minutesWord = numberToFrenchWords(minutesNum);
+      return `${hoursWord} ${minutesWord}`;
+    });
     // Normalisation des nombres pour cohérence (fallback)
     t = t.replace(/\b(\d+)\s*€\b/gi, "$1 euros");
     t = t.replace(/\b(\d+)\s*euros?\b/gi, "$1 euros");
@@ -1987,7 +2103,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
     }
 
-    if (framesSent > 0 && Math.random() < 0.02) {
+    if (LOG_TWILIO_FRAMES && framesSent > 0 && Math.random() < 0.02) {
       console.log("📤 Frames audio envoyées à Twilio:", {
         streamSid: twilioStreamSid,
         framesSent,
@@ -3788,7 +3904,7 @@ But: être naturel et mettre le client en confiance.`,
               } else {
                 silenceFrames = Math.max(0, silenceFrames - 1);
               }
-              if (mediaCount % 200 === 0) {
+              if (LOG_VAD && mediaCount % 200 === 0) {
                 console.log("🎚️ VAD (debug):", {
                   avgAbs: Math.round(avgLocal),
                   speechActive: localDbgSpeechActive,
