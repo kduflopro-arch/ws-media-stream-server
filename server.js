@@ -376,6 +376,7 @@ wss.on("connection", (ws, req) => {
   let garageClosedReason = "";
   let garageClosedText = "";
   let garageHoursText = "";
+  let availableAppointmentSlotsLine = "";
   let closedDaysText = ""; // Jours de fermeture hebdomadaires (ex: "Le garage est fermé le dimanche")
   let collectVehicleInfo = false;
   let pricingSummary = "";
@@ -539,6 +540,42 @@ wss.on("connection", (ws, req) => {
       }
     } catch {
       return { sent: false, reason: "exception" };
+    }
+  }
+
+  async function fetchAvailableAppointmentSlots() {
+    try {
+      if (appointmentMode !== "internal") return [];
+      const ingestUrl = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
+      if (!ingestUrl) return [];
+      const token = autoguruIngestToken;
+      const secret = AUTOGURU_INGEST_SECRET_ENV;
+      if (!token && !secret) return [];
+      if (!garageId) return [];
+      const url = String(ingestUrl).replace(
+        /\/api\/twilio\/realtime-ingest\/?$/i,
+        "/api/twilio/appointments/available",
+      );
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(token ? { token } : { secret }),
+          garageId: garageId || null,
+          daysAhead: 10,
+        }),
+      }).catch(() => null);
+      if (!resp || !resp.ok) return [];
+      const json = await resp.json().catch(() => ({}));
+      const slots = Array.isArray(json?.slots) ? json.slots : [];
+      return slots
+        .map((s) => ({
+          date: String(s?.date || "").trim(),
+          time: String(s?.time || "").trim(),
+        }))
+        .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s.date) && /^\d{2}:\d{2}$/.test(s.time));
+    } catch {
+      return [];
     }
   }
 
@@ -1747,6 +1784,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     return `${thousandWord} ${threeDigits(rest)}`;
   }
 
+  // Variante "TTS-friendly": évite les tirets dans les nombres (certains TTS FR prononcent mal les mots hyphenés)
+  function numberToFrenchWordsTts(n) {
+    return numberToFrenchWords(n).replace(/-/g, " ").replace(/\s+/g, " ").trim();
+  }
+
   // Pré-traitement TTS (améliore articulation/intonation en téléphonie)
   // IMPORTANT: Ce dictionnaire doit être appliqué de manière cohérente pour éviter les variations de prononciation
   // entre la phrase d'accueil et le reste de la conversation
@@ -1755,6 +1797,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!t) return "";
     // Nettoyage léger
     t = t.replace(/\s+/g, " ");
+    // Coller les chiffres séparés (ex: "1 2" -> "12") pour éviter la lecture "un deux"
+    // (sans toucher aux longues séquences type numéros de téléphone)
+    t = t.replace(/\b(\d(?:\s+\d){1,5})\b/g, (m) => m.replace(/\s+/g, ""));
     // Abbréviations courantes
     t = t.replace(/\bRDV\b/gi, "rendez-vous");
     t = t.replace(/\bOK\b/g, "ok");
@@ -1909,35 +1954,35 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Montants avec chiffres séparés (ex: "1 2 euros" -> "douze euros")
     t = t.replace(/\b(\d(?:\s+\d){1,4})\s*(?:€|euros?)\b/gi, (_, n) => {
       const compact = String(n).replace(/\s+/g, "");
-      return `${numberToFrenchWords(compact)} euros`;
+      return `${numberToFrenchWordsTts(compact)} euros`;
     });
     // Décimales en euros avec chiffres séparés (ex: "1 2,50 euros")
     t = t.replace(/\b(\d(?:\s+\d){1,4})[.,](\d{1,2})\s*(?:€|euros?)\b/gi, (_, n, d) => {
-      const major = numberToFrenchWords(String(n).replace(/\s+/g, ""));
-      const minor = numberToFrenchWords(d);
+      const major = numberToFrenchWordsTts(String(n).replace(/\s+/g, ""));
+      const minor = numberToFrenchWordsTts(d);
       return `${major} euros ${minor}`;
     });
     // Normalisation des montants en euros (1-9999) pour éviter "1 et 2"
-    t = t.replace(/\b(\d{1,4})\s*(?:€|euros?)\b/gi, (_, n) => `${numberToFrenchWords(n)} euros`);
+    t = t.replace(/\b(\d{1,4})\s*(?:€|euros?)\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
     // Décimales en euros (ex: 12,50€ / 12.50 euros)
     t = t.replace(/\b(\d{1,4})[.,](\d{1,2})\s*(?:€|euros?)\b/gi, (_, n, d) => {
-      const major = numberToFrenchWords(n);
-      const minor = numberToFrenchWords(d);
+      const major = numberToFrenchWordsTts(n);
+      const minor = numberToFrenchWordsTts(d);
       return `${major} euros ${minor}`;
     });
     // Kilomètres / minutes
-    t = t.replace(/\b(\d{1,4})\s*km\b/gi, (_, n) => `${numberToFrenchWords(n)} kilomètres`);
-    t = t.replace(/\b(\d{1,4})\s*minutes?\b/gi, (_, n) => `${numberToFrenchWords(n)} minutes`);
-    t = t.replace(/\b(\d{1,4})\s*min\b/gi, (_, n) => `${numberToFrenchWords(n)} minutes`);
+    t = t.replace(/\b(\d{1,4})\s*km\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} kilomètres`);
+    t = t.replace(/\b(\d{1,4})\s*minutes?\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} minutes`);
+    t = t.replace(/\b(\d{1,4})\s*min\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} minutes`);
     // Tous les nombres restants → en lettres (ou par chiffres séparés si trop grand)
-    t = t.replace(/\b(\d{1,6})\b/g, (_, n) => numberToFrenchWords(n));
+    t = t.replace(/\b(\d{1,6})\b/g, (_, n) => numberToFrenchWordsTts(n));
     // Heures (ex: 9h, 9h30, 9 h 30)
     t = t.replace(/\b(\d{1,2})\s*h\s*(\d{1,2})?\b/gi, (_, h, m) => {
       const hoursNum = Number(h);
       const minutesNum = m != null && m !== "" ? Number(m) : null;
-      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWords(hoursNum)} heures`;
+      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
       if (!minutesNum && minutesNum !== 0) return hoursWord;
-      const minutesWord = numberToFrenchWords(minutesNum);
+      const minutesWord = numberToFrenchWordsTts(minutesNum);
       return `${hoursWord} ${minutesWord}`;
     });
     // Normalisation des nombres pour cohérence (fallback)
@@ -1952,10 +1997,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bbatterie\b/gi, "batterie");
     t = t.replace(/\bpneus\b/gi, "pneus");
     t = t.replace(/\béquilibrage\b/gi, "équilibrage");
+
+    // Corrections orthographiques fréquentes (évite prononciations incompréhensibles)
+    t = t.replace(/\bcinquente\b/gi, "cinquante");
     
     // Ponctuation FR (aide l'intonation)
     t = t.replace(/\s*([!?;:])\s*/g, "$1 ");
     t = t.replace(/\s*([,.])\s*/g, "$1 ");
+    // Aide prononciation Minimax sur certains nombres (ex: "cinquante" parfois mal articulé)
+    t = t.replace(/\bcinquante\b/gi, "cinq ante");
     // Pauses naturelles
     t = t.replace(/(\d)\s*km\b/gi, "$1 kilomètres");
     // Eviter les très longues phrases (téléphonie)
@@ -2229,7 +2279,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
       }, 10000);
       
-      openaiWs.on("open", () => {
+      openaiWs.on("open", async () => {
         if (connectionTimeout) {
           clearTimeout(connectionTimeout);
           connectionTimeout = null;
@@ -2278,6 +2328,23 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           consentRequired
             ? "Dès le début de l'appel, annonce: 'Cet appel est enregistré pour préparer votre arrivée au garage. Si vous refusez, vous pouvez raccrocher à tout moment.' Puis demande un oui/non."
             : "Consentement enregistrement: non requis.";
+
+        // En mode "internal", on peut proposer de vrais créneaux: on précharge 2-3 suggestions.
+        availableAppointmentSlotsLine = "";
+        if (appointmentMode === "internal") {
+          const slots = await fetchAvailableAppointmentSlots();
+          if (slots.length > 0) {
+            const pretty = slots
+              .slice(0, 3)
+              .map((s) => {
+                const d = new Date(`${s.date}T00:00:00`);
+                const dateStr = d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+                return `${dateStr} à ${s.time}`;
+              })
+              .join(" ; ");
+            availableAppointmentSlotsLine = `Créneaux disponibles (planning du garage): ${pretty}.`;
+          }
+        }
 
         const hoursPolicyLine = `Horaires: l'IA répond H24. Les horaires/vacances sont PUREMENT informatifs pour le client (pas bloquants, pas de raccrochage automatique).`;
         const hoursInfoLine = garageHoursText
@@ -2365,6 +2432,7 @@ ${modeLine}
 ${consentLine}
 ${hoursPolicyLine}
 ${hoursInfoLine ? `${hoursInfoLine}\n` : ""}
+${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${closedInfoLine}
 ${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
 ${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLES D'ÉCOUTE:
@@ -2376,6 +2444,16 @@ OBJECTIF (ACCOMPAGNEMENT):
 - Tu aides le client à mieux comprendre son problème en posant des questions simples, une par une.
 - Tu guides petit à petit vers la meilleure suite: conseil sécurité / dépôt / ou rendez-vous.
 - Si le client sait exactement ce qu'il veut (ex: "je veux une vidange", "je veux un devis", "je veux un rendez-vous"), tu vas droit au but et tu réduis les questions.
+
+RENSEIGNEMENTS SUR LES PRESTATIONS (IMPORTANT):
+- Si le client demande un renseignement sur une prestation (ex: révision, vidange, freins), tu expliques en termes simples ce que ça permet.
+- Pour une révision: dis ce qui est généralement compris (contrôles de sécurité, niveaux, filtres selon formule, diagnostic visuel) et ce que le garage vérifie.
+- Utilise en priorité les sections "Services disponibles", "Questions fréquentes" et "Tarifs du garage" ci-dessus. Si une info n'est pas renseignée, tu donnes une explication générique et tu précises que ça peut varier selon le véhicule.
+
+DIAGNOSTIC GUIDÉ (si le client ne sait pas exactement):
+- Tu poses plusieurs questions courtes (une par une) pour aider le client à identifier le problème et mieux le comprendre.
+- Priorité des questions: symptôme principal → depuis quand → conditions (à froid/chaud, en roulant, en freinant, en tournant) → voyants → urgence/sécurité.
+- Tu peux proposer 1 à 2 pistes fréquentes ("ça peut venir de...") mais tu précises que c'est à confirmer au garage.
 
 INTENTION RDV:
 - Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
@@ -2437,6 +2515,9 @@ RÈGLES RDV:
 - Si mode rendez-vous = demande: tu notes la demande, tu ne confirmes jamais.
 - Si mode rendez-vous = aucun: tu prends un message, tu ne proposes pas de RDV.
 - Si mode rendez-vous = interne et garage fermé: tu dis qu'une personne rappellera, sans proposer de créneau.
+- Si mode rendez-vous = interne et que la ligne "Créneaux disponibles (planning du garage)" est présente dans les instructions:
+  * Tu proposes 1 à 3 créneaux parmi ceux listés, et tu demandes lequel convient.
+  * Tu confirmes seulement après validation explicite du client.
 
 TARIFS:
 - Si un tarif est renseigné, tu le donnes et tu précises si le prix peut varier selon le véhicule.
@@ -2524,6 +2605,7 @@ ${modeLine}
 ${consentLine}
 ${hoursPolicyLine}
 ${hoursInfoLine ? `${hoursInfoLine}\n` : ""}
+${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${closedInfoLine}
 ${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
 ${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${newClientInfoLine}\n\n${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLES D'ÉCOUTE:
@@ -2535,6 +2617,11 @@ OBJECTIF (ACCOMPAGNEMENT):
 - Tu aides le client à mieux comprendre son problème en posant des questions simples, une par une.
 - Tu guides petit à petit vers la meilleure suite: conseil sécurité / dépôt / ou rendez-vous.
 - Si le client sait exactement ce qu'il veut (ex: "je veux une vidange", "je veux un devis", "je veux un rendez-vous"), tu vas droit au but et tu réduis les questions.
+
+RENSEIGNEMENTS SUR LES PRESTATIONS (IMPORTANT):
+- Si le client demande un renseignement sur une prestation (ex: révision, vidange, freins), tu expliques en termes simples ce que ça permet.
+- Pour une révision: dis ce qui est généralement compris (contrôles de sécurité, niveaux, filtres selon formule, diagnostic visuel) et ce que le garage vérifie.
+- Utilise en priorité les sections "Services disponibles", "Questions fréquentes" et "Tarifs du garage" ci-dessus. Si une info n'est pas renseignée, tu donnes une explication générique et tu précises que ça peut varier selon le véhicule.
 
 INTENTION RDV:
 - Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
