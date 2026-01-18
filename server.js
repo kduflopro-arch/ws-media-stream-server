@@ -2477,8 +2477,13 @@ IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu D
           if (gender && gender !== "indéterminé") nameDetails.push(`Genre: ${gender}`);
           
           const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : "";
-          // Utiliser directement le nom complet (clientInfo.name) comme nom à utiliser dans la salutation
-          const salutationName = clientInfo.name ? String(clientInfo.name).trim() : null;
+          // Utiliser uniquement le nom de famille (last_name), pas le nom complet
+          let salutationName = lastName ? String(lastName).trim() : null;
+          // Si pas de last_name, extraire le dernier mot du nom complet comme fallback
+          if (!salutationName && clientInfo.name) {
+            const nameParts = clientInfo.name.split(/\s+/);
+            salutationName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : clientInfo.name;
+          }
           const salutationText = title && salutationName ? `${title} ${salutationName}` : salutationName || "";
           
           return `DÉTECTION CLIENT:
@@ -2489,9 +2494,9 @@ Rendez-vous à venir:
 ${appointmentsText}
 
 IMPORTANT - SALUTATION:
-- Tu DOIS saluer le client avec respect en utilisant le titre approprié ET le NOM COMPLET du client: "${salutationText}" (ex: "Bonjour ${title} ${salutationName}" ou "Bonjour ${salutationName}" si genre indéterminé).
-- Utilise TOUJOURS le nom complet (${clientInfo.name}) dans la salutation, PAS le prénom seul.
-- Utilise "${title}" si le genre est défini (${gender || "non défini"}), sinon utilise simplement le nom complet.
+- Tu DOIS saluer le client avec respect en utilisant le titre approprié ET le NOM DE FAMILLE uniquement (pas le prénom ni le nom complet): "${salutationText}" (ex: "Bonjour ${title} ${salutationName}" ou "Bonjour ${salutationName}" si genre indéterminé).
+- Utilise UNIQUEMENT le nom de famille (${salutationName}) dans la salutation, PAS le prénom, PAS le nom complet.
+- Utilise "${title}" si le genre est défini (${gender || "non défini"}), sinon utilise simplement le nom de famille.
 
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - NE propose JAMAIS un message pour la plaque juste après le consentement ou sans avoir compris ce que le client veut.
@@ -2777,12 +2782,18 @@ STYLE (échange humain):
         function pickGreetingText(label) {
           const clientName = clientInfo?.name ? String(clientInfo.name).trim() : null;
           if (clientName && clientInfo) {
-            // Utiliser directement le champ "name" du client comme nom à utiliser
+            // Utiliser uniquement le nom de famille (last_name), pas le nom complet
+            let lastName = clientInfo.last_name ? String(clientInfo.last_name).trim() : null;
+            // Si pas de last_name, extraire le dernier mot du nom complet comme fallback
+            if (!lastName && clientName) {
+              const nameParts = clientName.split(/\s+/);
+              lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : clientName;
+            }
             const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
             
             // Déterminer le titre selon le genre
             const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
-            const salutationName = title ? `${title} ${clientName}` : clientName;
+            const salutationName = lastName ? (title ? `${title} ${lastName}` : lastName) : (title ? `${title} ${clientName}` : clientName);
             
             // Si le client est détecté, saluer avec le titre approprié
             const greetingsWithName = [
@@ -3804,11 +3815,16 @@ But: être naturel et mettre le client en confiance.`,
                   if (!hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
                     const rawName = String(garageName || "AutoGuru").trim();
                     const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
-                    // Utiliser directement le champ "name" du client comme nom à utiliser
-                    const clientName = clientInfo.name ? String(clientInfo.name).trim() : null;
+                    // Utiliser uniquement le nom de famille (last_name), pas le nom complet
+                    let lastName = clientInfo.last_name ? String(clientInfo.last_name).trim() : null;
+                    // Si pas de last_name, extraire le dernier mot du nom complet comme fallback
+                    if (!lastName && clientInfo.name) {
+                      const nameParts = clientInfo.name.split(/\s+/);
+                      lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : clientInfo.name;
+                    }
                     const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
                     const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
-                    const salutationName = clientName ? (title ? `${title} ${clientName}` : clientName) : null;
+                    const salutationName = lastName ? (title ? `${title} ${lastName}` : lastName) : (title ? `${title} ${clientInfo.name}` : clientInfo.name);
                     const baseHello = `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`;
                     const consentText = consentRequired
                       ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
