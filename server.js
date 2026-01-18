@@ -1951,9 +1951,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bexcuse\b/gi, "excuse");
     t = t.replace(/\bexcuses\b/gi, "excuses");
 
-    // Heures au format "8h30" / "8 h 30" / "8:30" -> "huit heures trente"
+    // Heures au format "8h30" / "8 h 30" / "8:30" / "8H30" -> "huit heures trente"
     // IMPORTANT: à faire tôt, avant la conversion globale des chiffres.
-    t = t.replace(/\b(\d{1,2})\s*(?:h|:)\s*(\d{2})\b/gi, (_, h, m) => {
+    // Regex améliorée pour matcher même sans word boundary avant (ex: "de 8h30 à")
+    t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d{2})\b/g, (_, h, m) => {
       const hoursNum = Number(h);
       const minutesNum = Number(m);
       const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
@@ -1968,7 +1969,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
       return `${hoursWord}${minutesWord}`.trim();
     });
-    t = t.replace(/\b(\d{1,2})\s*h\b/gi, (_, h) => {
+    t = t.replace(/\b(\d{1,2})\s*[hH]\b/gi, (_, h) => {
       const hoursNum = Number(h);
       return hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
     });
@@ -2408,9 +2409,15 @@ IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu D
             : "Aucun rendez-vous à venir.";
           
           const clientPlate = clientInfo.plate ? String(clientInfo.plate).trim() : null;
-          const plateInfo = clientPlate 
-            ? `Plaque d'immatriculation enregistrée: ${clientPlate}`
-            : "Aucune plaque d'immatriculation enregistrée.";
+          const clientPlate2 = clientInfo.plate_2 ? String(clientInfo.plate_2).trim() : null;
+          let plateInfo = "";
+          if (clientPlate && clientPlate2) {
+            plateInfo = `Plaques d'immatriculation enregistrées: ${clientPlate} (principale) et ${clientPlate2} (secondaire).`;
+          } else if (clientPlate) {
+            plateInfo = `Plaque d'immatriculation enregistrée: ${clientPlate}`;
+          } else {
+            plateInfo = "Aucune plaque d'immatriculation enregistrée.";
+          }
           
           return `DÉTECTION CLIENT:
 Le numéro qui appelle fait partie des dossiers clients du garage.
@@ -2421,10 +2428,13 @@ ${appointmentsText}
 
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - AVANT de proposer un message pour la plaque, tu DOIS TOUJOURS vérifier la section "DÉTECTION CLIENT" ci-dessus.
-- Si le client a déjà une plaque enregistrée (voir "Plaque d'immatriculation enregistrée" ci-dessus), tu DOIS annoncer directement la plaque: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?" 
-- Si le client confirme, utilise cette plaque. Si le client dit que ce n'est pas la bonne plaque, alors tu proposes d'envoyer un message pour qu'il envoie la bonne plaque.
+- Si le client a déjà une plaque enregistrée (voir "Plaque d'immatriculation enregistrée" ci-dessus):
+  * Lors de la prise de rendez-vous, tu DOIS TOUJOURS lire la plaque principale pour confirmation AVANT de finaliser le rendez-vous: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?"
+  * Si le client confirme que c'est la bonne plaque (ex: "oui", "c'est ça", "correct"), utilise cette plaque pour le rendez-vous.
+  * Si le client dit que ce n'est PAS la bonne plaque (ex: "non", "ce n'est pas la bonne", "j'ai changé de voiture", "c'est une autre voiture"), alors tu proposes immédiatement d'envoyer un message pour qu'il envoie la bonne plaque: "D'accord, je vais vous envoyer un message pour que vous puissiez m'indiquer votre nouvelle plaque d'immatriculation." (La nouvelle plaque sera automatiquement enregistrée comme plaque secondaire dans le dossier client).
+- Si le client a plusieurs plaques enregistrées (plaque principale et plaque secondaire), lors de la prise de rendez-vous, tu lis d'abord la plaque principale et demandes confirmation. Si le client dit que ce n'est pas la bonne, tu proposes d'envoyer un message pour qu'il indique quelle plaque utiliser.
 - Si le client n'a PAS de plaque enregistrée (voir "Aucune plaque d'immatriculation enregistrée" ci-dessus), tu proposes d'envoyer un message pour qu'il envoie sa plaque (NE PAS demander la plaque à l'oral).
-- RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque si le client a déjà une plaque enregistrée. Annonce directement la plaque enregistrée et demande confirmation.
+- RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque si le client a déjà une plaque enregistrée SANS avoir d'abord lu la plaque et demandé confirmation. Annonce directement la plaque enregistrée et demande confirmation.
 - Si le client demande un rendez-vous ET qu'aucune plaque n'est enregistrée: tu proposes tout de suite d'envoyer un message pour récupérer la plaque et le kilométrage (après accord du client).
 
 IMPORTANT - GESTION DES RENDEZ-VOUS:
@@ -2696,6 +2706,17 @@ STYLE (échange humain):
         openaiWs.send(JSON.stringify(sessionUpdate));
 
         function pickGreetingText(label) {
+          const clientName = clientInfo?.name ? String(clientInfo.name).trim() : null;
+          if (clientName) {
+            // Si le client est détecté, saluer avec son nom
+            const greetingsWithName = [
+              `Bonjour ${clientName} ! Je suis ${assistantName}, l'assistante du ${label}. En quoi puis-je vous aider ?`,
+              `Bonjour ${clientName}, ${assistantName} à l'appareil, du ${label}. Qu'est-ce qui vous amène ?`,
+              `Bonjour ${clientName} ! Ici ${assistantName}, du ${label}. Dites-moi ce qui se passe avec votre voiture.`,
+              `Bonjour ${clientName}, vous êtes bien au ${label}. Je suis ${assistantName}. En quoi je peux vous aider ?`,
+            ];
+            return greetingsWithName[Math.floor(Math.random() * greetingsWithName.length)];
+          }
           const greetings = [
             `Bonjour ! Je suis ${assistantName}, l'assistante du ${label}. En quoi puis-je vous aider ?`,
             `Bonjour, ${assistantName} à l'appareil, du ${label}. Qu'est-ce qui vous amène ?`,
