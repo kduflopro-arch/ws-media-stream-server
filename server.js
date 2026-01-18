@@ -2425,12 +2425,29 @@ IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu D
             plateInfo = "Aucune plaque d'immatriculation enregistrée.";
           }
           
+          const firstName = clientInfo.first_name ? String(clientInfo.first_name).trim() : null;
+          const lastName = clientInfo.last_name ? String(clientInfo.last_name).trim() : null;
+          const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
+          
+          const nameDetails = [];
+          if (firstName) nameDetails.push(`Prénom: ${firstName}`);
+          if (lastName) nameDetails.push(`Nom: ${lastName}`);
+          if (gender && gender !== "indéterminé") nameDetails.push(`Genre: ${gender}`);
+          
+          const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : "";
+          const salutationName = firstName || clientInfo.name.split(/\s+/)[0];
+          const salutationText = title && salutationName ? `${title} ${salutationName}` : salutationName || clientInfo.name;
+          
           return `DÉTECTION CLIENT:
 Le numéro qui appelle fait partie des dossiers clients du garage.
-Nom du client: ${clientInfo.name}
-${plateInfo}
+Nom complet: ${clientInfo.name}
+${nameDetails.length > 0 ? nameDetails.join(", ") + "\n" : ""}${plateInfo}
 Rendez-vous à venir:
 ${appointmentsText}
+
+IMPORTANT - SALUTATION:
+- Tu DOIS saluer le client avec respect en utilisant le titre approprié: "${salutationText}" (ex: "Bonjour ${title} ${salutationName}" ou "Bonjour ${salutationName}" si genre indéterminé).
+- Utilise "${title}" si le genre est défini (${gender || "non défini"}), sinon utilise simplement le prénom ou le nom.
 
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - AVANT de proposer un message pour la plaque, tu DOIS TOUJOURS vérifier la section "DÉTECTION CLIENT" ci-dessus.
@@ -2713,13 +2730,21 @@ STYLE (échange humain):
 
         function pickGreetingText(label) {
           const clientName = clientInfo?.name ? String(clientInfo.name).trim() : null;
-          if (clientName) {
-            // Si le client est détecté, saluer avec son nom
+          if (clientName && clientInfo) {
+            // Extraire le prénom ou utiliser le premier mot du nom
+            const firstName = clientInfo.first_name ? String(clientInfo.first_name).trim() : clientName.split(/\s+/)[0];
+            const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
+            
+            // Déterminer le titre selon le genre
+            const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
+            const salutationName = title ? `${title} ${firstName}` : firstName;
+            
+            // Si le client est détecté, saluer avec le titre approprié
             const greetingsWithName = [
-              `Bonjour ${clientName} ! Je suis ${assistantName}, l'assistante du ${label}. En quoi puis-je vous aider ?`,
-              `Bonjour ${clientName}, ${assistantName} à l'appareil, du ${label}. Qu'est-ce qui vous amène ?`,
-              `Bonjour ${clientName} ! Ici ${assistantName}, du ${label}. Dites-moi ce qui se passe avec votre voiture.`,
-              `Bonjour ${clientName}, vous êtes bien au ${label}. Je suis ${assistantName}. En quoi je peux vous aider ?`,
+              `Bonjour ${salutationName} ! Je suis ${assistantName}, l'assistante du ${label}. En quoi puis-je vous aider ?`,
+              `Bonjour ${salutationName}, ${assistantName} à l'appareil, du ${label}. Qu'est-ce qui vous amène ?`,
+              `Bonjour ${salutationName} ! Ici ${assistantName}, du ${label}. Dites-moi ce qui se passe avec votre voiture.`,
+              `Bonjour ${salutationName}, vous êtes bien au ${label}. Je suis ${assistantName}. En quoi je peux vous aider ?`,
             ];
             return greetingsWithName[Math.floor(Math.random() * greetingsWithName.length)];
           }
@@ -3768,12 +3793,16 @@ But: être naturel et mettre le client en confiance.`,
               // Utiliser le nom du client s'il est disponible
               const clientName = clientInfo?.name ? String(clientInfo.name).trim() : null;
               let baseHello;
-              if (clientName) {
-                // Extraire le prénom si le nom complet contient plusieurs mots
-                const firstName = clientName.split(/\s+/)[0];
+              if (clientName && clientInfo) {
+                // Extraire le prénom (ou utiliser first_name si disponible)
+                const firstName = clientInfo.first_name ? String(clientInfo.first_name).trim() : clientName.split(/\s+/)[0];
+                const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
+                // Déterminer le titre selon le genre
+                const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
+                const salutationName = title ? `${title} ${firstName}` : firstName;
                 const greetingsWithName = [
-                  `Bonjour ${firstName} ! Ici ${assistantName}, l'assistante du ${label}.`,
-                  `Bonjour ${firstName}, ${assistantName} à l'appareil, du ${label}.`,
+                  `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`,
+                  `Bonjour ${salutationName}, ${assistantName} à l'appareil, du ${label}.`,
                 ];
                 baseHello = greetingsWithName[Math.floor(Math.random() * greetingsWithName.length)];
               } else {
