@@ -2477,8 +2477,9 @@ IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu D
           if (gender && gender !== "indéterminé") nameDetails.push(`Genre: ${gender}`);
           
           const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : "";
-          const salutationName = firstName || clientInfo.name.split(/\s+/)[0];
-          const salutationText = title && salutationName ? `${title} ${salutationName}` : salutationName || clientInfo.name;
+          // Utiliser directement le nom complet (clientInfo.name) comme nom à utiliser dans la salutation
+          const salutationName = clientInfo.name ? String(clientInfo.name).trim() : null;
+          const salutationText = title && salutationName ? `${title} ${salutationName}` : salutationName || "";
           
           return `DÉTECTION CLIENT:
 Le numéro qui appelle fait partie des dossiers clients du garage.
@@ -2488,8 +2489,9 @@ Rendez-vous à venir:
 ${appointmentsText}
 
 IMPORTANT - SALUTATION:
-- Tu DOIS saluer le client avec respect en utilisant le titre approprié: "${salutationText}" (ex: "Bonjour ${title} ${salutationName}" ou "Bonjour ${salutationName}" si genre indéterminé).
-- Utilise "${title}" si le genre est défini (${gender || "non défini"}), sinon utilise simplement le prénom ou le nom.
+- Tu DOIS saluer le client avec respect en utilisant le titre approprié ET le NOM COMPLET du client: "${salutationText}" (ex: "Bonjour ${title} ${salutationName}" ou "Bonjour ${salutationName}" si genre indéterminé).
+- Utilise TOUJOURS le nom complet (${clientInfo.name}) dans la salutation, PAS le prénom seul.
+- Utilise "${title}" si le genre est défini (${gender || "non défini"}), sinon utilise simplement le nom complet.
 
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - NE propose JAMAIS un message pour la plaque juste après le consentement ou sans avoir compris ce que le client veut.
