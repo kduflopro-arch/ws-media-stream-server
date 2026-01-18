@@ -1822,6 +1822,23 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // IMPORTANT: Convertir les heures AVANT de coller les chiffres séparés
     // Heures au format "8h30" / "8 h 30" / "8:30" / "8H30" -> "huit heures trente"
     // Gérer aussi le cas où les minutes sont séparées : "8 h 3 0" -> "huit heures trente"
+    // Format "X heures Y Z" ou "X heure Y Z" avec minutes séparées (ex: "8 heures 3 0" -> "huit heures trente")
+    // IMPORTANT: Placer cette regex AVANT celle avec (\d{2}) pour qu'elle matche en premier
+    t = t.replace(/\b(\d{1,2})\s+heures?\s+(\d)\s+(\d)\b/gi, (_, h, m1, m2) => {
+      const hoursNum = Number(h);
+      const minutesNum = Number(m1 + m2);
+      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${hoursWord}${minutesWord}`.trim();
+    });
+    // Format "X heures YY" ou "X heure YY" avec minutes collées (ex: "8 heures 30" -> "huit heures trente")
+    t = t.replace(/\b(\d{1,2})\s+heures?\s+(\d{2})\b/gi, (_, h, m) => {
+      const hoursNum = Number(h);
+      const minutesNum = Number(m);
+      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${hoursWord}${minutesWord}`.trim();
+    });
     // Format avec minutes séparées (ex: "8 h 3 0" ou "8 h 3  0")
     t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d)\s+(\d)\b/g, (_, h, m1, m2) => {
       const hoursNum = Number(h);
@@ -1832,22 +1849,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     });
     // Format standard avec minutes collées (ex: "8h30" / "8 h 30" / "8:30")
     t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d{2})\b/g, (_, h, m) => {
-      const hoursNum = Number(h);
-      const minutesNum = Number(m);
-      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord}${minutesWord}`.trim();
-    });
-    // Format "8 heures 30" ou "8 heure 30" (venant de media-streams-start) -> "huit heures trente"
-    // Gérer aussi le cas où les minutes sont séparées : "8 heures 3 0" -> "huit heures trente"
-    t = t.replace(/\b(\d{1,2})\s+heures?\s+(\d)\s+(\d)\b/gi, (_, h, m1, m2) => {
-      const hoursNum = Number(h);
-      const minutesNum = Number(m1 + m2);
-      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord}${minutesWord}`.trim();
-    });
-    t = t.replace(/\b(\d{1,2})\s+heures?\s+(\d{2})\b/gi, (_, h, m) => {
       const hoursNum = Number(h);
       const minutesNum = Number(m);
       const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
@@ -2774,19 +2775,12 @@ STYLE (échange humain):
         function pickGreetingText(label) {
           const clientName = clientInfo?.name ? String(clientInfo.name).trim() : null;
           if (clientName && clientInfo) {
-            // Utiliser uniquement le nom de famille (last_name), pas le prénom
-            let lastName = clientInfo.last_name ? String(clientInfo.last_name).trim() : null;
-            // Si pas de last_name, extraire le dernier mot du nom complet comme fallback
-            if (!lastName && clientName) {
-              const nameParts = clientName.split(/\s+/);
-              lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : null;
-            }
+            // Utiliser directement le champ "name" du client comme nom à utiliser
             const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
             
             // Déterminer le titre selon le genre
             const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
-            // Si on a un nom de famille, l'utiliser ; sinon, utiliser le nom complet comme fallback
-            const salutationName = lastName ? (title ? `${title} ${lastName}` : lastName) : (title ? `${title} ${clientName}` : clientName);
+            const salutationName = title ? `${title} ${clientName}` : clientName;
             
             // Si le client est détecté, saluer avec le titre approprié
             const greetingsWithName = [
@@ -3808,17 +3802,11 @@ But: être naturel et mettre le client en confiance.`,
                   if (!hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
                     const rawName = String(garageName || "AutoGuru").trim();
                     const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
-                    // Utiliser uniquement le nom de famille (last_name), pas le prénom
-                    let lastName = clientInfo.last_name ? String(clientInfo.last_name).trim() : null;
-                    // Si pas de last_name, extraire le dernier mot du nom complet comme fallback
-                    if (!lastName && clientInfo.name) {
-                      const nameParts = clientInfo.name.split(/\s+/);
-                      lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : null;
-                    }
+                    // Utiliser directement le champ "name" du client comme nom à utiliser
+                    const clientName = clientInfo.name ? String(clientInfo.name).trim() : null;
                     const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
                     const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
-                    // Si on a un nom de famille, l'utiliser ; sinon, utiliser le nom complet comme fallback
-                    const salutationName = lastName ? (title ? `${title} ${lastName}` : lastName) : (title ? `${title} ${clientInfo.name}` : clientInfo.name);
+                    const salutationName = clientName ? (title ? `${title} ${clientName}` : clientName) : null;
                     const baseHello = `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`;
                     const consentText = consentRequired
                       ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
