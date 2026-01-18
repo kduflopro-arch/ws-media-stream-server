@@ -2068,12 +2068,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // (Heures gérées plus haut: "8h30" / "8:30" -> "huit heures trente")
     // IMPORTANT: Convertir les minutes après "heures" ou "heure" AVANT de convertir tous les nombres
     // Fallback final pour "heures" ou "heure" suivis de chiffres (en cas d'échec des regex précédentes)
-    t = t.replace(/\b(heures?|heure)\s+(\d{1,2})\s+(\d)\b/gi, (_, heuresWord, m1, m2) => {
+    // Gérer aussi les cas sans espaces : "heures30" ou "heure30"
+    t = t.replace(/\b(heures?|heure)\s*(\d{1,2})\s+(\d)\b/gi, (_, heuresWord, m1, m2) => {
       const minutesNum = Number(m1 + m2);
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
       return `${heuresWord}${minutesWord}`.trim();
     });
-    t = t.replace(/\b(heures?|heure)\s+(\d{2})\b/gi, (_, heuresWord, m) => {
+    t = t.replace(/\b(heures?|heure)\s*(\d{2})\b/gi, (_, heuresWord, m) => {
       const minutesNum = Number(m);
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
       return `${heuresWord}${minutesWord}`.trim();
