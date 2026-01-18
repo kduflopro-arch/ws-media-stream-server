@@ -2346,7 +2346,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           }
         }
 
-        const hoursPolicyLine = `Horaires: l'IA répond H24. Les horaires/vacances sont PUREMENT informatifs pour le client (pas bloquants, pas de raccrochage automatique).`;
+        const hoursPolicyLine = `Horaires: l'assistant répond 24h/24 et 7j/7 pour vous aider. Le garage, lui, est ouvert selon les horaires d'ouverture ci-dessous (information).`;
         const hoursInfoLine = garageHoursText
           ? `Horaires d'ouverture du garage: ${garageHoursText}`
           : "";
@@ -2361,8 +2361,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           ? `Info horaires (interne): le garage est actuellement indiqué comme fermé. (${garageClosedReason || "closed"}) ${garageClosedText || ""} Tu NE le mentionnes PAS au début. Tu le mentionnes uniquement en fin d'appel, selon les règles ci-dessous.`
           : "Info horaires (interne): garage indiqué ouvert.";
         const hoursReminderLine =
-          hoursInfoLine || closedDaysLine
-            ? `AVANT de demander les préférences de rendez-vous, tu DOIS dire: "Avant de me communiquer vos préférences de rendez-vous, le garage est ouvert ${garageHoursText || "aux horaires habituels"}."${closedDaysText ? ` Puis ajoute: "Jours de fermeture: ${closedDaysText}."` : ""} Ensuite, demande UNIQUEMENT le jour qui convient le mieux.`
+          appointmentMode !== "none"
+            ? (hoursInfoLine
+              ? `AVANT de demander les préférences de rendez-vous, tu DOIS annoncer EXACTEMENT les horaires ci-dessous, sans en inventer d'autres: "${hoursInfoLine}".${closedDaysText ? ` Puis ajoute: "${closedDaysText}".` : ""} Ensuite, demande UNIQUEMENT le jour qui convient le mieux.`
+              : `AVANT de demander les préférences de rendez-vous, tu dis: "Je n'ai pas les horaires exacts dans nos réglages." Puis tu demandes le jour qui convient le mieux.`)
             : "";
         const pricingLine = pricingSummary
           ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}
@@ -2404,11 +2406,12 @@ Rendez-vous à venir:
 ${appointmentsText}
 
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
-- AVANT de proposer un SMS pour la plaque, tu DOIS TOUJOURS vérifier la section "DÉTECTION CLIENT" ci-dessus.
+- AVANT de proposer un message pour la plaque, tu DOIS TOUJOURS vérifier la section "DÉTECTION CLIENT" ci-dessus.
 - Si le client a déjà une plaque enregistrée (voir "Plaque d'immatriculation enregistrée" ci-dessus), tu DOIS annoncer directement la plaque: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?" 
-- Si le client confirme, utilise cette plaque. Si le client dit que ce n'est pas la bonne plaque, alors tu proposes d'envoyer un SMS pour qu'il envoie la bonne plaque.
-- Si le client n'a PAS de plaque enregistrée (voir "Aucune plaque d'immatriculation enregistrée" ci-dessus), tu proposes d'envoyer un SMS pour qu'il envoie sa plaque (NE PAS demander la plaque à l'oral).
-- RÈGLE ABSOLUE: Ne propose JAMAIS un SMS pour la plaque si le client a déjà une plaque enregistrée. Annonce directement la plaque enregistrée et demande confirmation.
+- Si le client confirme, utilise cette plaque. Si le client dit que ce n'est pas la bonne plaque, alors tu proposes d'envoyer un message pour qu'il envoie la bonne plaque.
+- Si le client n'a PAS de plaque enregistrée (voir "Aucune plaque d'immatriculation enregistrée" ci-dessus), tu proposes d'envoyer un message pour qu'il envoie sa plaque (NE PAS demander la plaque à l'oral).
+- RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque si le client a déjà une plaque enregistrée. Annonce directement la plaque enregistrée et demande confirmation.
+- Si le client demande un rendez-vous ET qu'aucune plaque n'est enregistrée: tu proposes tout de suite d'envoyer un message pour récupérer la plaque et le kilométrage (après accord du client).
 
 IMPORTANT - GESTION DES RENDEZ-VOUS:
 - Si le client appelle pour MODIFIER un rendez-vous: détecte sa demande et demande la nouvelle date/heure souhaitée.
