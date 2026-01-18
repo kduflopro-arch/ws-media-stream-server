@@ -1859,6 +1859,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return `${hoursWord}${minutesWord}`.trim();
     });
     
+    // Fallback: Si les heures sont déjà en mots français (huit, neuf, etc.) et les minutes sont en chiffres
+    // Ex: "huit heures 30" -> "huit heures trente"
+    t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(\d{2})\b/gi, (_, hoursWord, m) => {
+      const minutesNum = Number(m);
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${hoursWord} heures${minutesWord}`.trim();
+    });
     // Fallback: Si les heures sont déjà en mots français (huit, neuf, etc.) et les minutes sont séparées
     // Ex: "huit heures 3 0" ou "huit heure 3 0" -> "huit heures trente"
     t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(\d)\s+(\d)\b/gi, (_, hoursWord, m1, m2) => {
