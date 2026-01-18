@@ -1950,6 +1950,20 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bexcusez\b/gi, "excusez");
     t = t.replace(/\bexcuse\b/gi, "excuse");
     t = t.replace(/\bexcuses\b/gi, "excuses");
+
+    // Heures au format "8h30" / "8 h 30" / "8:30" -> "huit heures trente"
+    // IMPORTANT: à faire tôt, avant la conversion globale des chiffres.
+    t = t.replace(/\b(\d{1,2})\s*(?:h|:)\s*(\d{2})\b/gi, (_, h, m) => {
+      const hoursNum = Number(h);
+      const minutesNum = Number(m);
+      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${hoursWord}${minutesWord}`.trim();
+    });
+    t = t.replace(/\b(\d{1,2})\s*h\b/gi, (_, h) => {
+      const hoursNum = Number(h);
+      return hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
+    });
     
     // Montants avec chiffres séparés (ex: "1 2 euros" -> "douze euros")
     t = t.replace(/\b(\d(?:\s+\d){1,4})\s*(?:€|euros?)\b/gi, (_, n) => {
@@ -1974,16 +1988,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\b(\d{1,4})\s*km\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} kilomètres`);
     t = t.replace(/\b(\d{1,4})\s*minutes?\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} minutes`);
     t = t.replace(/\b(\d{1,4})\s*min\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} minutes`);
-    // Heures (ex: 9h, 9h30, 9 h 30) — à faire AVANT la conversion globale des chiffres,
-    // sinon "08h30" devient "huit h30" et n'est plus matchable.
-    t = t.replace(/\b(\d{1,2})\s*h\s*(\d{1,2})?\b/gi, (_, h, m) => {
-      const hoursNum = Number(h);
-      const minutesNum = m != null && m !== "" ? Number(m) : null;
-      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
-      if (!minutesNum && minutesNum !== 0) return hoursWord;
-      const minutesWord = numberToFrenchWordsTts(minutesNum);
-      return `${hoursWord} ${minutesWord}`;
-    });
+    // (Heures gérées plus haut: "8h30" / "8:30" -> "huit heures trente")
     // Tous les nombres restants → en lettres (ou par chiffres séparés si trop grand)
     t = t.replace(/\b(\d{1,6})\b/g, (_, n) => numberToFrenchWordsTts(n));
     // Normalisation des nombres pour cohérence (fallback)
