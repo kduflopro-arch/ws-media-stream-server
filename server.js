@@ -3824,13 +3824,21 @@ But: être naturel et mettre le client en confiance.`,
                     // Utiliser uniquement le nom de famille (last_name), pas le nom complet
                     let lastName = clientInfo.last_name ? String(clientInfo.last_name).trim() : null;
                     // Si pas de last_name, extraire le dernier mot du nom complet comme fallback
-                    if (!lastName && clientInfo.name) {
-                      const nameParts = clientInfo.name.split(/\s+/);
-                      lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : clientInfo.name;
+                    if (!lastName || lastName === "") {
+                      if (clientInfo.name) {
+                        const nameParts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
+                        lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : (nameParts.length === 1 ? nameParts[0] : clientInfo.name);
+                      }
                     }
                     const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
                     const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
-                    const salutationName = lastName ? (title ? `${title} ${lastName}` : lastName) : (title ? `${title} ${clientInfo.name}` : clientInfo.name);
+                    // Construire salutationName avec le nom de famille ou le nom complet en fallback
+                    let salutationName = "";
+                    if (lastName && lastName.trim().length > 0) {
+                      salutationName = title ? `${title} ${lastName}` : lastName;
+                    } else if (clientInfo.name) {
+                      salutationName = title ? `${title} ${clientInfo.name}` : clientInfo.name;
+                    }
                     const baseHello = `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`;
                     const consentText = consentRequired
                       ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
@@ -3842,7 +3850,7 @@ But: être naturel et mettre le client en confiance.`,
                     initialAssistantGreetingText = greeting;
                     enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
                     const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
-                    console.log(`👋 Greeting avec nom client joué via ${providerName}.`, { callSid, consentRequired, clientName: salutationName });
+                    console.log(`👋 Greeting avec nom client joué via ${providerName}.`, { callSid, consentRequired, salutationName, lastName, clientName: clientInfo.name });
                     if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
                   }
                 } else {
