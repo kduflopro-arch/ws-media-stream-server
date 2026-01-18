@@ -1822,6 +1822,25 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // IMPORTANT: Convertir les heures AVANT de coller les chiffres séparés
     // Heures au format "8h30" / "8 h 30" / "8:30" / "8H30" -> "huit heures trente"
     // Gérer aussi le cas où les minutes sont séparées : "8 h 3 0" -> "huit heures trente"
+    
+    // Format avec minutes séparées AVANT "heures" (ex: "8 h 3 0" ou "8 h 3  0")
+    // IMPORTANT: Traiter AVANT le format "heures" pour éviter les conflits
+    t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d)\s+(\d)\b/g, (_, h, m1, m2) => {
+      const hoursNum = Number(h);
+      const minutesNum = Number(m1 + m2);
+      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${hoursWord}${minutesWord}`.trim();
+    });
+    // Format standard avec minutes collées AVANT "heures" (ex: "8h30" / "8 h 30" / "8:30")
+    t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d{2})\b/g, (_, h, m) => {
+      const hoursNum = Number(h);
+      const minutesNum = Number(m);
+      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${hoursWord}${minutesWord}`.trim();
+    });
+    
     // Format "X heures Y Z" ou "X heure Y Z" avec minutes séparées (ex: "8 heures 3 0" -> "huit heures trente")
     // IMPORTANT: Placer cette regex AVANT celle avec (\d{2}) pour qu'elle matche en premier
     t = t.replace(/\b(\d{1,2})\s+heures?\s+(\d)\s+(\d)\b/gi, (_, h, m1, m2) => {
@@ -1839,21 +1858,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
       return `${hoursWord}${minutesWord}`.trim();
     });
-    // Format avec minutes séparées (ex: "8 h 3 0" ou "8 h 3  0")
-    t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d)\s+(\d)\b/g, (_, h, m1, m2) => {
-      const hoursNum = Number(h);
+    
+    // Fallback: Si les heures sont déjà en mots français (huit, neuf, etc.) et les minutes sont séparées
+    // Ex: "huit heures 3 0" ou "huit heure 3 0" -> "huit heures trente"
+    t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(\d)\s+(\d)\b/gi, (_, hoursWord, m1, m2) => {
       const minutesNum = Number(m1 + m2);
-      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord}${minutesWord}`.trim();
-    });
-    // Format standard avec minutes collées (ex: "8h30" / "8 h 30" / "8:30")
-    t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d{2})\b/g, (_, h, m) => {
-      const hoursNum = Number(h);
-      const minutesNum = Number(m);
-      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord}${minutesWord}`.trim();
+      return `${hoursWord} heures${minutesWord}`.trim();
     });
     // Format "8h" sans minutes
     t = t.replace(/\b(\d{1,2})\s*[hH]\b/gi, (_, h) => {
