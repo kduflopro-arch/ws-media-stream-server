@@ -2064,8 +2064,28 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\b(\d{1,4})\s*minutes?\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} minutes`);
     t = t.replace(/\b(\d{1,4})\s*min\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} minutes`);
     // (Heures gérées plus haut: "8h30" / "8:30" -> "huit heures trente")
+    // IMPORTANT: Convertir les minutes après "heures" ou "heure" AVANT de convertir tous les nombres
+    // Fallback final pour "heures" ou "heure" suivis de chiffres (en cas d'échec des regex précédentes)
+    t = t.replace(/\b(heures?|heure)\s+(\d{1,2})\s+(\d)\b/gi, (_, heuresWord, m1, m2) => {
+      const minutesNum = Number(m1 + m2);
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${heuresWord}${minutesWord}`.trim();
+    });
+    t = t.replace(/\b(heures?|heure)\s+(\d{2})\b/gi, (_, heuresWord, m) => {
+      const minutesNum = Number(m);
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${heuresWord}${minutesWord}`.trim();
+    });
     // Tous les nombres restants → en lettres (ou par chiffres séparés si trop grand)
-    t = t.replace(/\b(\d{1,6})\b/g, (_, n) => numberToFrenchWordsTts(n));
+    // IMPORTANT: Ne pas convertir les nombres qui sont déjà après "heures" ou "heure"
+    t = t.replace(/\b(\d{1,6})\b/g, (match, n, offset, string) => {
+      // Vérifier si ce nombre suit "heures" ou "heure" (ne pas convertir dans ce cas)
+      const before = string.substring(Math.max(0, offset - 20), offset);
+      if (/\b(heures?|heure)\s+$/i.test(before)) {
+        return match; // Garder le nombre tel quel, il sera traité par les regex ci-dessus
+      }
+      return numberToFrenchWordsTts(n);
+    });
     // Normalisation des nombres pour cohérence (fallback)
     t = t.replace(/\b(\d+)\s*€\b/gi, "$1 euros");
     t = t.replace(/\b(\d+)\s*euros?\b/gi, "$1 euros");
