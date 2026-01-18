@@ -355,6 +355,107 @@ wss.on("connection", (ws, req) => {
   let premiumTtsQueue = []; // Array<{ text: string, interrupt: boolean }>
   let premiumTtsDrainInFlight = false;
   let premiumTtsLastText = ""; // Dernier texte effectivement envoyé au TTS (pour éviter les répétitions exactes)
+
+  // --- UX premium: état conversationnel minimal (garde-fous) ---
+  let lastUserTranscriptText = "";
+  let rdvIntentActive = false; // vrai uniquement si le client a explicitement demandé un RDV / un créneau
+  let rdvFlowStage = "none"; // "none" | "ask_day" | "ask_period" | "done"
+  let rdvHoursAnnounced = false;
+
+  function detectRdvIntentFromUserText(t) {
+    const s = String(t || "").toLowerCase();
+    // Annulation explicite
+    if (/\b(pas|non)\b.{0,20}\brendez[- ]?vous\b/.test(s) || s.includes("pas de rdv") || s.includes("pas de rendez vous")) {
+      return { intent: false, explicitCancel: true };
+    }
+    // Demande explicite (on évite "demain" seul → trop de faux positifs)
+    const explicit =
+      /\brendez[- ]?vous\b/.test(s) ||
+      /\brdv\b/.test(s) ||
+      /\bcr[eé]neau\b/.test(s) ||
+      (/\bprendre\b/.test(s) && /\brendez[- ]?vous\b/.test(s)) ||
+      (/\bfixer\b/.test(s) && /\brendez[- ]?vous\b/.test(s)) ||
+      (/\bje\b/.test(s) && /\bviens\b/.test(s) && /\bquand\b/.test(s));
+    return { intent: !!explicit, explicitCancel: false };
+  }
+
+  function extractDayTokenFromText(t) {
+    const s = String(t || "").toLowerCase();
+    const days = [
+      "lundi",
+      "mardi",
+      "mercredi",
+      "jeudi",
+      "vendredi",
+      "samedi",
+      "dimanche",
+      "aujourd'hui",
+      "demain",
+      "après-demain",
+      "apres-demain",
+    ];
+    for (const d of days) if (s.includes(d)) return d;
+    return null;
+  }
+
+  function hasPeriodToken(t) {
+    const s = String(t || "").toLowerCase();
+    return s.includes("matin") || s.includes("après-midi") || s.includes("apres-midi") || s.includes("l'après-midi") || s.includes("l'apres-midi");
+  }
+
+  function looksLikeRdvQuestionFromAssistant(t) {
+    const s = String(t || "").toLowerCase();
+    return (
+      s.includes("rendez-vous") ||
+      s.includes("rdv") ||
+      s.includes("créneau") ||
+      s.includes("creneau") ||
+      s.includes("disponibilit") ||
+      s.includes("quel jour") ||
+      s.includes("plutôt le matin") ||
+      s.includes("plutot le matin") ||
+      s.includes("l'après-midi") ||
+      s.includes("l'apres-midi")
+    );
+  }
+
+  function buildHoursAnnouncementSentence() {
+    if (garageHoursText && String(garageHoursText).trim()) {
+      return `Avant de me communiquer vos préférences de rendez-vous, le garage est ouvert ${garageHoursText}.`;
+    }
+    return `Avant de me communiquer vos préférences de rendez-vous, je vous précise les horaires d'ouverture: ils ne sont pas indiqués dans nos réglages pour le moment.`;
+  }
+
+  function postprocessAssistantTextForPremiumUx(text) {
+    const original = String(text || "").trim();
+    if (!original) return "";
+
+    // 1) Garde-fou: si l'IA part sur un RDV alors que le client n'a pas demandé → question de clarification
+    if (!rdvIntentActive && looksLikeRdvQuestionFromAssistant(original)) {
+      return "D'accord. Pour être sûr, est-ce que vous souhaitez un rendez-vous, ou plutôt un simple renseignement ?";
+    }
+
+    // 2) RDV: forcer l'ordre Horaires -> Jour -> Matin/Après-midi
+    if (rdvIntentActive && looksLikeRdvQuestionFromAssistant(original)) {
+      // Si on n'a pas encore annoncé les horaires, on force un message propre (une seule question)
+      if (!rdvHoursAnnounced) {
+        rdvHoursAnnounced = true;
+        rdvFlowStage = "ask_day";
+        const hours = buildHoursAnnouncementSentence();
+        return `${hours} Quel jour vous conviendrait le mieux ?`;
+      }
+      // Si on attend le jour, ne pas demander matin/après-midi trop tôt
+      if (rdvFlowStage === "ask_day") {
+        return "Très bien. Quel jour vous conviendrait le mieux ?";
+      }
+      // Si on a déjà le jour, on peut demander la période
+      if (rdvFlowStage === "ask_period") {
+        return "D'accord. Plutôt le matin ou l'après-midi ?";
+      }
+    }
+
+    return original;
+  }
   let spokenResponseIds = new Map(); // responseId -> timestamp (anti-répétitions par réponse)
   let recentAssistantTexts = []; // Array<{ text: string, ts: number }>
   const MAX_TTS_CHARS = Number(process.env.MAX_TTS_CHARS ?? "520");
@@ -1489,7 +1590,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       return;
     }
-    const normalized = normalizeFrenchTtsText((text || "").trim());
+    const pre = postprocessAssistantTextForPremiumUx((text || "").trim());
+    const normalized = normalizeFrenchTtsText(pre);
     if (!normalized) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] SORTIE: texte vide après normalisation`);
@@ -3269,6 +3371,31 @@ But: être naturel et mettre le client en confiance.`,
             const transcript = msg.transcript;
             console.log("🎤 Client dit:", transcript);
             enqueueIngest("user", transcript);
+
+            // --- UX premium: intention RDV + étape ---
+            lastUserTranscriptText = String(transcript || "").trim();
+            const { intent, explicitCancel } = detectRdvIntentFromUserText(lastUserTranscriptText);
+            if (explicitCancel) {
+              rdvIntentActive = false;
+              rdvFlowStage = "none";
+              rdvHoursAnnounced = false;
+            } else if (intent) {
+              // Le client a explicitement demandé un RDV
+              if (!rdvIntentActive) {
+                rdvIntentActive = true;
+                rdvFlowStage = "none";
+                rdvHoursAnnounced = false;
+              }
+            }
+            // Progression de l'étape si on est déjà dans une logique RDV
+            if (rdvIntentActive) {
+              if (rdvFlowStage === "ask_day") {
+                const day = extractDayTokenFromText(lastUserTranscriptText);
+                if (day) rdvFlowStage = "ask_period";
+              } else if (rdvFlowStage === "ask_period") {
+                if (hasPeriodToken(lastUserTranscriptText)) rdvFlowStage = "done";
+              }
+            }
           }
           
           if (msg.type === "error") {
