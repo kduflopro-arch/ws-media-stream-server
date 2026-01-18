@@ -2450,15 +2450,17 @@ IMPORTANT - SALUTATION:
 - Utilise "${title}" si le genre est défini (${gender || "non défini"}), sinon utilise simplement le prénom ou le nom.
 
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
+- NE propose JAMAIS un message pour la plaque juste après le consentement ou sans avoir compris ce que le client veut.
+- Tu DOIS D'ABORD comprendre le besoin du client (diagnostic, problème, rendez-vous, etc.) AVANT de parler de plaque.
 - AVANT de proposer un message pour la plaque, tu DOIS TOUJOURS vérifier la section "DÉTECTION CLIENT" ci-dessus.
 - Si le client a déjà une plaque enregistrée (voir "Plaque d'immatriculation enregistrée" ci-dessus):
-  * Lors de la prise de rendez-vous, tu DOIS TOUJOURS lire la plaque principale pour confirmation AVANT de finaliser le rendez-vous: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?"
+  * Lors de la prise de rendez-vous UNIQUEMENT, tu DOIS TOUJOURS lire la plaque principale pour confirmation AVANT de finaliser le rendez-vous: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?"
   * Si le client confirme que c'est la bonne plaque (ex: "oui", "c'est ça", "correct"), utilise cette plaque pour le rendez-vous.
   * Si le client dit que ce n'est PAS la bonne plaque (ex: "non", "ce n'est pas la bonne", "j'ai changé de voiture", "c'est une autre voiture"), alors tu proposes immédiatement d'envoyer un message pour qu'il envoie la bonne plaque: "D'accord, je vais vous envoyer un message pour que vous puissiez m'indiquer votre nouvelle plaque d'immatriculation." (La nouvelle plaque sera automatiquement enregistrée comme plaque secondaire dans le dossier client).
 - Si le client a plusieurs plaques enregistrées (plaque principale et plaque secondaire), lors de la prise de rendez-vous, tu lis d'abord la plaque principale et demandes confirmation. Si le client dit que ce n'est pas la bonne, tu proposes d'envoyer un message pour qu'il indique quelle plaque utiliser.
-- Si le client n'a PAS de plaque enregistrée (voir "Aucune plaque d'immatriculation enregistrée" ci-dessus), tu proposes d'envoyer un message pour qu'il envoie sa plaque (NE PAS demander la plaque à l'oral).
+- Si le client n'a PAS de plaque enregistrée (voir "Aucune plaque d'immatriculation enregistrée" ci-dessus), tu proposes d'envoyer un message pour qu'il envoie sa plaque UNIQUEMENT si le client demande un rendez-vous (NE PAS demander la plaque à l'oral, NE PAS proposer de message avant de comprendre le besoin).
 - RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque si le client a déjà une plaque enregistrée SANS avoir d'abord lu la plaque et demandé confirmation. Annonce directement la plaque enregistrée et demande confirmation.
-- Si le client demande un rendez-vous ET qu'aucune plaque n'est enregistrée: tu proposes tout de suite d'envoyer un message pour récupérer la plaque et le kilométrage (après accord du client).
+- RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque juste après le consentement ou avant d'avoir compris ce que le client veut. Attends que le client mentionne un besoin concret (rendez-vous, diagnostic, etc.).
 
 IMPORTANT - GESTION DES RENDEZ-VOUS:
 - Si le client appelle pour MODIFIER un rendez-vous: détecte sa demande et demande la nouvelle date/heure souhaitée.
@@ -3735,6 +3737,8 @@ But: être naturel et mettre le client en confiance.`,
                   clientInfo = data.client;
                   console.log("✅ Infos client récupérées:", {
                     name: clientInfo.name,
+                    firstName: clientInfo.first_name || "N/A",
+                    gender: clientInfo.gender || "N/A",
                     plate: clientInfo.plate || "Aucune plaque",
                     appointmentsCount: clientInfo.appointments?.length || 0,
                   });
@@ -3749,6 +3753,31 @@ But: être naturel et mettre le client en confiance.`,
                     }
                   } else {
                     console.warn("⚠️ OpenAI pas connecté (état:", openaiWs?.readyState, ")");
+                  }
+                  
+                  // Jouer le greeting avec le nom du client APRÈS avoir chargé les infos
+                  const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
+                  const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
+                  if (!hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
+                    const rawName = String(garageName || "AutoGuru").trim();
+                    const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
+                    const firstName = clientInfo.first_name ? String(clientInfo.first_name).trim() : clientInfo.name.split(/\s+/)[0];
+                    const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
+                    const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
+                    const salutationName = title ? `${title} ${firstName}` : firstName;
+                    const baseHello = `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`;
+                    const consentText = consentRequired
+                      ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
+                      : "";
+                    const question = consentRequired
+                      ? "Est-ce que cela vous convient ?"
+                      : "Dites-moi, quel est le souci avec votre véhicule ?";
+                    const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+                    initialAssistantGreetingText = greeting;
+                    enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+                    const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+                    console.log(`👋 Greeting avec nom client joué via ${providerName}.`, { callSid, consentRequired, clientName: salutationName });
+                    if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
                   }
                 } else {
                   console.log("ℹ️ Aucun client trouvé pour ce numéro");
@@ -3781,33 +3810,20 @@ But: être naturel et mettre le client en confiance.`,
         // - doit annoncer l'enregistrement AVANT que le client puisse répondre
         // - doit utiliser la voix TTS premium (Minimax/ElevenLabs, pas attendre OpenAI)
         // - on injecte ensuite le même texte dans la conversation OpenAI pour éviter les répétitions
-        // - ATTENTION: clientInfo est chargé de manière asynchrone, on utilise un petit délai pour permettre le chargement
+        // - ATTENTION: si clientInfo est disponible, le greeting sera joué APRÈS son chargement (dans le callback client-info)
+        //   sinon, on joue un greeting générique après un court délai
         try {
           const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
           const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
           if ((!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN) {
-            // Petit délai pour permettre le chargement de clientInfo (asynchrone)
+            // Fallback: si clientInfo n'est pas chargé après 500ms, jouer un greeting générique
             setTimeout(() => {
+              // Si on a déjà joué un greeting avec le nom du client, ne pas en jouer un autre
+              if (initialAssistantGreetingText) return;
+              
               const rawName = String(garageName || "AutoGuru").trim();
               const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
-              // Utiliser le nom du client s'il est disponible
-              const clientName = clientInfo?.name ? String(clientInfo.name).trim() : null;
-              let baseHello;
-              if (clientName && clientInfo) {
-                // Extraire le prénom (ou utiliser first_name si disponible)
-                const firstName = clientInfo.first_name ? String(clientInfo.first_name).trim() : clientName.split(/\s+/)[0];
-                const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
-                // Déterminer le titre selon le genre
-                const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
-                const salutationName = title ? `${title} ${firstName}` : firstName;
-                const greetingsWithName = [
-                  `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`,
-                  `Bonjour ${salutationName}, ${assistantName} à l'appareil, du ${label}.`,
-                ];
-                baseHello = greetingsWithName[Math.floor(Math.random() * greetingsWithName.length)];
-              } else {
-                baseHello = `Bonjour, ici ${assistantName}, l'assistante du ${label}.`;
-              }
+              const baseHello = `Bonjour, ici ${assistantName}, l'assistante du ${label}.`;
               const consentText = consentRequired
                 ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
                 : "";
@@ -3818,9 +3834,9 @@ But: être naturel et mettre le client en confiance.`,
               initialAssistantGreetingText = greeting;
               enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
               const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
-              console.log(`👋 Greeting immédiat joué via ${providerName}.`, { callSid, consentRequired, clientName: clientName || "N/A" });
+              console.log(`👋 Greeting générique (sans nom client) joué via ${providerName}.`, { callSid, consentRequired });
               if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
-            }, 200); // 200ms de délai pour permettre le chargement de clientInfo
+            }, 500); // Délai augmenté : si clientInfo n'est pas chargé après 500ms, jouer greeting générique
           }
         } catch (e) {
           const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
