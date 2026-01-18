@@ -1797,9 +1797,37 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!t) return "";
     // Nettoyage léger
     t = t.replace(/\s+/g, " ");
+    // IMPORTANT: Convertir les heures AVANT de coller les chiffres séparés
+    // Heures au format "8h30" / "8 h 30" / "8:30" / "8H30" -> "huit heures trente"
+    // Regex améliorée pour matcher même sans word boundary avant (ex: "de 8h30 à")
+    t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d{2})\b/g, (_, h, m) => {
+      const hoursNum = Number(h);
+      const minutesNum = Number(m);
+      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${hoursWord}${minutesWord}`.trim();
+    });
+    // Format "8 heures 30" ou "8 heure 30" (venant de media-streams-start) -> "huit heures trente"
+    t = t.replace(/\b(\d{1,2})\s+heures?\s+(\d{2})\b/gi, (_, h, m) => {
+      const hoursNum = Number(h);
+      const minutesNum = Number(m);
+      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${hoursWord}${minutesWord}`.trim();
+    });
+    // Format "8h" sans minutes
+    t = t.replace(/\b(\d{1,2})\s*[hH]\b/gi, (_, h) => {
+      const hoursNum = Number(h);
+      return hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
+    });
     // Coller les chiffres séparés (ex: "1 2" -> "12") pour éviter la lecture "un deux"
     // (sans toucher aux longues séquences type numéros de téléphone)
-    t = t.replace(/\b(\d(?:\s+\d){1,5})\b/g, (m) => m.replace(/\s+/g, ""));
+    // MAIS après avoir traité les heures pour éviter de casser "8h30"
+    t = t.replace(/\b(\d(?:\s+\d){1,5})\b/g, (m) => {
+      // Ne pas toucher si c'est déjà une heure (contient "heure" après)
+      if (/heure/.test(m)) return m;
+      return m.replace(/\s+/g, "");
+    });
     // Abbréviations courantes
     t = t.replace(/\bRDV\b/gi, "rendez-vous");
     t = t.replace(/\bOK\b/g, "ok");
@@ -1951,28 +1979,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bexcuse\b/gi, "excuse");
     t = t.replace(/\bexcuses\b/gi, "excuses");
 
-    // Heures au format "8h30" / "8 h 30" / "8:30" / "8H30" -> "huit heures trente"
-    // IMPORTANT: à faire tôt, avant la conversion globale des chiffres.
-    // Regex améliorée pour matcher même sans word boundary avant (ex: "de 8h30 à")
-    t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d{2})\b/g, (_, h, m) => {
-      const hoursNum = Number(h);
-      const minutesNum = Number(m);
-      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord}${minutesWord}`.trim();
-    });
-    // Format "8 heures 30" ou "8 heure 30" (venant de media-streams-start) -> "huit heures trente"
-    t = t.replace(/\b(\d{1,2})\s+heures?\s+(\d{2})\b/gi, (_, h, m) => {
-      const hoursNum = Number(h);
-      const minutesNum = Number(m);
-      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord}${minutesWord}`.trim();
-    });
-    t = t.replace(/\b(\d{1,2})\s*[hH]\b/gi, (_, h) => {
-      const hoursNum = Number(h);
-      return hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
-    });
     
     // Montants avec chiffres séparés (ex: "1 2 euros" -> "douze euros")
     t = t.replace(/\b(\d(?:\s+\d){1,4})\s*(?:€|euros?)\b/gi, (_, n) => {
@@ -3750,26 +3756,42 @@ But: être naturel et mettre le client en confiance.`,
         // - doit annoncer l'enregistrement AVANT que le client puisse répondre
         // - doit utiliser la voix TTS premium (Minimax/ElevenLabs, pas attendre OpenAI)
         // - on injecte ensuite le même texte dans la conversation OpenAI pour éviter les répétitions
+        // - ATTENTION: clientInfo est chargé de manière asynchrone, on utilise un petit délai pour permettre le chargement
         try {
           const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
           const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
           if ((!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN) {
-            const rawName = String(garageName || "AutoGuru").trim();
-            const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
-            // Salutation plus naturelle, avec des virgules pour forcer des pauses à l'oral
-            const baseHello = `Bonjour, ici ${assistantName}, l'assistante du ${label}.`;
-            const consentText = consentRequired
-              ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
-              : "";
-            const question = consentRequired
-              ? "Est-ce que cela vous convient ?"
-              : "Dites-moi, quel est le souci avec votre véhicule ?";
-            const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
-            initialAssistantGreetingText = greeting;
-            enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
-            const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
-            console.log(`👋 Greeting immédiat joué via ${providerName}.`, { callSid, consentRequired });
-            if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+            // Petit délai pour permettre le chargement de clientInfo (asynchrone)
+            setTimeout(() => {
+              const rawName = String(garageName || "AutoGuru").trim();
+              const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
+              // Utiliser le nom du client s'il est disponible
+              const clientName = clientInfo?.name ? String(clientInfo.name).trim() : null;
+              let baseHello;
+              if (clientName) {
+                // Extraire le prénom si le nom complet contient plusieurs mots
+                const firstName = clientName.split(/\s+/)[0];
+                const greetingsWithName = [
+                  `Bonjour ${firstName} ! Ici ${assistantName}, l'assistante du ${label}.`,
+                  `Bonjour ${firstName}, ${assistantName} à l'appareil, du ${label}.`,
+                ];
+                baseHello = greetingsWithName[Math.floor(Math.random() * greetingsWithName.length)];
+              } else {
+                baseHello = `Bonjour, ici ${assistantName}, l'assistante du ${label}.`;
+              }
+              const consentText = consentRequired
+                ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
+                : "";
+              const question = consentRequired
+                ? "Est-ce que cela vous convient ?"
+                : "Dites-moi, quel est le souci avec votre véhicule ?";
+              const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+              initialAssistantGreetingText = greeting;
+              enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+              const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+              console.log(`👋 Greeting immédiat joué via ${providerName}.`, { callSid, consentRequired, clientName: clientName || "N/A" });
+              if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+            }, 200); // 200ms de délai pour permettre le chargement de clientInfo
           }
         } catch (e) {
           const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
