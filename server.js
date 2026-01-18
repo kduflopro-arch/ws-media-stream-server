@@ -1960,6 +1960,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
       return `${hoursWord}${minutesWord}`.trim();
     });
+    // Format "8 heures 30" ou "8 heure 30" (venant de media-streams-start) -> "huit heures trente"
+    t = t.replace(/\b(\d{1,2})\s+heures?\s+(\d{2})\b/gi, (_, h, m) => {
+      const hoursNum = Number(h);
+      const minutesNum = Number(m);
+      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${hoursWord}${minutesWord}`.trim();
+    });
     t = t.replace(/\b(\d{1,2})\s*h\b/gi, (_, h) => {
       const hoursNum = Number(h);
       return hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
