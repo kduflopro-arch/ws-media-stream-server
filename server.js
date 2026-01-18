@@ -2785,15 +2785,21 @@ STYLE (échange humain):
             // Utiliser uniquement le nom de famille (last_name), pas le nom complet
             let lastName = clientInfo.last_name ? String(clientInfo.last_name).trim() : null;
             // Si pas de last_name, extraire le dernier mot du nom complet comme fallback
-            if (!lastName && clientName) {
-              const nameParts = clientName.split(/\s+/);
-              lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : clientName;
+            if (!lastName || lastName === "") {
+              const nameParts = clientName.split(/\s+/).filter(p => p.trim().length > 0);
+              lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : (nameParts.length === 1 ? nameParts[0] : clientName);
             }
             const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
             
             // Déterminer le titre selon le genre
             const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
-            const salutationName = lastName ? (title ? `${title} ${lastName}` : lastName) : (title ? `${title} ${clientName}` : clientName);
+            // Construire salutationName avec le nom de famille ou le nom complet en fallback
+            let salutationName = "";
+            if (lastName && lastName.trim().length > 0) {
+              salutationName = title ? `${title} ${lastName}` : lastName;
+            } else {
+              salutationName = title ? `${title} ${clientName}` : clientName;
+            }
             
             // Si le client est détecté, saluer avec le titre approprié
             const greetingsWithName = [
