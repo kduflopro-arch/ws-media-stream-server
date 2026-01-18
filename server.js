@@ -1851,7 +1851,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return `${hoursWord}${minutesWord}`.trim();
     });
     // Format "X heures YY" ou "X heure YY" avec minutes collées (ex: "8 heures 30" -> "huit heures trente")
-    t = t.replace(/\b(\d{1,2})\s+heures?\s+(\d{2})\b/gi, (_, h, m) => {
+    // Gérer aussi les cas sans espaces : "8heures30" ou "8 heures30" ou "8heures 30"
+    t = t.replace(/\b(\d{1,2})\s*heures?\s*(\d{2})\b/gi, (_, h, m) => {
       const hoursNum = Number(h);
       const minutesNum = Number(m);
       const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
@@ -1860,8 +1861,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     });
     
     // Fallback: Si les heures sont déjà en mots français (huit, neuf, etc.) et les minutes sont en chiffres
-    // Ex: "huit heures 30" -> "huit heures trente"
-    t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(\d{2})\b/gi, (_, hoursWord, m) => {
+    // Ex: "huit heures 30" ou "huitheures30" -> "huit heures trente"
+    // Gérer aussi les cas sans espaces
+    t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s*heures?\s*(\d{2})\b/gi, (_, hoursWord, m) => {
       const minutesNum = Number(m);
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
       return `${hoursWord} heures${minutesWord}`.trim();
