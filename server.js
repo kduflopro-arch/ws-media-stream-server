@@ -1591,8 +1591,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
     // Éviter de rejouer en boucle exactement la même phrase (ex: greeting)
     // On vérifie aussi dans la queue pour éviter les doublons même si les événements arrivent en même temps
+    // Fonction pour calculer la similarité entre deux textes (basée sur les mots communs)
+    const calculateSimilarity = (text1, text2) => {
+      const words1 = text1.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const words2 = text2.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      if (words1.length === 0 || words2.length === 0) return 0;
+      const commonWords = words1.filter(w => words2.includes(w));
+      return commonWords.length / Math.max(words1.length, words2.length);
+    };
+    
     if (premiumTtsLastText) {
       const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/[.,!?;:]/g, "").trim();
+      // Vérifier l'égalité exacte
       if (lastNormalized === normalizedForCompare) {
         if (LOG_TTS) {
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (identique au précédent) [source: ${source}]:`, clean.substring(0, 120));
@@ -1602,11 +1612,23 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
         return;
       }
+      // Vérifier la similarité (si > 80% de mots communs, considérer comme répétition)
+      const similarity = calculateSimilarity(lastNormalized, normalizedForCompare);
+      if (similarity > 0.8 && normalizedForCompare.length > 20) {
+        if (LOG_TTS) {
+          console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (similaire à ${Math.round(similarity * 100)}%) [source: ${source}]:`, clean.substring(0, 120));
+          console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
+        }
+        return;
+      }
     }
     // Vérifier aussi dans la queue actuelle
     if (premiumTtsQueue.some(job => {
       const jobNormalized = normalizeFrenchTtsText(job.text.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim();
-      return jobNormalized === normalizedForCompare;
+      if (jobNormalized === normalizedForCompare) return true;
+      // Vérifier la similarité
+      const similarity = calculateSimilarity(jobNormalized, normalizedForCompare);
+      return similarity > 0.8 && normalizedForCompare.length > 20;
     })) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
@@ -1820,12 +1842,32 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const hoursNum = Number(h);
       return hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
     });
+    // IMPORTANT: Traiter les montants AVANT de coller les chiffres séparés
+    // Montants avec chiffres séparés (ex: "1 2 euros" -> "douze euros")
+    t = t.replace(/\b(\d(?:\s+\d){1,4})\s*(?:€|euros?)\b/gi, (_, n) => {
+      const compact = String(n).replace(/\s+/g, "");
+      return `${numberToFrenchWordsTts(compact)} euros`;
+    });
+    // Décimales en euros avec chiffres séparés (ex: "1 2,50 euros")
+    t = t.replace(/\b(\d(?:\s+\d){1,4})[.,](\d{1,2})\s*(?:€|euros?)\b/gi, (_, n, d) => {
+      const major = numberToFrenchWordsTts(String(n).replace(/\s+/g, ""));
+      const minor = numberToFrenchWordsTts(d);
+      return `${major} euros ${minor}`;
+    });
+    // Normalisation des montants en euros (1-9999) pour éviter "1 et 2"
+    t = t.replace(/\b(\d{1,4})\s*(?:€|euros?)\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
+    // Décimales en euros (ex: 12,50€ / 12.50 euros)
+    t = t.replace(/\b(\d{1,4})[.,](\d{1,2})\s*(?:€|euros?)\b/gi, (_, n, d) => {
+      const major = numberToFrenchWordsTts(n);
+      const minor = numberToFrenchWordsTts(d);
+      return `${major} euros ${minor}`;
+    });
     // Coller les chiffres séparés (ex: "1 2" -> "12") pour éviter la lecture "un deux"
     // (sans toucher aux longues séquences type numéros de téléphone)
-    // MAIS après avoir traité les heures pour éviter de casser "8h30"
+    // MAIS après avoir traité les heures et les montants pour éviter de casser "8h30" et "12 euros"
     t = t.replace(/\b(\d(?:\s+\d){1,5})\b/g, (m) => {
-      // Ne pas toucher si c'est déjà une heure (contient "heure" après)
-      if (/heure/.test(m)) return m;
+      // Ne pas toucher si c'est déjà une heure (contient "heure" après) ou un montant (contient "euros" après)
+      if (/heure|euros?/.test(m)) return m;
       return m.replace(/\s+/g, "");
     });
     // Abbréviations courantes
@@ -1980,25 +2022,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bexcuses\b/gi, "excuses");
 
     
-    // Montants avec chiffres séparés (ex: "1 2 euros" -> "douze euros")
-    t = t.replace(/\b(\d(?:\s+\d){1,4})\s*(?:€|euros?)\b/gi, (_, n) => {
-      const compact = String(n).replace(/\s+/g, "");
-      return `${numberToFrenchWordsTts(compact)} euros`;
-    });
-    // Décimales en euros avec chiffres séparés (ex: "1 2,50 euros")
-    t = t.replace(/\b(\d(?:\s+\d){1,4})[.,](\d{1,2})\s*(?:€|euros?)\b/gi, (_, n, d) => {
-      const major = numberToFrenchWordsTts(String(n).replace(/\s+/g, ""));
-      const minor = numberToFrenchWordsTts(d);
-      return `${major} euros ${minor}`;
-    });
-    // Normalisation des montants en euros (1-9999) pour éviter "1 et 2"
-    t = t.replace(/\b(\d{1,4})\s*(?:€|euros?)\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
-    // Décimales en euros (ex: 12,50€ / 12.50 euros)
-    t = t.replace(/\b(\d{1,4})[.,](\d{1,2})\s*(?:€|euros?)\b/gi, (_, n, d) => {
-      const major = numberToFrenchWordsTts(n);
-      const minor = numberToFrenchWordsTts(d);
-      return `${major} euros ${minor}`;
-    });
+    // (Montants déjà traités plus haut, avant le collage des chiffres séparés)
     // Kilomètres / minutes
     t = t.replace(/\b(\d{1,4})\s*km\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} kilomètres`);
     t = t.replace(/\b(\d{1,4})\s*minutes?\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} minutes`);
@@ -2733,13 +2757,20 @@ STYLE (échange humain):
         function pickGreetingText(label) {
           const clientName = clientInfo?.name ? String(clientInfo.name).trim() : null;
           if (clientName && clientInfo) {
-            // Extraire le prénom ou utiliser le premier mot du nom
-            const firstName = clientInfo.first_name ? String(clientInfo.first_name).trim() : clientName.split(/\s+/)[0];
+            // Construire le nom complet : prénom + nom de famille
+            let fullName = clientName;
+            if (clientInfo.first_name && clientInfo.last_name) {
+              fullName = `${clientInfo.first_name.trim()} ${clientInfo.last_name.trim()}`;
+            } else if (clientInfo.first_name) {
+              fullName = clientInfo.first_name.trim();
+            } else if (clientInfo.last_name) {
+              fullName = clientInfo.last_name.trim();
+            }
             const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
             
             // Déterminer le titre selon le genre
             const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
-            const salutationName = title ? `${title} ${firstName}` : firstName;
+            const salutationName = title ? `${title} ${fullName}` : fullName;
             
             // Si le client est détecté, saluer avec le titre approprié
             const greetingsWithName = [
@@ -3761,10 +3792,18 @@ But: être naturel et mettre le client en confiance.`,
                   if (!hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
                     const rawName = String(garageName || "AutoGuru").trim();
                     const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
-                    const firstName = clientInfo.first_name ? String(clientInfo.first_name).trim() : clientInfo.name.split(/\s+/)[0];
+                    // Construire le nom complet : prénom + nom de famille
+                    let fullName = clientInfo.name || "";
+                    if (clientInfo.first_name && clientInfo.last_name) {
+                      fullName = `${clientInfo.first_name.trim()} ${clientInfo.last_name.trim()}`;
+                    } else if (clientInfo.first_name) {
+                      fullName = clientInfo.first_name.trim();
+                    } else if (clientInfo.last_name) {
+                      fullName = clientInfo.last_name.trim();
+                    }
                     const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
                     const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
-                    const salutationName = title ? `${title} ${firstName}` : firstName;
+                    const salutationName = title ? `${title} ${fullName}` : fullName;
                     const baseHello = `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`;
                     const consentText = consentRequired
                       ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
