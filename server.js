@@ -1974,9 +1974,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\b(\d{1,4})\s*km\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} kilomètres`);
     t = t.replace(/\b(\d{1,4})\s*minutes?\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} minutes`);
     t = t.replace(/\b(\d{1,4})\s*min\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} minutes`);
-    // Tous les nombres restants → en lettres (ou par chiffres séparés si trop grand)
-    t = t.replace(/\b(\d{1,6})\b/g, (_, n) => numberToFrenchWordsTts(n));
-    // Heures (ex: 9h, 9h30, 9 h 30)
+    // Heures (ex: 9h, 9h30, 9 h 30) — à faire AVANT la conversion globale des chiffres,
+    // sinon "08h30" devient "huit h30" et n'est plus matchable.
     t = t.replace(/\b(\d{1,2})\s*h\s*(\d{1,2})?\b/gi, (_, h, m) => {
       const hoursNum = Number(h);
       const minutesNum = m != null && m !== "" ? Number(m) : null;
@@ -1985,6 +1984,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const minutesWord = numberToFrenchWordsTts(minutesNum);
       return `${hoursWord} ${minutesWord}`;
     });
+    // Tous les nombres restants → en lettres (ou par chiffres séparés si trop grand)
+    t = t.replace(/\b(\d{1,6})\b/g, (_, n) => numberToFrenchWordsTts(n));
     // Normalisation des nombres pour cohérence (fallback)
     t = t.replace(/\b(\d+)\s*€\b/gi, "$1 euros");
     t = t.replace(/\b(\d+)\s*euros?\b/gi, "$1 euros");
