@@ -4617,9 +4617,10 @@ But: être naturel et mettre le client en confiance.`,
           goodbyeTimer = null;
         }
         if (plateSmsSendOnFinalize) {
+          const shouldSend = plateSmsSendOnFinalize;
           plateSmsSendOnFinalize = false;
-          console.log("📩 Envoi SMS plaque demandé à la fin de l'appel (stop event)");
-          requestPlateSmsIfNeeded("send_plate_sms_on_finalize")
+          console.log("📩 Envoi SMS plaque demandé à la fin de l'appel (stop event), plateSmsSendOnFinalize:", shouldSend);
+          requestPlateSmsIfNeeded("send_plate_sms_on_finalize", shouldSend)
             .then((res) => {
               console.log("📩 Résultat envoi SMS plaque (stop):", res);
               if (res && res.sent) {
@@ -4628,10 +4629,27 @@ But: être naturel et mettre le client en confiance.`,
                 plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
               } else {
                 console.warn("⚠️ SMS plaque non envoyé (stop):", res?.reason || "unknown");
+                // Si l'IA a proposé d'envoyer un message mais que le SMS n'a pas été envoyé,
+                // forcer l'envoi même si le client a une plaque
+                if (shouldSend && res?.reason === "client_has_plate") {
+                  console.log("🔄 Réessai avec force=true car l'IA a proposé d'envoyer un message");
+                  requestPlateSmsIfNeeded("send_plate_sms_on_finalize_forced", true)
+                    .then((forceRes) => {
+                      if (forceRes && forceRes.sent) {
+                        console.log("✅ SMS plaque envoyé (forcé):", forceRes);
+                        plateSmsWaitingForReply = true;
+                        if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
+                        plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
+                      }
+                    })
+                    .catch((err) => {
+                      console.error("❌ Erreur lors de l'envoi SMS plaque (forcé):", err);
+                    });
+                }
               }
             })
             .catch((err) => {
-              console.error("❌ Erreur envoi SMS plaque (stop):", err);
+              console.error("❌ Erreur lors de l'envoi SMS plaque (stop):", err);
             });
         } else {
           console.log("ℹ️ Aucun SMS plaque à envoyer (plateSmsSendOnFinalize=false)");
