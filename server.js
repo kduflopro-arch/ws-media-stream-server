@@ -248,6 +248,9 @@ wss.on("connection", (ws, req) => {
   
   console.log("📞 Paramètres extraits:", { callSid, garageId, garageName, fromNumber });
   
+  // Initialiser le temps de début d'appel
+  callStartTimeMs = nowMs();
+  
   let mediaCount = 0;
   let appendedBytes = 0; // bytes ajoutés depuis le dernier commit
   let openaiWs = null;
@@ -615,7 +618,10 @@ wss.on("connection", (ws, req) => {
   let goodbyeDetected = false;
   let goodbyeTimer = null;
   let lastUserActivityMs = 0;
-  const GOODBYE_DELAY_MS = 3000; // 3 secondes après l'au revoir pour couper l'appel
+  let callStartTimeMs = 0;
+  const GOODBYE_DELAY_MS = 5000; // 5 secondes après l'au revoir pour couper l'appel
+  const MIN_CALL_DURATION_MS = 30000; // Minimum 30 secondes d'appel avant hangup automatique
+  const MIN_USER_INACTIVITY_MS = 5000; // Client doit être inactif depuis au moins 5 secondes
 
   function isAffirmativeFr(text) {
     const t = String(text || "").toLowerCase();
