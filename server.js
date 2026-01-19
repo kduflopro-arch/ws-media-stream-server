@@ -2099,73 +2099,178 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bBYD\b/gi, "Bé Y Dé");
     t = t.replace(/\bMG\b/gi, "M G");
     
-    // Mots courants du garage (normalisation pour cohérence)
+    // Mots courants du garage (normalisation pour cohérence et meilleure articulation)
     // Ces mots sont souvent mal prononcés différemment selon le contexte
     // Expressions fréquentes de liaison / questions
-    // On aide le TTS à mieux articuler certains groupes de mots
+    // On aide le TTS à mieux articuler certains groupes de mots en ajoutant des espaces stratégiques
+    
+    // Expressions courantes avec meilleure articulation
     t = t.replace(/\best-ce que\b/gi, "est ce que");
     t = t.replace(/\best ce que\b/gi, "est ce que");
-    t = t.replace(/\brécupérer\b/gi, "récupérer");
-    t = t.replace(/\bimmatriculation\b/gi, "immatriculation");
-    t = t.replace(/\bplaque\b/gi, "plaque");
-    t = t.replace(/\bvidange\b/gi, "vidange");
-    t = t.replace(/\brévision\b/gi, "révision");
-    t = t.replace(/\bdiagnostic\b/gi, "diagnostic");
-    t = t.replace(/\bfreinage\b/gi, "freinage");
-    t = t.replace(/\bplaquettes\b/gi, "plaquettes");
-    t = t.replace(/\bdisques\b/gi, "disques");
-    t = t.replace(/\bembrayage\b/gi, "embrayage");
-    t = t.replace(/\bcourroie\b/gi, "courroie");
-    t = t.replace(/\bdistribution\b/gi, "distribution");
-    t = t.replace(/\bclimatisation\b/gi, "climatisation");
-    t = t.replace(/\bvéhicule\b/gi, "véhicule");
-    t = t.replace(/\bvoiture\b/gi, "voiture");
-    t = t.replace(/\bgarage\b/gi, "garage");
-    t = t.replace(/\bassistante\b/gi, "assistante");
-    t = t.replace(/\bassistant\b/gi, "assistant");
-    t = t.replace(/\bdisponibilité\b/gi, "disponibilité");
-    t = t.replace(/\bdisponibilités\b/gi, "disponibilités");
-    t = t.replace(/\bappareil\b/gi, "appareil");
-    t = t.replace(/\bamène\b/gi, "amène");
-    t = t.replace(/\bconvenir\b/gi, "convenir");
-    t = t.replace(/\bconvenu\b/gi, "convenu");
-    t = t.replace(/\bconvenez\b/gi, "convenez");
-    t = t.replace(/\bkilométrage\b/gi, "kilométrage");
-    t = t.replace(/\bkilomètres\b/gi, "kilomètres");
-    t = t.replace(/\bkilomètre\b/gi, "kilomètre");
-    t = t.replace(/\bapproximatif\b/gi, "approximatif");
-    t = t.replace(/\bapproximative\b/gi, "approximative");
-    t = t.replace(/\bconseiller\b/gi, "conseiller");
-    t = t.replace(/\bconseillère\b/gi, "conseillère");
-    t = t.replace(/\bproblème\b/gi, "problème");
-    t = t.replace(/\bproblèmes\b/gi, "problèmes");
-    t = t.replace(/\bvoyant\b/gi, "voyant");
-    t = t.replace(/\bvoyants\b/gi, "voyants");
-    t = t.replace(/\bdémarrage\b/gi, "démarrage");
-    t = t.replace(/\barrêt\b/gi, "arrêt");
-    t = t.replace(/\barrêter\b/gi, "arrêter");
-    t = t.replace(/\barrêté\b/gi, "arrêté");
-    t = t.replace(/\bdisponibilité\b/gi, "disponibilité");
-    t = t.replace(/\bdisponibilités\b/gi, "disponibilités");
-    t = t.replace(/\bconfirmer\b/gi, "confirmer");
-    t = t.replace(/\bconfirmation\b/gi, "confirmation");
-    t = t.replace(/\bconfirme\b/gi, "confirme");
-    t = t.replace(/\bconfirmé\b/gi, "confirmé");
-    t = t.replace(/\bconfirmez\b/gi, "confirmez");
-    t = t.replace(/\bcompris\b/gi, "compris");
-    t = t.replace(/\bcomprendre\b/gi, "comprendre");
-    t = t.replace(/\bcomprends\b/gi, "comprends");
-    t = t.replace(/\bcomprenez\b/gi, "comprenez");
-    t = t.replace(/\brépéter\b/gi, "répéter");
-    t = t.replace(/\brépète\b/gi, "répète");
-    t = t.replace(/\brépétez\b/gi, "répétez");
-    t = t.replace(/\breformuler\b/gi, "reformuler");
-    t = t.replace(/\breformule\b/gi, "reformule");
-    t = t.replace(/\breformulez\b/gi, "reformulez");
-    t = t.replace(/\bpardon\b/gi, "pardon");
-    t = t.replace(/\bexcusez\b/gi, "excusez");
-    t = t.replace(/\bexcuse\b/gi, "excuse");
-    t = t.replace(/\bexcuses\b/gi, "excuses");
+    t = t.replace(/\bqu'est-ce que\b/gi, "qu est ce que");
+    t = t.replace(/\bqu'est ce que\b/gi, "qu est ce que");
+    t = t.replace(/\bc'est-à-dire\b/gi, "c est à dire");
+    t = t.replace(/\bpeut-être\b/gi, "peut être");
+    t = t.replace(/\bparce que\b/gi, "parce que");
+    t = t.replace(/\bafin de\b/gi, "afin de");
+    t = t.replace(/\bgrâce à\b/gi, "grâce à");
+    t = t.replace(/\bvis-à-vis\b/gi, "vis à vis");
+    
+    // Mots techniques du garage avec meilleure articulation
+    t = t.replace(/\brécupérer\b/gi, "ré cu pé rer");
+    t = t.replace(/\bimmatriculation\b/gi, "im ma tri cu la tion");
+    t = t.replace(/\bplaque\b/gi, "pla que");
+    t = t.replace(/\bvidange\b/gi, "vi dan ge");
+    t = t.replace(/\brévision\b/gi, "ré vi sion");
+    t = t.replace(/\bdiagnostic\b/gi, "diag no stic");
+    t = t.replace(/\bfreinage\b/gi, "frei na ge");
+    t = t.replace(/\bplaquettes\b/gi, "pla quettes");
+    t = t.replace(/\bdisques\b/gi, "dis ques");
+    t = t.replace(/\bembrayage\b/gi, "em bra ya ge");
+    t = t.replace(/\bcourroie\b/gi, "cour roie");
+    t = t.replace(/\bdistribution\b/gi, "dis tri bu tion");
+    t = t.replace(/\bclimatisation\b/gi, "cli ma ti sa tion");
+    t = t.replace(/\bvéhicule\b/gi, "vé hi cule");
+    t = t.replace(/\bvoiture\b/gi, "voi tu re");
+    t = t.replace(/\bgarage\b/gi, "ga ra ge");
+    t = t.replace(/\bassistante\b/gi, "as sis tan te");
+    t = t.replace(/\bassistant\b/gi, "as sis tant");
+    t = t.replace(/\bdisponibilité\b/gi, "dis po ni bi li té");
+    t = t.replace(/\bdisponibilités\b/gi, "dis po ni bi li tés");
+    t = t.replace(/\bappareil\b/gi, "ap pa reil");
+    t = t.replace(/\bamène\b/gi, "a mène");
+    t = t.replace(/\bconvenir\b/gi, "con ve nir");
+    t = t.replace(/\bconvenu\b/gi, "con ve nu");
+    t = t.replace(/\bconvenez\b/gi, "con ve nez");
+    t = t.replace(/\bkilométrage\b/gi, "ki lo mé tra ge");
+    t = t.replace(/\bkilomètres\b/gi, "ki lo mètres");
+    t = t.replace(/\bkilomètre\b/gi, "ki lo mètre");
+    t = t.replace(/\bapproximatif\b/gi, "ap prox i ma tif");
+    t = t.replace(/\bapproximative\b/gi, "ap prox i ma ti ve");
+    t = t.replace(/\bconseiller\b/gi, "con sei ller");
+    t = t.replace(/\bconseillère\b/gi, "con sei llère");
+    t = t.replace(/\bproblème\b/gi, "pro blème");
+    t = t.replace(/\bproblèmes\b/gi, "pro blèmes");
+    t = t.replace(/\bvoyant\b/gi, "vo yant");
+    t = t.replace(/\bvoyants\b/gi, "vo yants");
+    t = t.replace(/\bdémarrage\b/gi, "dé mar ra ge");
+    t = t.replace(/\barrêt\b/gi, "ar rêt");
+    t = t.replace(/\barrêter\b/gi, "ar rê ter");
+    t = t.replace(/\barrêté\b/gi, "ar rê té");
+    t = t.replace(/\bconfirmer\b/gi, "con fir mer");
+    t = t.replace(/\bconfirmation\b/gi, "con fir ma tion");
+    t = t.replace(/\bconfirme\b/gi, "con fir me");
+    t = t.replace(/\bconfirmé\b/gi, "con fir mé");
+    t = t.replace(/\bconfirmez\b/gi, "con fir mez");
+    t = t.replace(/\bcompris\b/gi, "com pris");
+    t = t.replace(/\bcomprendre\b/gi, "com pren dre");
+    t = t.replace(/\bcomprends\b/gi, "com prends");
+    t = t.replace(/\bcomprenez\b/gi, "com pre nez");
+    t = t.replace(/\brépéter\b/gi, "ré pé ter");
+    t = t.replace(/\brépète\b/gi, "ré pète");
+    t = t.replace(/\brépétez\b/gi, "ré pé tez");
+    t = t.replace(/\breformuler\b/gi, "re for mu ler");
+    t = t.replace(/\breformule\b/gi, "re for mule");
+    t = t.replace(/\breformulez\b/gi, "re for mu lez");
+    t = t.replace(/\bpardon\b/gi, "par don");
+    t = t.replace(/\bexcusez\b/gi, "ex cu sez");
+    t = t.replace(/\bexcuse\b/gi, "ex cuse");
+    t = t.replace(/\bexcuses\b/gi, "ex cu ses");
+    
+    // Mots supplémentaires souvent mal prononcés
+    t = t.replace(/\bpréférence\b/gi, "pré fé ren ce");
+    t = t.replace(/\bpréférences\b/gi, "pré fé ren ces");
+    t = t.replace(/\brenseignement\b/gi, "ren sei gne ment");
+    t = t.replace(/\brenseignements\b/gi, "ren sei gne ments");
+    t = t.replace(/\binformation\b/gi, "in for ma tion");
+    t = t.replace(/\binformations\b/gi, "in for ma tions");
+    t = t.replace(/\bappointment\b/gi, "ren dez vous");
+    t = t.replace(/\bappointments\b/gi, "ren dez vous");
+    t = t.replace(/\bprestation\b/gi, "pres ta tion");
+    t = t.replace(/\bprestations\b/gi, "pres ta tions");
+    t = t.replace(/\btarif\b/gi, "ta rif");
+    t = t.replace(/\btarifs\b/gi, "ta rifs");
+    t = t.replace(/\bprix\b/gi, "prix");
+    t = t.replace(/\bdevis\b/gi, "de vis");
+    t = t.replace(/\bintervention\b/gi, "in ter ven tion");
+    t = t.replace(/\binterventions\b/gi, "in ter ven tions");
+    t = t.replace(/\bmaintenance\b/gi, "main te nance");
+    t = t.replace(/\bentretien\b/gi, "en tre tien");
+    t = t.replace(/\bentretiens\b/gi, "en tre tiens");
+    t = t.replace(/\bremplacement\b/gi, "rem pla ce ment");
+    t = t.replace(/\bremplacements\b/gi, "rem pla ce ments");
+    t = t.replace(/\bréparation\b/gi, "ré pa ra tion");
+    t = t.replace(/\bréparations\b/gi, "ré pa ra tions");
+    t = t.replace(/\bcontrôle\b/gi, "con trôle");
+    t = t.replace(/\bcontrôles\b/gi, "con trôles");
+    t = t.replace(/\btechnique\b/gi, "tech ni que");
+    t = t.replace(/\btechniques\b/gi, "tech ni ques");
+    t = t.replace(/\bbatterie\b/gi, "bat te rie");
+    t = t.replace(/\bbatteries\b/gi, "bat te ries");
+    t = t.replace(/\bpneus\b/gi, "pneus");
+    t = t.replace(/\bpneu\b/gi, "pneu");
+    t = t.replace(/\béquilibrage\b/gi, "é qui li bra ge");
+    t = t.replace(/\bparallélisme\b/gi, "pa ral lé lis me");
+    t = t.replace(/\bgéométrie\b/gi, "gé o mé trie");
+    
+    // Expressions courantes avec meilleure articulation
+    t = t.replace(/\ben quoi puis-je\b/gi, "en quoi puis je");
+    t = t.replace(/\bpuis-je\b/gi, "puis je");
+    t = t.replace(/\bje peux\b/gi, "je peux");
+    t = t.replace(/\bje vais\b/gi, "je vais");
+    t = t.replace(/\bje voudrais\b/gi, "je vou drais");
+    t = t.replace(/\bje souhaite\b/gi, "je sou haite");
+    t = t.replace(/\bje désire\b/gi, "je dé sire");
+    t = t.replace(/\bavez-vous\b/gi, "a vez vous");
+    t = t.replace(/\bêtes-vous\b/gi, "ê tes vous");
+    t = t.replace(/\bêtes vous\b/gi, "ê tes vous");
+    t = t.replace(/\bsouhaitez-vous\b/gi, "sou hai tez vous");
+    t = t.replace(/\bsouhaitez vous\b/gi, "sou hai tez vous");
+    t = t.replace(/\bvoulez-vous\b/gi, "vou lez vous");
+    t = t.replace(/\bvoulez vous\b/gi, "vou lez vous");
+    t = t.replace(/\bpréférez-vous\b/gi, "pré fé rez vous");
+    t = t.replace(/\bpréférez vous\b/gi, "pré fé rez vous");
+    t = t.replace(/\bconvenez-vous\b/gi, "con ve nez vous");
+    t = t.replace(/\bconvenez vous\b/gi, "con ve nez vous");
+    t = t.replace(/\bcomprenez-vous\b/gi, "com pre nez vous");
+    t = t.replace(/\bcomprenez vous\b/gi, "com pre nez vous");
+    
+    // Salutations et formules de politesse
+    t = t.replace(/\bbonjour\b/gi, "bon jour");
+    t = t.replace(/\bbonsoir\b/gi, "bon soir");
+    t = t.replace(/\bmerci\b/gi, "mer ci");
+    t = t.replace(/\bmerci beaucoup\b/gi, "mer ci beau coup");
+    t = t.replace(/\bde rien\b/gi, "de rien");
+    t = t.replace(/\bje vous en prie\b/gi, "je vous en prie");
+    t = t.replace(/\bau revoir\b/gi, "au re voir");
+    t = t.replace(/\baurevoir\b/gi, "au re voir");
+    t = t.replace(/\bà bientôt\b/gi, "à bien tôt");
+    t = t.replace(/\ba bientot\b/gi, "à bien tôt");
+    t = t.replace(/\bbonne journée\b/gi, "bonne jour née");
+    t = t.replace(/\bbonne journee\b/gi, "bonne jour née");
+    t = t.replace(/\bbonne soirée\b/gi, "bonne soi rée");
+    t = t.replace(/\bbonne soiree\b/gi, "bonne soi rée");
+    
+    // Mots de liaison et connecteurs
+    t = t.replace(/\bcependant\b/gi, "ce pen dant");
+    t = t.replace(/\bnéanmoins\b/gi, "né an moins");
+    t = t.replace(/\btoutefois\b/gi, "tou te fois");
+    t = t.replace(/\bpar ailleurs\b/gi, "par ail leurs");
+    t = t.replace(/\ben revanche\b/gi, "en re vanche");
+    t = t.replace(/\bpar contre\b/gi, "par con tre");
+    t = t.replace(/\bpar conséquent\b/gi, "par con sé quent");
+    t = t.replace(/\bpar consequent\b/gi, "par con sé quent");
+    t = t.replace(/\bdonc\b/gi, "donc");
+    t = t.replace(/\balors\b/gi, "a lors");
+    t = t.replace(/\bensuite\b/gi, "en suite");
+    t = t.replace(/\bpuis\b/gi, "puis");
+    t = t.replace(/\baprès\b/gi, "a près");
+    t = t.replace(/\bavant\b/gi, "a vant");
+    t = t.replace(/\bdurant\b/gi, "du rant");
+    t = t.replace(/\bpendant\b/gi, "pen dant");
+    
+    // Coller les espaces multiples créés par les règles ci-dessus
+    t = t.replace(/\s+/g, " ");
 
     
     // (Montants déjà traités plus haut, avant le collage des chiffres séparés)
