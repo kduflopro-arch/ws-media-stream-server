@@ -4419,15 +4419,23 @@ But: être naturel et mettre le client en confiance.`,
         console.log("🛑 Raison possible: timeout, erreur Twilio, ou fin d'appel normale");
         if (plateSmsSendOnFinalize) {
           plateSmsSendOnFinalize = false;
+          console.log("📩 Envoi SMS plaque demandé à la fin de l'appel (stop event)");
           requestPlateSmsIfNeeded("send_plate_sms_on_finalize")
             .then((res) => {
+              console.log("📩 Résultat envoi SMS plaque (stop):", res);
               if (res && res.sent) {
                 plateSmsWaitingForReply = true;
                 if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
                 plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
+              } else {
+                console.warn("⚠️ SMS plaque non envoyé (stop):", res?.reason || "unknown");
               }
             })
-            .catch(() => {});
+            .catch((err) => {
+              console.error("❌ Erreur envoi SMS plaque (stop):", err);
+            });
+        } else {
+          console.log("ℹ️ Aucun SMS plaque à envoyer (plateSmsSendOnFinalize=false)");
         }
         finalizeCallToAutoGuru("twilio_stop");
         if (outboundTimer) {
