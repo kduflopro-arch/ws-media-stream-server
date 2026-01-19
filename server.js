@@ -3351,16 +3351,27 @@ But: être naturel et mettre le client en confiance.`,
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
+              // MAIS seulement si ce n'est pas une confirmation de plaque existante
               const low = String(doneText || "").toLowerCase();
               // Détecter si l'IA propose d'envoyer un message pour la plaque
               // Chercher des patterns comme "envoyer un message", "envoyer message", "message pour plaque", etc.
               const mentionsPlate = low.includes("plaque") || low.includes("immatric");
               const mentionsMessage = (low.includes("envoyer") && low.includes("message")) || 
                                       (low.includes("message") && (low.includes("plaque") || low.includes("immatric")));
-              if (mentionsPlate || mentionsMessage) {
+              // Ne pas activer si l'IA confirme que la plaque est correcte
+              const confirmsPlate = low.includes("oui c'est") || low.includes("c'est bien") || low.includes("c'est correct") || 
+                                    low.includes("oui c'est la bonne") || low.includes("oui c'est pour cette voiture") ||
+                                    low.includes("c'est correct") || low.includes("c'est ça") || low.includes("exact");
+              // Activer seulement si l'IA propose d'envoyer un message ET que ce n'est pas une confirmation de plaque
+              if ((mentionsPlate || mentionsMessage) && !plateSmsAlreadyMentioned && !confirmsPlate) {
                 // Envoyer le SMS directement à la fin de l'appel (pas besoin de consentement)
                 plateSmsSendOnFinalize = true;
-                console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
+                console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, confirmsPlate, textPreview: doneText.substring(0, 100) });
+              } else if (confirmsPlate) {
+                console.log("✅ IA confirme plaque existante, SMS non nécessaire:", { textPreview: doneText.substring(0, 100) });
+                // S'assurer que plateSmsSendOnFinalize est false si confirmation détectée
+                plateSmsSendOnFinalize = false;
+                plateSmsAlreadyMentioned = true; // Éviter de proposer à nouveau
               }
               // Détecter si l'IA dit au revoir ou si l'échange est terminé
               const callDurationMs = nowMs() - callStartTimeMs;
