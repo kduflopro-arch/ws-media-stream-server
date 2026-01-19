@@ -1295,6 +1295,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // Envoyer le texte à Minimax
       // Le texte a été normalisé : conversion nombres->lettres pour tarifs/heures uniquement
       // Minimax gère toutes les autres prononciations
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1295',message:'TEXT SENT TO MINIMAX',data:{text:clean,textLength:clean.length,containsEuros:clean.includes('euros'),containsDouze:clean.includes('douze'),containsUnDeux:clean.includes('un deux')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       const continueMsg = {
         event: "task_continue",
         text: clean,
@@ -2009,7 +2012,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // IMPORTANT: Matcher même sans espace entre le nombre et "euros"
     t = t.replace(/\b(\d{1,4})euros?\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
     // PRIORITÉ 5: Normalisation des montants en euros avec espace (ex: "12 euros" -> "douze euros")
-    t = t.replace(/\b(\d{1,4})\s+(?:€|euros?)\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
+    t = t.replace(/\b(\d{1,4})\s+(?:€|euros?)\b/gi, (_, n) => {
+      const result = `${numberToFrenchWordsTts(n)} euros`;
+      // #region agent log
+      if (originalText.includes('euros') || originalText.includes('€')) {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2012',message:'PRIORITÉ 5 matched',data:{originalText,number:n,result,matched:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      }
+      // #endregion
+      return result;
+    });
     // PRIORITÉ 6: Normalisation des montants en euros avec symbole € (ex: "12€" -> "douze euros")
     t = t.replace(/\b(\d{1,4})€\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
     // PRIORITÉ 7: Normalisation des montants en euros avec espace et symbole € (ex: "12 €" -> "douze euros")
@@ -3260,8 +3271,12 @@ But: être naturel et mettre le client en confiance.`,
                   if (finalTimeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
                     // Attendre que l'audio soit terminé avant de raccrocher
                     const checkAudioAndHangup = () => {
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3262',message:'checkAudioAndHangup',data:{premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,allEmpty:!premiumTtsInFlight&&premiumTtsQueue.length===0&&outboundQueue.length===0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                      // #endregion
                       if (premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0) {
                         // L'audio est encore en cours, réessayer dans 500ms
+                        console.log("⏳ Audio encore en cours, attente...", { premiumTtsInFlight, premiumTtsQueueLen: premiumTtsQueue.length, outboundQueueLen: outboundQueue.length });
                         setTimeout(checkAudioAndHangup, 500);
                         return;
                       }
@@ -3460,8 +3475,12 @@ But: être naturel et mettre le client en confiance.`,
                   if (finalTimeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
                     // Attendre que l'audio soit terminé avant de raccrocher
                     const checkAudioAndHangup = () => {
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3262',message:'checkAudioAndHangup',data:{premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,allEmpty:!premiumTtsInFlight&&premiumTtsQueue.length===0&&outboundQueue.length===0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                      // #endregion
                       if (premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0) {
                         // L'audio est encore en cours, réessayer dans 500ms
+                        console.log("⏳ Audio encore en cours, attente...", { premiumTtsInFlight, premiumTtsQueueLen: premiumTtsQueue.length, outboundQueueLen: outboundQueue.length });
                         setTimeout(checkAudioAndHangup, 500);
                         return;
                       }
