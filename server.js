@@ -2026,14 +2026,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const minor = numberToFrenchWordsTts(d);
       return `${major} euros ${minor}`;
     });
-    // PRIORITÉ 10: Nombres dans les contextes de tarifs (avant "pour", "de", "tarif", "prix", etc.)
-    // Ex: "Le tarif est de 12" -> "Le tarif est de douze"
-    t = t.replace(/\b(\d{1,4})\s+(?:pour|de|tarif|prix|coût|montant|facture|à|est|sont)\b/gi, (_, n) => {
-      return `${numberToFrenchWordsTts(n)}`;
-    });
-    // PRIORITÉ 11: Nombres après "de", "à", "est", "sont" suivis de "euros" (ex: "Le prix est de 12 euros")
+    // PRIORITÉ 10: Nombres après "de", "à", "est", "sont" suivis de "euros" (ex: "Le prix est de 12 euros")
+    // IMPORTANT: Traiter AVANT PRIORITÉ 11 pour éviter que "12 de" soit converti sans "euros"
     t = t.replace(/\b(de|à|est|sont|tarif|prix|coût|montant|facture)\s+(\d{1,4})\s+(?:€|euros?)\b/gi, (_, prefix, n) => {
       return `${prefix} ${numberToFrenchWordsTts(n)} euros`;
+    });
+    // PRIORITÉ 11: Nombres dans les contextes de tarifs (avant "pour", "de", "tarif", "prix", etc.)
+    // MAIS UNIQUEMENT si ce n'est PAS suivi de "euros" (déjà traité par PRIORITÉ 10)
+    // Ex: "Le tarif est de 12" -> "Le tarif est de douze" (mais PAS "Le tarif est de 12 euros" qui est déjà traité)
+    t = t.replace(/\b(\d{1,4})\s+(?:pour|de|tarif|prix|coût|montant|facture|à|est|sont)(?!\s+\d{1,4}\s+(?:€|euros?))\b/gi, (_, n) => {
+      return `${numberToFrenchWordsTts(n)}`;
     });
     // Coller les chiffres séparés (ex: "1 2" -> "12") pour éviter la lecture "un deux"
     // MAIS UNIQUEMENT si ce n'est PAS suivi de "euros" ou "€" (déjà traité plus haut)
