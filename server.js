@@ -2000,6 +2000,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
       return `${hoursWord} heures${minutesWord}`.trim();
     });
+    
+    // CORRECTION: Traiter les heures avec minutes séparées EN LETTRES avant le collage des chiffres
+    // Ex: "huit heures 3 0" -> "huit heures trente" (les chiffres sont collés puis convertis)
+    // Mais si les minutes arrivent déjà séparées, on doit les traiter AVANT
+    t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(\d)\s+(\d)\b/gi, (_, hoursWord, m1, m2) => {
+      const minutesNum = Number(m1 + m2);
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${hoursWord} heures${minutesWord}`.trim();
+    });
     // IMPORTANT: Traiter les montants AVANT de coller les chiffres séparés
     // PRIORITÉ 1: Montants avec chiffres séparés AVANT "euros" (ex: "1 2 euros" -> "douze euros")
     // Cette regex doit matcher AVANT que les chiffres soient collés
@@ -2068,6 +2077,21 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\b(tarif|prix|coût|montant|facture)\s+(?:de|à|est|sont)?\s*(\d{1,4})\s+(?:€|euros?)\b/gi, (_, context, n) => {
       return `${context} de ${numberToFrenchWordsTts(n)} euros`;
     });
+    
+    // PRIORITÉ 14: Convertir les plaques d'immatriculation AVANT de coller les chiffres séparés
+    // Format: AA-123-CD ou AA 123 CD ou AA123CD -> AA trois-cent-vingt-trois CD
+    // IMPORTANT: Placer AVANT le collage des chiffres pour traiter "AA 3 4 6 QT" -> "AA trois-cent-quarante-six QT"
+    t = t.replace(/\b([A-Z]{2})[\s-]?(\d(?:\s+\d){0,3})[\s-]?([A-Z]{2})\b/gi, (_, letters1, numbers, letters2) => {
+      // Coller les chiffres séparés (ex: "3 4 6" -> "346")
+      const compact = String(numbers).replace(/\s+/g, "");
+      const num = Number(compact);
+      if (num >= 0 && num <= 9999) {
+        const numbersInWords = numberToFrenchWordsTts(num);
+        return `${letters1} ${numbersInWords} ${letters2}`;
+      }
+      return `${letters1} ${numbers} ${letters2}`;
+    });
+    
     // Coller les chiffres séparés (ex: "1 2" -> "12") pour éviter la lecture "un deux"
     // MAIS UNIQUEMENT si ce n'est PAS suivi de "euros" ou "€" (déjà traité plus haut)
     // ET si ce n'est pas une heure (déjà traité plus haut)
@@ -2115,19 +2139,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\ben\s+SMS\b/gi, "par message");
     t = t.replace(/\bl['']SMS\b/gi, "le message");
     t = t.replace(/\bSMS\b/gi, "un message");
-    
-    // CORRECTION: Convertir les plaques d'immatriculation françaises
-    // Format: AA-123-CD ou AA 123 CD ou AA123CD -> AA trois-cent-vingt-trois CD
-    // On détecte 2 lettres, 2-4 chiffres, 2 lettres (ou variantes avec espaces/tirets)
-    t = t.replace(/\b([A-Z]{2})[\s-]?(\d{2,4})[\s-]?([A-Z]{2})\b/gi, (_, letters1, numbers, letters2) => {
-      // Convertir les chiffres en lettres
-      const num = Number(numbers);
-      if (num >= 0 && num <= 9999) {
-        const numbersInWords = numberToFrenchWordsTts(num);
-        return `${letters1} ${numbersInWords} ${letters2}`;
-      }
-      return `${letters1} ${numbers} ${letters2}`;
-    });
     
     // Laisser Minimax gérer toutes les autres prononciations
     // On ne garde que les conversions de nombres pour les tarifs (déjà fait plus haut)
