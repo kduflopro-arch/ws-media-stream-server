@@ -2668,12 +2668,13 @@ IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - AVANT de proposer un message pour la plaque, tu DOIS TOUJOURS vérifier la section "DÉTECTION CLIENT" ci-dessus.
 - Si le client a déjà une plaque enregistrée (voir "Plaque d'immatriculation enregistrée" ci-dessus):
   * Lors de la prise de rendez-vous UNIQUEMENT, tu DOIS TOUJOURS lire la plaque principale pour confirmation AVANT de finaliser le rendez-vous: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?"
-  * Si le client confirme que c'est la bonne plaque (ex: "oui", "c'est ça", "correct"), utilise cette plaque pour le rendez-vous.
-  * Si le client dit que ce n'est PAS la bonne plaque (ex: "non", "ce n'est pas la bonne", "j'ai changé de voiture", "c'est une autre voiture"), alors tu proposes immédiatement d'envoyer un message pour qu'il envoie la bonne plaque: "D'accord, je vais vous envoyer un message pour que vous puissiez m'indiquer votre nouvelle plaque d'immatriculation." (La nouvelle plaque sera automatiquement enregistrée comme plaque secondaire dans le dossier client).
+  * Si le client confirme que c'est la bonne plaque (ex: "oui", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne", "oui c'est pour cette voiture"), utilise cette plaque pour le rendez-vous. NE PROPOSE PAS d'envoyer un message dans ce cas.
+  * Si le client dit que ce n'est PAS la bonne plaque OU que c'est pour un autre véhicule (ex: "non", "ce n'est pas la bonne", "j'ai changé de voiture", "c'est une autre voiture", "c'est pour un autre véhicule", "non c'est pour une autre voiture"), alors tu proposes immédiatement d'envoyer un message pour qu'il envoie la bonne plaque: "D'accord, je vais vous envoyer un message pour que vous puissiez m'indiquer la plaque d'immatriculation de ce véhicule." (La nouvelle plaque sera automatiquement enregistrée comme plaque secondaire dans le dossier client).
 - Si le client a plusieurs plaques enregistrées (plaque principale et plaque secondaire), lors de la prise de rendez-vous, tu lis d'abord la plaque principale et demandes confirmation. Si le client dit que ce n'est pas la bonne, tu proposes d'envoyer un message pour qu'il indique quelle plaque utiliser.
 - Si le client n'a PAS de plaque enregistrée (voir "Aucune plaque d'immatriculation enregistrée" ci-dessus), tu proposes d'envoyer un message pour qu'il envoie sa plaque UNIQUEMENT si le client demande un rendez-vous (NE PAS demander la plaque à l'oral, NE PAS proposer de message avant de comprendre le besoin).
 - RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque si le client a déjà une plaque enregistrée SANS avoir d'abord lu la plaque et demandé confirmation. Annonce directement la plaque enregistrée et demande confirmation.
 - RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque juste après le consentement ou avant d'avoir compris ce que le client veut. Attends que le client mentionne un besoin concret (rendez-vous, diagnostic, etc.).
+- RÈGLE ABSOLUE: Si le client confirme que la plaque annoncée est correcte et veut prendre rendez-vous pour cette plaque, NE PROPOSE PAS d'envoyer un message. Utilise directement la plaque enregistrée.
 
 IMPORTANT - GESTION DES RENDEZ-VOUS:
 - Si le client appelle pour MODIFIER un rendez-vous: détecte sa demande et demande la nouvelle date/heure souhaitée.
@@ -3365,17 +3366,27 @@ But: être naturel et mettre le client en confiance.`,
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
+              // MAIS seulement si c'est pour un autre véhicule (pas si le client confirme la plaque existante)
               const low = String(doneText || "").toLowerCase();
               // Détecter si l'IA propose d'envoyer un message pour la plaque
               // Chercher des patterns comme "envoyer un message", "envoyer message", "message pour plaque", etc.
               const mentionsPlate = low.includes("plaque") || low.includes("immatric");
               const mentionsMessage = (low.includes("envoyer") && low.includes("message")) || 
                                       (low.includes("message") && (low.includes("plaque") || low.includes("immatric")));
-              if ((mentionsPlate || mentionsMessage) && !plateSmsAlreadyMentioned) {
+              // Ne pas activer si l'IA confirme que la plaque est correcte (ex: "oui c'est bien", "correct", "oui c'est la bonne")
+              const confirmsPlate = low.includes("oui c'est") || low.includes("c'est bien") || low.includes("c'est correct") || 
+                                    low.includes("oui c'est la bonne") || low.includes("oui c'est pour cette voiture");
+              // Activer seulement si l'IA propose d'envoyer un message ET que ce n'est pas une confirmation de plaque
+              if ((mentionsPlate || mentionsMessage) && !plateSmsAlreadyMentioned && !confirmsPlate) {
                 // Envoyer le SMS directement à la fin de l'appel (pas besoin de consentement)
                 plateSmsSendOnFinalize = true;
                 plateSmsAlreadyMentioned = true; // Éviter les répétitions
-                console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
+                console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, confirmsPlate, textPreview: doneText.substring(0, 100) });
+              } else if (confirmsPlate) {
+                console.log("✅ Client confirme la plaque existante, SMS non nécessaire:", { textPreview: doneText.substring(0, 100) });
+                // S'assurer que plateSmsSendOnFinalize est false si le client confirme
+                plateSmsSendOnFinalize = false;
+                plateSmsAlreadyMentioned = true; // Éviter de proposer à nouveau
               }
               // Détecter si l'IA dit au revoir (seulement si c'est vraiment la fin de l'appel)
               const callDurationMs = nowMs() - callStartTimeMs;
