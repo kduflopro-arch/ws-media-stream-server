@@ -4683,9 +4683,10 @@ But: être naturel et mettre le client en confiance.`,
   ws.on("close", () => {
     console.log("🔌 Connection closed. Media frames total:", mediaCount);
     if (plateSmsSendOnFinalize) {
+      const shouldSend = plateSmsSendOnFinalize;
       plateSmsSendOnFinalize = false;
-      console.log("📩 Envoi SMS plaque demandé à la fermeture du WebSocket");
-      requestPlateSmsIfNeeded("send_plate_sms_on_finalize_ws_close")
+      console.log("📩 Envoi SMS plaque demandé à la fermeture du WebSocket, plateSmsSendOnFinalize:", shouldSend);
+      requestPlateSmsIfNeeded("send_plate_sms_on_finalize_ws_close", shouldSend)
         .then((res) => {
           console.log("📩 Résultat envoi SMS plaque (ws close):", res);
           if (res && res.sent) {
