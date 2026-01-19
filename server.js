@@ -1894,6 +1894,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!t) return "";
     // Nettoyage léger
     t = t.replace(/\s+/g, " ");
+    // IMPORTANT: On laisse Minimax gérer toutes les prononciations sauf les nombres dans les tarifs
+    // On convertit UNIQUEMENT les nombres en lettres pour les montants en euros
     // IMPORTANT: Convertir les heures AVANT de coller les chiffres séparés
     // Heures au format "8h30" / "8 h 30" / "8:30" / "8H30" -> "huit heures trente"
     // Gérer aussi le cas où les minutes sont séparées : "8 h 3 0" -> "huit heures trente"
@@ -2016,9 +2018,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // Coller les chiffres
       return m.replace(/\s+/g, "");
     });
-    // Abbréviations courantes
+    // Abbréviations essentielles uniquement
     t = t.replace(/\bRDV\b/gi, "rendez-vous");
-    t = t.replace(/\bOK\b/g, "ok");
+    t = t.replace(/\bappointment\b/gi, "rendez-vous");
+    t = t.replace(/\bappointments\b/gi, "rendez-vous");
     // Dire "message" à la place de "SMS" en gardant une grammaire naturelle
     t = t.replace(/\ble\s+SMS\b/gi, "le message");
     t = t.replace(/\bun\s+SMS\b/gi, "un message");
@@ -2026,156 +2029,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bpar\s+SMS\b/gi, "par message");
     t = t.replace(/\bvia\s+SMS\b/gi, "par message");
     t = t.replace(/\ben\s+SMS\b/gi, "par message");
-    t = t.replace(/\bl['’]SMS\b/gi, "le message");
+    t = t.replace(/\bl['']SMS\b/gi, "le message");
     t = t.replace(/\bSMS\b/gi, "un message");
-    // Sigles auto (prononcer lettre par lettre)
-    t = t.replace(/\bFAP\b/gi, "F A P");
-    t = t.replace(/\bABS\b/gi, "A B S");
-    t = t.replace(/\bESP\b/gi, "E S P");
-    t = t.replace(/\bEGR\b/gi, "E G R");
-    t = t.replace(/\bOBD\b/gi, "O B D");
-    t = t.replace(/\bTDI\b/gi, "T D I");
-    t = t.replace(/\bHDI\b/gi, "H D I");
-    t = t.replace(/\bTSI\b/gi, "T S I");
-    t = t.replace(/\bGPL\b/gi, "G P L");
-    t = t.replace(/\bSUV\b/gi, "S U V");
-    t = t.replace(/\bBVA\b/gi, "B V A");
-    t = t.replace(/\bBVM\b/gi, "B V M");
-    t = t.replace(/\bCT\b/gi, "contrôle technique");
-    t = t.replace(/\bTVA\b/gi, "T V A");
-    t = t.replace(/\bTTC\b/gi, "T T C");
-    t = t.replace(/\bHT\b/gi, "H T");
-    t = t.replace(/\bABS\b/gi, "A B S");
-    t = t.replace(/\bESP\b/gi, "E S P");
-    t = t.replace(/\bEGR\b/gi, "E G R");
-    t = t.replace(/\bFAP\b/gi, "F A P");
-    t = t.replace(/\bDPF\b/gi, "D P F");
-    t = t.replace(/\bOBD\b/gi, "O B D");
-    t = t.replace(/\bVIN\b/gi, "V I N");
-    t = t.replace(/\bSUV\b/gi, "S U V");
-    t = t.replace(/\bHDI\b/gi, "H D I");
-    t = t.replace(/\bTSI\b/gi, "T S I");
-    t = t.replace(/\bTDI\b/gi, "T D I");
-    t = t.replace(/\bSAV\b/gi, "S A V");
-    t = t.replace(/\bAdBlue\b/gi, "Ad Blu");
     
-    // Prononciations FR (téléphonie): dictionnaire complet pour cohérence
-    // Marques automobiles (prononciation française standardisée)
-    t = t.replace(/\bSEAT\b/gi, "Siat");
-    t = t.replace(/\bPeugeot\b/gi, "Peujo");
-    t = t.replace(/\bRenault\b/gi, "Renô");
-    t = t.replace(/\bCitro[eë]n\b/gi, "Citroën");
-    t = t.replace(/\bVolkswagen\b/gi, "Volksvaguen");
-    t = t.replace(/\bMercedes\b/gi, "Mèr-cè-dès");
-    t = t.replace(/\bNorauto\b/gi, "Norauto");
-    t = t.replace(/\bBMW\b/gi, "Bé M Double Vé");
-    t = t.replace(/\bAudi\b/gi, "Aoudi");
-    t = t.replace(/\bOpel\b/gi, "Opèl");
-    t = t.replace(/\bFord\b/gi, "Forde");
-    t = t.replace(/\bToyota\b/gi, "Toyota");
-    t = t.replace(/\bNissan\b/gi, "Nissane");
-    t = t.replace(/\bHyundai\b/gi, "Hyoundaï");
-    t = t.replace(/\bKia\b/gi, "Kia");
-    t = t.replace(/\bDacia\b/gi, "Datchia");
-    t = t.replace(/\bFiat\b/gi, "Fiate");
-    t = t.replace(/\bVolvo\b/gi, "Volvo");
-    t = t.replace(/\bSkoda\b/gi, "Skoda");
-    t = t.replace(/\bMazda\b/gi, "Mazda");
-    t = t.replace(/\bSuzuki\b/gi, "Suzuki");
-    t = t.replace(/\bHonda\b/gi, "Honda");
-    t = t.replace(/\bMitsubishi\b/gi, "Mitsubishi");
-    t = t.replace(/\bSubaru\b/gi, "Subaru");
-    t = t.replace(/\bLexus\b/gi, "Lexus");
-    t = t.replace(/\bInfiniti\b/gi, "Infiniti");
-    t = t.replace(/\bJaguar\b/gi, "Jaguar");
-    t = t.replace(/\bLand Rover\b/gi, "Land Rover");
-    t = t.replace(/\bRange Rover\b/gi, "Range Rover");
-    t = t.replace(/\bPorsche\b/gi, "Porsche");
-    t = t.replace(/\bFerrari\b/gi, "Ferrari");
-    t = t.replace(/\bLamborghini\b/gi, "Lamborghini");
-    t = t.replace(/\bBentley\b/gi, "Bentley");
-    t = t.replace(/\bRolls-Royce\b/gi, "Rolls-Royce");
-    t = t.replace(/\bTesla\b/gi, "Tesla");
-    t = t.replace(/\bBYD\b/gi, "Bé Y Dé");
-    t = t.replace(/\bMG\b/gi, "M G");
+    // Laisser Minimax gérer toutes les autres prononciations
+    // On ne garde que les conversions de nombres pour les tarifs (déjà fait plus haut)
     
-    // Mots courants du garage (normalisation minimale - laisser Minimax gérer la prononciation)
-    // Seulement les corrections essentielles pour éviter les erreurs de prononciation évidentes
-    t = t.replace(/\best-ce que\b/gi, "est ce que");
-    t = t.replace(/\best ce que\b/gi, "est ce que");
-    t = t.replace(/\bappointment\b/gi, "rendez-vous");
-    t = t.replace(/\bappointments\b/gi, "rendez-vous");
-
-    
-    // (Montants déjà traités plus haut, avant le collage des chiffres séparés)
-    // Kilomètres / minutes
-    t = t.replace(/\b(\d{1,4})\s*km\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} kilomètres`);
-    t = t.replace(/\b(\d{1,4})\s*minutes?\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} minutes`);
-    t = t.replace(/\b(\d{1,4})\s*min\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} minutes`);
-    // (Heures gérées plus haut: "8h30" / "8:30" -> "huit heures trente")
-    // IMPORTANT: Convertir les minutes après "heures" ou "heure" AVANT de convertir tous les nombres
-    // Fallback final pour "heures" ou "heure" suivis de chiffres (en cas d'échec des regex précédentes)
-    // Gérer aussi les cas sans espaces : "heures30" ou "heure30"
-    t = t.replace(/\b(heures?|heure)\s*(\d{1,2})\s+(\d)\b/gi, (_, heuresWord, m1, m2) => {
-      const minutesNum = Number(m1 + m2);
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${heuresWord}${minutesWord}`.trim();
-    });
-    t = t.replace(/\b(heures?|heure)\s*(\d{2})\b/gi, (_, heuresWord, m) => {
-      const minutesNum = Number(m);
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${heuresWord}${minutesWord}`.trim();
-    });
-    // Tous les nombres restants → en lettres (ou par chiffres séparés si trop grand)
-    // IMPORTANT: Ne pas convertir les nombres qui sont déjà après "heures" ou "heure"
-    // IMPORTANT: Convertir les nombres dans les contextes de tarifs (avant "euros", "€", "pour", "de", etc.)
-    t = t.replace(/\b(\d{1,6})\b/g, (match, n, offset, string) => {
-      // Vérifier si ce nombre suit "heures" ou "heure" (ne pas convertir dans ce cas)
-      const before = string.substring(Math.max(0, offset - 20), offset);
-      if (/\b(heures?|heure)\s+$/i.test(before)) {
-        return match; // Garder le nombre tel quel, il sera traité par les regex ci-dessus
-      }
-      // Vérifier le contexte après le nombre (tarifs, prix, etc.)
-      const after = string.substring(offset + match.length, offset + match.length + 30);
-      // Si le nombre est suivi de "euros", "€", "pour", "de", "tarif", "prix", etc., convertir en mots
-      // IMPORTANT: Vérifier même sans espace (ex: "12euros", "12€")
-      if (/\s*(?:€|euros?|pour|de|tarif|prix|coût|montant|facture)/i.test(after) || 
-          /^(?:€|euros?)/i.test(after.trim())) {
-        return numberToFrenchWordsTts(n);
-      }
-      // Vérifier le contexte avant le nombre (tarifs, prix, etc.)
-      const beforeContext = string.substring(Math.max(0, offset - 30), offset);
-      if (/\b(?:tarif|prix|coût|montant|facture|de|à|est|sont|de|pour)\s+$/i.test(beforeContext)) {
-        return numberToFrenchWordsTts(n);
-      }
-      // Convertir tous les autres nombres en mots pour une meilleure prononciation
-      return numberToFrenchWordsTts(n);
-    });
-    // Normalisation des nombres pour cohérence (fallback)
-    t = t.replace(/\b(\d+)\s*€\b/gi, "$1 euros");
-    t = t.replace(/\b(\d+)\s*euros?\b/gi, "$1 euros");
-    t = t.replace(/\b(\d+)\s*km\b/gi, "$1 kilomètres");
-    t = t.replace(/\b(\d+)\s*kilomètres?\b/gi, "$1 kilomètres");
-    t = t.replace(/\bparallélisme\b/gi, "parallélisme");
-    t = t.replace(/\bgéométrie\b/gi, "géométrie");
-    t = t.replace(/\bcontrôle\b/gi, "contrôle");
-    t = t.replace(/\btechnique\b/gi, "technique");
-    t = t.replace(/\bbatterie\b/gi, "batterie");
-    t = t.replace(/\bpneus\b/gi, "pneus");
-    t = t.replace(/\béquilibrage\b/gi, "équilibrage");
-
-    // Corrections orthographiques fréquentes (évite prononciations incompréhensibles)
-    t = t.replace(/\bcinquente\b/gi, "cinquante");
-    
-    // Ponctuation FR (aide l'intonation)
-    t = t.replace(/\s*([!?;:])\s*/g, "$1 ");
-    t = t.replace(/\s*([,.])\s*/g, "$1 ");
-    // Aide prononciation Minimax sur certains nombres (ex: "cinquante" parfois mal articulé)
-    t = t.replace(/\bcinquante\b/gi, "cinq ante");
-    // Pauses naturelles
-    t = t.replace(/(\d)\s*km\b/gi, "$1 kilomètres");
-    // Eviter les très longues phrases (téléphonie)
-    if (t.length > 220 && !/[.!?]/.test(t.slice(-20))) t += ".";
     return t.trim();
   }
 
