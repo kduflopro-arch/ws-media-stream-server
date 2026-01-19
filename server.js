@@ -516,8 +516,43 @@ wss.on("connection", (ws, req) => {
       }).catch(() => null);
       if (resp && resp.ok) {
         const json = await resp.json().catch(() => ({}));
-        // Si le client existe déjà avec une plaque, ne pas envoyer le SMS
+        // Si le client existe déjà avec une plaque, mais que l'IA a proposé d'envoyer un message,
+        // on envoie quand même le SMS (le client peut avoir plusieurs véhicules ou vouloir mettre à jour)
         if (json?.skipped === "client_has_plate" && json?.existingPlate) {
+          // Si l'IA a explicitement proposé d'envoyer un message, on force l'envoi
+          if (plateSmsSendOnFinalize) {
+            console.log("📩 Client existe avec plaque mais l'IA a proposé d'envoyer un message, on force l'envoi du SMS.", { 
+              trigger, 
+              existingPlate: json.existingPlate,
+              clientName: json.clientName,
+              callSid,
+              fromNumber: to,
+              garageId: garageId || null
+            });
+            // Réessayer avec un paramètre pour forcer l'envoi
+            const forceUrl = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/plate-sms/request");
+            const forceResp = await fetch(forceUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ...(token ? { token } : { secret }),
+                callSid,
+                garageId: garageId || null,
+                fromNumber: to,
+                trigger: trigger + "_forced",
+                force: true, // Forcer l'envoi même si le client a déjà une plaque
+              }),
+            }).catch(() => null);
+            if (forceResp && forceResp.ok) {
+              const forceJson = await forceResp.json().catch(() => ({}));
+              const smsSid = forceJson?.smsSid ?? null;
+              const isSent = Boolean(smsSid || forceJson?.status === "sent");
+              if (isSent) {
+                console.log("📩 SMS plaque envoyé (forcé malgré plaque existante).", { trigger, smsSid });
+                return { sent: true, smsSid, forced: true };
+              }
+            }
+          }
           console.log("📩 Client existe avec plaque, SMS non envoyé.", { 
             trigger, 
             existingPlate: json.existingPlate,
@@ -2129,12 +2164,25 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     });
     // Tous les nombres restants → en lettres (ou par chiffres séparés si trop grand)
     // IMPORTANT: Ne pas convertir les nombres qui sont déjà après "heures" ou "heure"
+    // IMPORTANT: Convertir les nombres dans les contextes de tarifs (avant "euros", "€", "pour", "de", etc.)
     t = t.replace(/\b(\d{1,6})\b/g, (match, n, offset, string) => {
       // Vérifier si ce nombre suit "heures" ou "heure" (ne pas convertir dans ce cas)
       const before = string.substring(Math.max(0, offset - 20), offset);
       if (/\b(heures?|heure)\s+$/i.test(before)) {
         return match; // Garder le nombre tel quel, il sera traité par les regex ci-dessus
       }
+      // Vérifier le contexte après le nombre (tarifs, prix, etc.)
+      const after = string.substring(offset + match.length, offset + match.length + 30);
+      // Si le nombre est suivi de "euros", "€", "pour", "de", "tarif", "prix", etc., convertir en mots
+      if (/\s*(?:€|euros?|pour|de|tarif|prix|coût|montant|facture)/i.test(after)) {
+        return numberToFrenchWordsTts(n);
+      }
+      // Vérifier le contexte avant le nombre (tarifs, prix, etc.)
+      const beforeContext = string.substring(Math.max(0, offset - 30), offset);
+      if (/\b(?:tarif|prix|coût|montant|facture|de|à|est|sont|de|pour)\s+$/i.test(beforeContext)) {
+        return numberToFrenchWordsTts(n);
+      }
+      // Convertir tous les autres nombres en mots pour une meilleure prononciation
       return numberToFrenchWordsTts(n);
     });
     // Normalisation des nombres pour cohérence (fallback)
