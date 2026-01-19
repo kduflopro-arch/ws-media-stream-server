@@ -1918,8 +1918,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
     });
     // IMPORTANT: Traiter les montants AVANT de coller les chiffres séparés
-    // Montants avec chiffres séparés (ex: "1 2 euros" -> "douze euros")
-    t = t.replace(/\b(\d(?:\s+\d){1,4})\s*(?:€|euros?)\b/gi, (_, n) => {
+    // Montants avec chiffres séparés AVANT "euros" (ex: "1 2 euros" -> "douze euros")
+    // Cette regex doit matcher AVANT que les chiffres soient collés
+    t = t.replace(/\b(\d(?:\s+\d){1,4})\s+(?:€|euros?)\b/gi, (_, n) => {
+      const compact = String(n).replace(/\s+/g, "");
+      return `${numberToFrenchWordsTts(compact)} euros`;
+    });
+    // Montants avec chiffres séparés et symbole € (ex: "1 2 €" -> "douze euros")
+    t = t.replace(/\b(\d(?:\s+\d){1,4})\s*€\b/gi, (_, n) => {
       const compact = String(n).replace(/\s+/g, "");
       return `${numberToFrenchWordsTts(compact)} euros`;
     });
@@ -1938,11 +1944,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return `${major} euros ${minor}`;
     });
     // Coller les chiffres séparés (ex: "1 2" -> "12") pour éviter la lecture "un deux"
-    // (sans toucher aux longues séquences type numéros de téléphone)
-    // MAIS après avoir traité les heures et les montants pour éviter de casser "8h30" et "12 euros"
-    t = t.replace(/\b(\d(?:\s+\d){1,5})\b/g, (m) => {
-      // Ne pas toucher si c'est déjà une heure (contient "heure" après) ou un montant (contient "euros" après)
-      if (/heure|euros?/.test(m)) return m;
+    // MAIS UNIQUEMENT si ce n'est PAS suivi de "euros" ou "€" (déjà traité plus haut)
+    // ET si ce n'est pas une heure (déjà traité plus haut)
+    t = t.replace(/\b(\d(?:\s+\d){1,5})\b/g, (m, offset, string) => {
+      // Vérifier le contexte après le match
+      const afterMatch = string.slice(offset + m.length, offset + m.length + 20);
+      // Ne pas toucher si c'est suivi de "euros" ou "€" (déjà traité)
+      if (/\s*(?:€|euros?)/i.test(afterMatch)) return m;
+      // Ne pas toucher si c'est une heure (déjà traité)
+      if (/heure/i.test(afterMatch)) return m;
+      // Coller les chiffres
       return m.replace(/\s+/g, "");
     });
     // Abbréviations courantes
