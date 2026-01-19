@@ -1991,6 +1991,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const hoursNum = Number(h);
       return hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
     });
+    
+    // CORRECTION: Traiter "huit heures trois zéro" ou "huit heure trois zéro" -> "huit heures trente"
+    // IMPORTANT: Placer APRÈS les autres traitements d'heures mais AVANT la normalisation générale
+    t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf|zéro|zéro|zero)\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf|zéro|zéro|zero)\b/gi, (_, hoursWord, m1, m2) => {
+      const minutesMap = { "un": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7, "huit": 8, "neuf": 9, "zéro": 0, "zero": 0 };
+      const minutesNum = (minutesMap[m1.toLowerCase()] || 0) * 10 + (minutesMap[m2.toLowerCase()] || 0);
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      return `${hoursWord} heures${minutesWord}`.trim();
+    });
     // IMPORTANT: Traiter les montants AVANT de coller les chiffres séparés
     // PRIORITÉ 1: Montants avec chiffres séparés AVANT "euros" (ex: "1 2 euros" -> "douze euros")
     // Cette regex doit matcher AVANT que les chiffres soient collés
@@ -2049,6 +2058,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\b(\d{1,4})\s+(?:pour|de|tarif|prix|coût|montant|facture|à|est|sont)(?!\s+\d{1,4}\s+(?:€|euros?))\b/gi, (_, n) => {
       return `${numberToFrenchWordsTts(n)}`;
     });
+    // PRIORITÉ 12: Cas spéciaux "de 12 euros" où "de" est séparé du nombre
+    // Ex: "le prix est de 12 euros" -> "le prix est de douze euros"
+    t = t.replace(/\b(de|à|est|sont)\s+(\d{1,4})\s+(?:€|euros?)\b/gi, (_, prefix, n) => {
+      return `${prefix} ${numberToFrenchWordsTts(n)} euros`;
+    });
+    // PRIORITÉ 13: Cas où le nombre est suivi de "euros" avec un contexte tarifaire avant
+    // Ex: "tarif de 12 euros" -> "tarif de douze euros" (si pas déjà traité)
+    t = t.replace(/\b(tarif|prix|coût|montant|facture)\s+(?:de|à|est|sont)?\s*(\d{1,4})\s+(?:€|euros?)\b/gi, (_, context, n) => {
+      return `${context} de ${numberToFrenchWordsTts(n)} euros`;
+    });
     // Coller les chiffres séparés (ex: "1 2" -> "12") pour éviter la lecture "un deux"
     // MAIS UNIQUEMENT si ce n'est PAS suivi de "euros" ou "€" (déjà traité plus haut)
     // ET si ce n'est pas une heure (déjà traité plus haut)
@@ -2097,8 +2116,27 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bl['']SMS\b/gi, "le message");
     t = t.replace(/\bSMS\b/gi, "un message");
     
+    // CORRECTION: Convertir les plaques d'immatriculation françaises
+    // Format: AA-123-CD ou AA 123 CD ou AA123CD -> AA trois-cent-vingt-trois CD
+    // On détecte 2 lettres, 2-4 chiffres, 2 lettres (ou variantes avec espaces/tirets)
+    t = t.replace(/\b([A-Z]{2})[\s-]?(\d{2,4})[\s-]?([A-Z]{2})\b/gi, (_, letters1, numbers, letters2) => {
+      // Convertir les chiffres en lettres
+      const num = Number(numbers);
+      if (num >= 0 && num <= 9999) {
+        const numbersInWords = numberToFrenchWordsTts(num);
+        return `${letters1} ${numbersInWords} ${letters2}`;
+      }
+      return `${letters1} ${numbers} ${letters2}`;
+    });
+    
     // Laisser Minimax gérer toutes les autres prononciations
     // On ne garde que les conversions de nombres pour les tarifs (déjà fait plus haut)
+    
+    // #region agent log
+    if (originalText.includes('euros') || originalText.includes('€') || originalText.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/) || originalText.match(/\d{1,2}[hH:]\s*\d{1,2}/)) {
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2103',message:'normalizeFrenchTtsText FINAL COMPLETE',data:{originalText,normalizedText:t,containsDouze:t.includes('douze'),containsUnDeux:t.includes('un deux'),hasPlateConversion:originalText.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/)&&t.match(/trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix|cent|mille/),hasHourConversion:originalText.match(/\d{1,2}[hH:]\s*\d{1,2}/)&&t.includes('heures')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    }
+    // #endregion
     
     return t.trim();
   }
@@ -3301,12 +3339,14 @@ But: être naturel et mettre le client en confiance.`,
                   if (finalTimeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
                     // Attendre que l'audio soit terminé avant de raccrocher
                     const checkAudioAndHangup = () => {
+                      // Vérifier aussi outboundQueuedBytes pour détecter les buffers en attente
+                      const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
                       // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3262',message:'checkAudioAndHangup',data:{premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,allEmpty:!premiumTtsInFlight&&premiumTtsQueue.length===0&&outboundQueue.length===0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3303',message:'checkAudioAndHangup',data:{premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,outboundQueuedBytes,hasAudioPending,allEmpty:!hasAudioPending},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
                       // #endregion
-                      if (premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0) {
+                      if (hasAudioPending) {
                         // L'audio est encore en cours, réessayer dans 500ms
-                        console.log("⏳ Audio encore en cours, attente...", { premiumTtsInFlight, premiumTtsQueueLen: premiumTtsQueue.length, outboundQueueLen: outboundQueue.length });
+                        console.log("⏳ Audio encore en cours, attente...", { premiumTtsInFlight, premiumTtsQueueLen: premiumTtsQueue.length, outboundQueueLen: outboundQueue.length, outboundQueuedBytes });
                         setTimeout(checkAudioAndHangup, 500);
                         return;
                       }
@@ -3505,12 +3545,14 @@ But: être naturel et mettre le client en confiance.`,
                   if (finalTimeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
                     // Attendre que l'audio soit terminé avant de raccrocher
                     const checkAudioAndHangup = () => {
+                      // Vérifier aussi outboundQueuedBytes pour détecter les buffers en attente
+                      const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
                       // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3262',message:'checkAudioAndHangup',data:{premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,allEmpty:!premiumTtsInFlight&&premiumTtsQueue.length===0&&outboundQueue.length===0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3303',message:'checkAudioAndHangup',data:{premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,outboundQueuedBytes,hasAudioPending,allEmpty:!hasAudioPending},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
                       // #endregion
-                      if (premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0) {
+                      if (hasAudioPending) {
                         // L'audio est encore en cours, réessayer dans 500ms
-                        console.log("⏳ Audio encore en cours, attente...", { premiumTtsInFlight, premiumTtsQueueLen: premiumTtsQueue.length, outboundQueueLen: outboundQueue.length });
+                        console.log("⏳ Audio encore en cours, attente...", { premiumTtsInFlight, premiumTtsQueueLen: premiumTtsQueue.length, outboundQueueLen: outboundQueue.length, outboundQueuedBytes });
                         setTimeout(checkAudioAndHangup, 500);
                         return;
                       }
