@@ -1953,30 +1953,52 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
     });
     // IMPORTANT: Traiter les montants AVANT de coller les chiffres séparés
-    // Montants avec chiffres séparés AVANT "euros" (ex: "1 2 euros" -> "douze euros")
+    // PRIORITÉ 1: Montants avec chiffres séparés AVANT "euros" (ex: "1 2 euros" -> "douze euros")
     // Cette regex doit matcher AVANT que les chiffres soient collés
     t = t.replace(/\b(\d(?:\s+\d){1,4})\s+(?:€|euros?)\b/gi, (_, n) => {
       const compact = String(n).replace(/\s+/g, "");
       return `${numberToFrenchWordsTts(compact)} euros`;
     });
-    // Montants avec chiffres séparés et symbole € (ex: "1 2 €" -> "douze euros")
+    // PRIORITÉ 2: Montants avec chiffres séparés et symbole € (ex: "1 2 €" -> "douze euros")
     t = t.replace(/\b(\d(?:\s+\d){1,4})\s*€\b/gi, (_, n) => {
       const compact = String(n).replace(/\s+/g, "");
       return `${numberToFrenchWordsTts(compact)} euros`;
     });
-    // Décimales en euros avec chiffres séparés (ex: "1 2,50 euros")
+    // PRIORITÉ 3: Décimales en euros avec chiffres séparés (ex: "1 2,50 euros")
     t = t.replace(/\b(\d(?:\s+\d){1,4})[.,](\d{1,2})\s*(?:€|euros?)\b/gi, (_, n, d) => {
       const major = numberToFrenchWordsTts(String(n).replace(/\s+/g, ""));
       const minor = numberToFrenchWordsTts(d);
       return `${major} euros ${minor}`;
     });
-    // Normalisation des montants en euros (1-9999) pour éviter "1 et 2"
-    t = t.replace(/\b(\d{1,4})\s*(?:€|euros?)\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
-    // Décimales en euros (ex: 12,50€ / 12.50 euros)
+    // PRIORITÉ 4: Normalisation des montants en euros COLLÉS (ex: "12euros" -> "douze euros")
+    // IMPORTANT: Matcher même sans espace entre le nombre et "euros"
+    t = t.replace(/\b(\d{1,4})euros?\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
+    // PRIORITÉ 5: Normalisation des montants en euros avec espace (ex: "12 euros" -> "douze euros")
+    t = t.replace(/\b(\d{1,4})\s+(?:€|euros?)\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
+    // PRIORITÉ 6: Normalisation des montants en euros avec symbole € (ex: "12€" -> "douze euros")
+    t = t.replace(/\b(\d{1,4})€\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
+    // PRIORITÉ 7: Normalisation des montants en euros avec espace et symbole € (ex: "12 €" -> "douze euros")
+    t = t.replace(/\b(\d{1,4})\s*€\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
+    // PRIORITÉ 8: Décimales en euros COLLÉES (ex: "12,50euros" -> "douze euros cinquante")
+    t = t.replace(/\b(\d{1,4})[.,](\d{1,2})euros?\b/gi, (_, n, d) => {
+      const major = numberToFrenchWordsTts(n);
+      const minor = numberToFrenchWordsTts(d);
+      return `${major} euros ${minor}`;
+    });
+    // PRIORITÉ 9: Décimales en euros avec espace (ex: 12,50€ / 12.50 euros)
     t = t.replace(/\b(\d{1,4})[.,](\d{1,2})\s*(?:€|euros?)\b/gi, (_, n, d) => {
       const major = numberToFrenchWordsTts(n);
       const minor = numberToFrenchWordsTts(d);
       return `${major} euros ${minor}`;
+    });
+    // PRIORITÉ 10: Nombres dans les contextes de tarifs (avant "pour", "de", "tarif", "prix", etc.)
+    // Ex: "Le tarif est de 12" -> "Le tarif est de douze"
+    t = t.replace(/\b(\d{1,4})\s+(?:pour|de|tarif|prix|coût|montant|facture|à|est|sont)\b/gi, (_, n) => {
+      return `${numberToFrenchWordsTts(n)}`;
+    });
+    // PRIORITÉ 11: Nombres après "de", "à", "est", "sont" suivis de "euros" (ex: "Le prix est de 12 euros")
+    t = t.replace(/\b(de|à|est|sont|tarif|prix|coût|montant|facture)\s+(\d{1,4})\s+(?:€|euros?)\b/gi, (_, prefix, n) => {
+      return `${prefix} ${numberToFrenchWordsTts(n)} euros`;
     });
     // Coller les chiffres séparés (ex: "1 2" -> "12") pour éviter la lecture "un deux"
     // MAIS UNIQUEMENT si ce n'est PAS suivi de "euros" ou "€" (déjà traité plus haut)
