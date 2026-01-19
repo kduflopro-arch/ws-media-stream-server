@@ -4200,18 +4200,31 @@ But: être naturel et mettre le client en confiance.`,
                         enqueueIngest("user", txt);
                         // Gestion consentement SMS plaque
                         if (plateSmsConsentPending && nowMs() <= plateSmsConsentDeadlineMs) {
+                          console.log("📩 Consentement SMS plaque en attente, réponse utilisateur:", txt.substring(0, 100));
                           if (isAffirmativeFr(txt)) {
                             plateSmsConsentPending = false;
                             // Envoyer le SMS à la fin de l'appel
                             plateSmsSendOnFinalize = true;
+                            console.log("✅ Consentement SMS plaque obtenu, SMS sera envoyé à la fin de l'appel");
                             enqueueElevenLabsTts(
                               "Parfait. Je vous enverrai le SMS à la fin de l'appel. Vous pourrez répondre par SMS avec votre plaque.",
                               { interrupt: true },
                             );
                           } else if (isNegativeFr(txt)) {
                             plateSmsConsentPending = false;
+                            console.log("❌ Consentement SMS plaque refusé");
                             enqueueElevenLabsTts("D'accord. Dans ce cas, dites-moi la plaque lettre par lettre, s'il vous plaît.", { interrupt: true });
+                          } else {
+                            // Si l'utilisateur ne répond ni oui ni non, mais que l'IA a proposé d'envoyer un message,
+                            // on considère que c'est un consentement implicite (surtout si l'utilisateur continue la conversation)
+                            console.log("⚠️ Réponse ambiguë pour SMS plaque, on attendra la fin de l'appel pour décider");
                           }
+                        } else if (plateSmsConsentPending && nowMs() > plateSmsConsentDeadlineMs) {
+                          // Timeout: si l'utilisateur n'a pas répondu dans les 25 secondes, on envoie quand même le SMS
+                          // (consentement implicite si l'utilisateur continue la conversation)
+                          console.log("⏰ Timeout consentement SMS plaque, envoi automatique à la fin de l'appel");
+                          plateSmsConsentPending = false;
+                          plateSmsSendOnFinalize = true;
                         }
                       }
                     } catch {
@@ -4446,15 +4459,21 @@ But: être naturel et mettre le client en confiance.`,
     console.log("🔌 Connection closed. Media frames total:", mediaCount);
     if (plateSmsSendOnFinalize) {
       plateSmsSendOnFinalize = false;
+      console.log("📩 Envoi SMS plaque demandé à la fermeture du WebSocket");
       requestPlateSmsIfNeeded("send_plate_sms_on_finalize_ws_close")
         .then((res) => {
+          console.log("📩 Résultat envoi SMS plaque (ws close):", res);
           if (res && res.sent) {
             plateSmsWaitingForReply = true;
             if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
             plateSmsPollTimer = setInterval(pollPlateSmsStatus, 1200);
+          } else {
+            console.warn("⚠️ SMS plaque non envoyé (ws close):", res?.reason || "unknown");
           }
         })
-        .catch(() => {});
+        .catch((err) => {
+          console.error("❌ Erreur envoi SMS plaque (ws close):", err);
+        });
     }
     finalizeCallToAutoGuru("ws_close");
     if (outboundTimer) {
