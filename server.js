@@ -2095,24 +2095,31 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Coller les chiffres séparés (ex: "1 2" -> "12") pour éviter la lecture "un deux"
     // MAIS UNIQUEMENT si ce n'est PAS suivi de "euros" ou "€" (déjà traité plus haut)
     // ET si ce n'est pas une heure (déjà traité plus haut)
+    // ET si ce n'est pas dans une plaque d'immatriculation (déjà traité plus haut)
     t = t.replace(/\b(\d(?:\s+\d){1,5})\b/g, (m, offset, string) => {
       // Vérifier le contexte après le match
       const afterMatch = string.slice(offset + m.length, offset + m.length + 20);
+      // Vérifier le contexte avant le match (pour détecter les plaques)
+      const beforeMatch = string.slice(Math.max(0, offset - 5), offset);
       // Ne pas toucher si c'est suivi de "euros" ou "€" (déjà traité)
       if (/\s*(?:€|euros?)/i.test(afterMatch)) {
         // #region agent log
         if (originalText.includes('euros') || originalText.includes('€')) {
-          fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2058',message:'chiffres séparés AVANT euros - NOT colled',data:{match:m,afterMatch:afterMatch.substring(0,20),originalText,currentText:t},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2105',message:'chiffres séparés AVANT euros - NOT colled',data:{match:m,afterMatch:afterMatch.substring(0,20),originalText,currentText:t},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
         }
         // #endregion
         return m;
       }
       // Ne pas toucher si c'est une heure (déjà traité)
       if (/heure/i.test(afterMatch)) return m;
+      // Ne pas toucher si c'est dans une plaque d'immatriculation (2 lettres avant et 2 lettres après)
+      if (/[A-Z]{2}\s*$/i.test(beforeMatch) && /^\s*[A-Z]{2}/i.test(afterMatch)) {
+        return m;
+      }
       // Coller les chiffres
       // #region agent log
       if (originalText.includes('euros') || originalText.includes('€')) {
-        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2069',message:'chiffres séparés COLLED (pas euros)',data:{match:m,afterMatch:afterMatch.substring(0,20),originalText,currentText:t},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2118',message:'chiffres séparés COLLED (pas euros/heures/plaque)',data:{match:m,afterMatch:afterMatch.substring(0,20),beforeMatch,originalText,currentText:t},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
       }
       // #endregion
       return m.replace(/\s+/g, "");
