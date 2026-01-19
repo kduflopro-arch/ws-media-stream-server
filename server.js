@@ -1299,11 +1299,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         event: "task_continue",
         text: clean,
       };
-      if (LOG_MINIMAX_EVENTS) {
-        console.log("📤 Envoi task_continue à Minimax:", { 
-          textLength: clean.length,
-          textPreview: clean.substring(0, 200) 
-        });
+      if (LOG_MINIMAX_EVENTS || LOG_TTS) {
+        console.log("📤 Texte envoyé à Minimax TTS:", clean);
+        console.log("📤 Longueur:", clean.length, "caractères");
       }
       minimaxWs.send(JSON.stringify(continueMsg));
 
