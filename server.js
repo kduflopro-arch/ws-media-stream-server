@@ -3284,35 +3284,47 @@ But: être naturel et mettre le client en confiance.`,
                 plateSmsSendOnFinalize = true;
                 console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
               }
-              // Détecter si l'IA dit au revoir
+              // Détecter si l'IA dit au revoir (seulement si c'est vraiment la fin de l'appel)
+              const callDurationMs = nowMs() - callStartTimeMs;
+              const timeSinceLastUserActivity = nowMs() - lastUserActivityMs;
+              
+              // Conditions strictes pour détecter un vrai au revoir :
+              // 1. L'appel doit avoir duré au moins 30 secondes
+              // 2. Le client doit être inactif depuis au moins 5 secondes
+              // 3. La phrase d'au revoir doit être à la fin de la réponse (derniers 100 caractères)
+              const lastPart = doneText.trim().slice(-100).toLowerCase();
               const goodbyePatterns = [
-                "au revoir", "aurevoir", "à bientôt", "a bientot", "bonne journée", "bonne journee",
-                "bonne soirée", "bonne soiree", "bonne fin de journée", "bonne fin de journee",
-                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
+                "au revoir", "aurevoir", "à bientôt", "a bientot", 
                 "merci et au revoir", "merci et bonne journée", "merci et bonne journee"
               ];
-              const isGoodbye = goodbyePatterns.some(pattern => low.includes(pattern));
-              if (isGoodbye && !goodbyeDetected) {
+              const isGoodbyeAtEnd = goodbyePatterns.some(pattern => lastPart.includes(pattern));
+              
+              if (isGoodbyeAtEnd && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && timeSinceLastUserActivity >= MIN_USER_INACTIVITY_MS) {
                 goodbyeDetected = true;
-                console.log("👋 Détection au revoir de l'IA, hangup automatique dans", GOODBYE_DELAY_MS, "ms");
+                console.log("👋 Détection au revoir de l'IA (fin d'appel), hangup automatique dans", GOODBYE_DELAY_MS, "ms", {
+                  callDuration: Math.round(callDurationMs / 1000) + "s",
+                  userInactive: Math.round(timeSinceLastUserActivity / 1000) + "s"
+                });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
                 // Programmer le hangup après un délai
                 goodbyeTimer = setTimeout(() => {
-                  const timeSinceLastUserActivity = nowMs() - lastUserActivityMs;
-                  // Si le client n'a pas parlé depuis au moins 2 secondes, on coupe
-                  if (timeSinceLastUserActivity >= 2000) {
-                    console.log("📞 Hangup automatique après au revoir (client inactif depuis", timeSinceLastUserActivity, "ms)");
+                  const finalTimeSinceLastUserActivity = nowMs() - lastUserActivityMs;
+                  // Vérifier une dernière fois que le client est toujours inactif
+                  if (finalTimeSinceLastUserActivity >= MIN_USER_INACTIVITY_MS) {
+                    console.log("📞 Hangup automatique après au revoir (client inactif depuis", Math.round(finalTimeSinceLastUserActivity / 1000), "s)");
                     triggerHangup("auto_goodbye");
                   } else {
-                    console.log("⏸️ Hangup reporté, client actif (dernière activité il y a", timeSinceLastUserActivity, "ms)");
-                    // Réessayer dans 2 secondes
-                    goodbyeTimer = setTimeout(() => {
-                      console.log("📞 Hangup automatique après au revoir (nouvelle tentative)");
-                      triggerHangup("auto_goodbye");
-                    }, 2000);
+                    console.log("⏸️ Hangup annulé, client a repris la parole (dernière activité il y a", Math.round(finalTimeSinceLastUserActivity / 1000), "s)");
+                    goodbyeDetected = false;
                   }
                 }, GOODBYE_DELAY_MS);
+              } else if (isGoodbyeAtEnd && !goodbyeDetected) {
+                // Log pour debug si les conditions ne sont pas remplies
+                console.log("⚠️ Au revoir détecté mais conditions non remplies:", {
+                  callDuration: Math.round(callDurationMs / 1000) + "s (min: " + Math.round(MIN_CALL_DURATION_MS / 1000) + "s)",
+                  userInactive: Math.round(timeSinceLastUserActivity / 1000) + "s (min: " + Math.round(MIN_USER_INACTIVITY_MS / 1000) + "s)"
+                });
               }
               // IMPORTANT: Ne pas utiliser de fallback automatique. On attend TOUJOURS une confirmation explicite du client.
               // Le fallback a été supprimé pour éviter d'envoyer des SMS sans consentement clair.
@@ -3439,35 +3451,47 @@ But: être naturel et mettre le client en confiance.`,
                 plateSmsSendOnFinalize = true;
                 console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
               }
-              // Détecter si l'IA dit au revoir
+              // Détecter si l'IA dit au revoir (seulement si c'est vraiment la fin de l'appel)
+              const callDurationMs = nowMs() - callStartTimeMs;
+              const timeSinceLastUserActivity = nowMs() - lastUserActivityMs;
+              
+              // Conditions strictes pour détecter un vrai au revoir :
+              // 1. L'appel doit avoir duré au moins 30 secondes
+              // 2. Le client doit être inactif depuis au moins 5 secondes
+              // 3. La phrase d'au revoir doit être à la fin de la réponse (derniers 100 caractères)
+              const lastPart = doneText.trim().slice(-100).toLowerCase();
               const goodbyePatterns = [
-                "au revoir", "aurevoir", "à bientôt", "a bientot", "bonne journée", "bonne journee",
-                "bonne soirée", "bonne soiree", "bonne fin de journée", "bonne fin de journee",
-                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
+                "au revoir", "aurevoir", "à bientôt", "a bientot", 
                 "merci et au revoir", "merci et bonne journée", "merci et bonne journee"
               ];
-              const isGoodbye = goodbyePatterns.some(pattern => low.includes(pattern));
-              if (isGoodbye && !goodbyeDetected) {
+              const isGoodbyeAtEnd = goodbyePatterns.some(pattern => lastPart.includes(pattern));
+              
+              if (isGoodbyeAtEnd && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && timeSinceLastUserActivity >= MIN_USER_INACTIVITY_MS) {
                 goodbyeDetected = true;
-                console.log("👋 Détection au revoir de l'IA, hangup automatique dans", GOODBYE_DELAY_MS, "ms");
+                console.log("👋 Détection au revoir de l'IA (fin d'appel), hangup automatique dans", GOODBYE_DELAY_MS, "ms", {
+                  callDuration: Math.round(callDurationMs / 1000) + "s",
+                  userInactive: Math.round(timeSinceLastUserActivity / 1000) + "s"
+                });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
                 // Programmer le hangup après un délai
                 goodbyeTimer = setTimeout(() => {
-                  const timeSinceLastUserActivity = nowMs() - lastUserActivityMs;
-                  // Si le client n'a pas parlé depuis au moins 2 secondes, on coupe
-                  if (timeSinceLastUserActivity >= 2000) {
-                    console.log("📞 Hangup automatique après au revoir (client inactif depuis", timeSinceLastUserActivity, "ms)");
+                  const finalTimeSinceLastUserActivity = nowMs() - lastUserActivityMs;
+                  // Vérifier une dernière fois que le client est toujours inactif
+                  if (finalTimeSinceLastUserActivity >= MIN_USER_INACTIVITY_MS) {
+                    console.log("📞 Hangup automatique après au revoir (client inactif depuis", Math.round(finalTimeSinceLastUserActivity / 1000), "s)");
                     triggerHangup("auto_goodbye");
                   } else {
-                    console.log("⏸️ Hangup reporté, client actif (dernière activité il y a", timeSinceLastUserActivity, "ms)");
-                    // Réessayer dans 2 secondes
-                    goodbyeTimer = setTimeout(() => {
-                      console.log("📞 Hangup automatique après au revoir (nouvelle tentative)");
-                      triggerHangup("auto_goodbye");
-                    }, 2000);
+                    console.log("⏸️ Hangup annulé, client a repris la parole (dernière activité il y a", Math.round(finalTimeSinceLastUserActivity / 1000), "s)");
+                    goodbyeDetected = false;
                   }
                 }, GOODBYE_DELAY_MS);
+              } else if (isGoodbyeAtEnd && !goodbyeDetected) {
+                // Log pour debug si les conditions ne sont pas remplies
+                console.log("⚠️ Au revoir détecté mais conditions non remplies:", {
+                  callDuration: Math.round(callDurationMs / 1000) + "s (min: " + Math.round(MIN_CALL_DURATION_MS / 1000) + "s)",
+                  userInactive: Math.round(timeSinceLastUserActivity / 1000) + "s (min: " + Math.round(MIN_USER_INACTIVITY_MS / 1000) + "s)"
+                });
               }
               // Lancer la voix premium.
               // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
