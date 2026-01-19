@@ -3290,9 +3290,10 @@ But: être naturel et mettre le client en confiance.`,
               const mentionsPlate = low.includes("plaque") || low.includes("immatric");
               const mentionsMessage = (low.includes("envoyer") && low.includes("message")) || 
                                       (low.includes("message") && (low.includes("plaque") || low.includes("immatric")));
-              if (mentionsPlate || mentionsMessage) {
+              if ((mentionsPlate || mentionsMessage) && !plateSmsAlreadyMentioned) {
                 // Envoyer le SMS directement à la fin de l'appel (pas besoin de consentement)
                 plateSmsSendOnFinalize = true;
+                plateSmsAlreadyMentioned = true; // Éviter les répétitions
                 console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
               }
               // Détecter si l'IA dit au revoir (seulement si c'est vraiment la fin de l'appel)
