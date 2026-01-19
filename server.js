@@ -451,6 +451,33 @@ wss.on("connection", (ws, req) => {
     }
   }
 
+  async function triggerHangup(reason = "auto") {
+    try {
+      if (!callSid) return;
+      const ingestUrl = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
+      if (!ingestUrl) return;
+      const token = autoguruIngestToken;
+      const secret = AUTOGURU_INGEST_SECRET_ENV;
+      if (!token && !secret) return;
+      const hangupUrl = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/hangup");
+      await fetch(hangupUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(token ? { token } : { secret }),
+          callSid,
+          garageId: garageId || null,
+          reason,
+        }),
+      }).catch((err) => {
+        console.error("❌ Erreur lors de l'envoi du hangup:", err);
+      });
+      console.log("📞 Hangup demandé à AutoGuru.", { reason });
+    } catch (err) {
+      console.error("❌ Erreur triggerHangup:", err);
+    }
+  }
+
   async function requestPlateSmsIfNeeded(trigger = "assistant_plate_request") {
     try {
       const ingestUrl = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
@@ -583,6 +610,12 @@ wss.on("connection", (ws, req) => {
   let plateSmsWaitingForReply = false;
   let plateSmsPollTimer = null;
   let plateSmsSendOnFinalize = false;
+
+  // --- Hangup automatique après au revoir ---
+  let goodbyeDetected = false;
+  let goodbyeTimer = null;
+  let lastUserActivityMs = 0;
+  const GOODBYE_DELAY_MS = 3000; // 3 secondes après l'au revoir pour couper l'appel
 
   function isAffirmativeFr(text) {
     const t = String(text || "").toLowerCase();
@@ -3370,6 +3403,36 @@ But: être naturel et mettre le client en confiance.`,
                 plateSmsSendOnFinalize = true;
                 console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
               }
+              // Détecter si l'IA dit au revoir
+              const goodbyePatterns = [
+                "au revoir", "aurevoir", "à bientôt", "a bientot", "bonne journée", "bonne journee",
+                "bonne soirée", "bonne soiree", "bonne fin de journée", "bonne fin de journee",
+                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
+                "merci et au revoir", "merci et bonne journée", "merci et bonne journee"
+              ];
+              const isGoodbye = goodbyePatterns.some(pattern => low.includes(pattern));
+              if (isGoodbye && !goodbyeDetected) {
+                goodbyeDetected = true;
+                console.log("👋 Détection au revoir de l'IA, hangup automatique dans", GOODBYE_DELAY_MS, "ms");
+                // Annuler le timer précédent s'il existe
+                if (goodbyeTimer) clearTimeout(goodbyeTimer);
+                // Programmer le hangup après un délai
+                goodbyeTimer = setTimeout(() => {
+                  const timeSinceLastUserActivity = nowMs() - lastUserActivityMs;
+                  // Si le client n'a pas parlé depuis au moins 2 secondes, on coupe
+                  if (timeSinceLastUserActivity >= 2000) {
+                    console.log("📞 Hangup automatique après au revoir (client inactif depuis", timeSinceLastUserActivity, "ms)");
+                    triggerHangup("auto_goodbye");
+                  } else {
+                    console.log("⏸️ Hangup reporté, client actif (dernière activité il y a", timeSinceLastUserActivity, "ms)");
+                    // Réessayer dans 2 secondes
+                    goodbyeTimer = setTimeout(() => {
+                      console.log("📞 Hangup automatique après au revoir (nouvelle tentative)");
+                      triggerHangup("auto_goodbye");
+                    }, 2000);
+                  }
+                }, GOODBYE_DELAY_MS);
+              }
               // Lancer la voix premium.
               // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
               if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
@@ -4195,6 +4258,17 @@ But: être naturel et mettre le client en confiance.`,
                       if (txt && !isJunkTranscript(txt)) {
                         enqueueIngest("user", txt);
                         // (Consentement SMS plaque supprimé: envoi automatique à la fin de l'appel)
+                        // Mettre à jour la dernière activité utilisateur
+                        lastUserActivityMs = nowMs();
+                        // Si l'utilisateur parle après un au revoir, annuler le hangup automatique
+                        if (goodbyeDetected) {
+                          console.log("🔄 Client a parlé après au revoir, annulation du hangup automatique");
+                          goodbyeDetected = false;
+                          if (goodbyeTimer) {
+                            clearTimeout(goodbyeTimer);
+                            goodbyeTimer = null;
+                          }
+                        }
                       }
                     } catch {
                       // ignore
@@ -4386,6 +4460,11 @@ But: être naturel et mettre le client en confiance.`,
       } else if (msg.event === "stop") {
         console.log("🛑 Stream stop (Twilio a demandé l'arrêt)");
         console.log("🛑 Raison possible: timeout, erreur Twilio, ou fin d'appel normale");
+        // Nettoyer les timers de hangup automatique
+        if (goodbyeTimer) {
+          clearTimeout(goodbyeTimer);
+          goodbyeTimer = null;
+        }
         if (plateSmsSendOnFinalize) {
           plateSmsSendOnFinalize = false;
           console.log("📩 Envoi SMS plaque demandé à la fin de l'appel (stop event)");
