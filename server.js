@@ -1590,6 +1590,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
 
   function enqueuePremiumTts(text, { interrupt = true, source = "unknown", responseId = null, allowWithoutUser = false } = {}) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1592',message:'enqueuePremiumTts ENTRY',data:{source,responseId,rawText:String(text||"").substring(0,100),queueLen:premiumTtsQueue.length,inFlight:premiumTtsInFlight},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     // LOG TRÈS VISIBLE au tout début pour tracer chaque appel (avec et sans emojis pour compatibilité)
     const rawText = String(text || "").substring(0, 200);
     if (LOG_TTS) {
@@ -1607,6 +1610,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return;
     }
     const normalized = normalizeFrenchTtsText((text || "").trim());
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1609',message:'normalized text',data:{rawText:String(text||"").substring(0,100),normalized:normalized.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     if (!normalized) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] SORTIE: texte vide après normalisation`);
@@ -1656,6 +1662,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Anti-répétition par responseId
     if (responseId) {
       const prev = spokenResponseIds.get(responseId);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1656',message:'check responseId anti-repeat',data:{responseId,hasPrev:!!prev,normalizedText:normalizedForCompare.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       if (prev) {
         if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: responseId déjà parlé`, { responseId });
         return;
@@ -1664,7 +1673,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
     // Anti-répétition par texte sur fenêtre courte (même si responseId change)
     recentAssistantTexts = recentAssistantTexts.filter((t) => (now - t.ts) < 60_000);
-    if (recentAssistantTexts.some((t) => t.text === normalizedForCompare)) {
+    const foundInRecent = recentAssistantTexts.some((t) => t.text === normalizedForCompare);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1665',message:'check recent texts anti-repeat',data:{normalizedText:normalizedForCompare.substring(0,100),foundInRecent,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    if (foundInRecent) {
       if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment`, clean.substring(0, 120));
       return;
     }
@@ -1683,7 +1696,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (premiumTtsLastText) {
       const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/[.,!?;:]/g, "").trim();
       // Vérifier l'égalité exacte
-      if (lastNormalized === normalizedForCompare) {
+      const isExactMatch = lastNormalized === normalizedForCompare;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1683',message:'check lastText anti-repeat',data:{isExactMatch,lastText:premiumTtsLastText.substring(0,100),currentText:clean.substring(0,100),lastNormalized:lastNormalized.substring(0,100),currentNormalized:normalizedForCompare.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      if (isExactMatch) {
         if (LOG_TTS) {
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (identique au précédent) [source: ${source}]:`, clean.substring(0, 120));
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
@@ -1694,6 +1711,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       // Vérifier la similarité (si > 80% de mots communs, considérer comme répétition)
       const similarity = calculateSimilarity(lastNormalized, normalizedForCompare);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1695',message:'check similarity',data:{similarity:Math.round(similarity*100),lastText:premiumTtsLastText.substring(0,100),currentText:clean.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       if (similarity > 0.8 && normalizedForCompare.length > 20) {
         if (LOG_TTS) {
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (similaire à ${Math.round(similarity * 100)}%) [source: ${source}]:`, clean.substring(0, 120));
@@ -1703,13 +1723,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
     }
     // Vérifier aussi dans la queue actuelle
-    if (premiumTtsQueue.some(job => {
+    const queueCheck = premiumTtsQueue.map(job => {
       const jobNormalized = normalizeFrenchTtsText(job.text.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim();
-      if (jobNormalized === normalizedForCompare) return true;
-      // Vérifier la similarité
+      const isExact = jobNormalized === normalizedForCompare;
       const similarity = calculateSimilarity(jobNormalized, normalizedForCompare);
-      return similarity > 0.8 && normalizedForCompare.length > 20;
-    })) {
+      return { isExact, similarity, jobText: job.text.substring(0, 100) };
+    });
+    const foundInQueue = queueCheck.some(q => q.isExact || (q.similarity > 0.8 && normalizedForCompare.length > 20));
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1706',message:'check queue anti-repeat',data:{foundInQueue,queueLen:premiumTtsQueue.length,currentText:clean.substring(0,100),queueChecks:queueCheck},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+    if (foundInQueue) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
         console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
@@ -1740,6 +1764,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     premiumTtsLastText = clean;
     lastAssistantSpokenAt = now;
     lastAssistantSpokenResponseId = responseId ?? lastAssistantSpokenResponseId;
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1734',message:'TEXT ENQUEUED',data:{source,responseId,text:clean.substring(0,200),queueLen:premiumTtsQueue.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     if (responseId) {
       spokenResponseIds.set(responseId, now);
       if (spokenResponseIds.size > 500) {
@@ -2021,6 +2048,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // Coller les chiffres
       return m.replace(/\s+/g, "");
     });
+    // Correction prononciation "est-ce que" pour Minimax
+    t = t.replace(/\best-ce que\b/gi, "est ce que");
+    t = t.replace(/\best ce que\b/gi, "est ce que");
+    
     // Abbréviations essentielles uniquement
     t = t.replace(/\bRDV\b/gi, "rendez-vous");
     t = t.replace(/\bappointment\b/gi, "rendez-vous");
@@ -3312,6 +3343,9 @@ But: être naturel et mettre le client en confiance.`,
                   // Synthèse via TTS premium (Minimax/ElevenLabs)
                   if (REALTIME_USE_ELEVEN) {
                     console.log("🎤 Envoi du texte à enqueuePremiumTts depuis conversation.item.done");
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3315',message:'calling enqueuePremiumTts from conversation.item.done',data:{text:clean.substring(0,200),responseId:rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                    // #endregion
                     enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid });
                   }
                 } else {
@@ -3438,6 +3472,9 @@ But: être naturel et mettre le client en confiance.`,
                 // Ici (sans chunking), on démarre la synthèse en une fois.
                 // Ne pas interrompre si on a déjà commencé à parler (évite les coupures)
                 const alreadySpeaking = rid && spokenSet.has(rid);
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3441',message:'calling enqueuePremiumTts from response.output_text.done',data:{text:doneText.substring(0,200),responseId:rid,alreadySpeaking},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                // #endregion
                 enqueuePremiumTts(doneText, { interrupt: !alreadySpeaking, source: "response.output_text.done", responseId: rid });
               }
             }
