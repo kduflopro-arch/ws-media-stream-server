@@ -579,9 +579,7 @@ wss.on("connection", (ws, req) => {
     }
   }
 
-  // --- SMS plaque : consentement + attente réponse ---
-  let plateSmsConsentPending = false;
-  let plateSmsConsentDeadlineMs = 0;
+  // --- SMS plaque : envoi automatique à la fin de l'appel (pas de consentement requis) ---
   let plateSmsWaitingForReply = false;
   let plateSmsPollTimer = null;
   let plateSmsSendOnFinalize = false;
