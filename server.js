@@ -3792,6 +3792,23 @@ But: être naturel et mettre le client en confiance.`,
             const transcript = msg.transcript;
             console.log("🎤 Client dit:", transcript);
             enqueueIngest("user", transcript);
+            
+            // Détecter si le client confirme la plaque existante ou demande un autre véhicule
+            const userText = String(transcript || "").toLowerCase().trim();
+            // Si le client confirme la plaque (ex: "oui", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne")
+            const confirmsPlate = userText.match(/\b(oui|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui c'est pour cette voiture|correct|exact)\b/i);
+            // Si le client dit que c'est pour un autre véhicule (ex: "non", "ce n'est pas la bonne", "autre voiture", "autre véhicule")
+            const otherVehicle = userText.match(/\b(non|ce n'est pas|autre voiture|autre véhicule|j'ai changé|nouvelle voiture|nouveau véhicule)\b/i);
+            
+            if (confirmsPlate && !otherVehicle) {
+              console.log("✅ Client confirme la plaque existante, désactivation SMS:", { userText });
+              plateSmsSendOnFinalize = false;
+              plateSmsAlreadyMentioned = true; // Éviter de proposer à nouveau
+            } else if (otherVehicle && !confirmsPlate) {
+              console.log("🚗 Client demande un autre véhicule, l'IA devrait proposer d'envoyer un message pour plate_2:", { userText });
+              // Ne pas activer ici, attendre que l'IA propose d'envoyer le message
+              // L'IA devrait proposer d'envoyer un message dans ce cas selon le prompt
+            }
           }
           
           if (msg.type === "error") {
