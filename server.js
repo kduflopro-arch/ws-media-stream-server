@@ -3372,7 +3372,7 @@ But: être naturel et mettre le client en confiance.`,
               // 1. L'appel doit avoir duré au moins 30 secondes (pour éviter les faux positifs)
               // 2. Le client doit être inactif depuis au moins 3 secondes (réduit de 5 à 3 pour plus de réactivité)
               // 3. L'IA a dit au revoir ou une formule de politesse de fin
-              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 3000; // 3 secondes au lieu de 5
+              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 1000; // 1 seconde - l'IA doit raccrocher IMMÉDIATEMENT après avoir dit au revoir
               
               if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && timeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
                 goodbyeDetected = true;
@@ -3584,7 +3584,7 @@ But: être naturel et mettre le client en confiance.`,
               // 1. L'appel doit avoir duré au moins 30 secondes (pour éviter les faux positifs)
               // 2. Le client doit être inactif depuis au moins 3 secondes (réduit de 5 à 3 pour plus de réactivité)
               // 3. L'IA a dit au revoir ou une formule de politesse de fin
-              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 3000; // 3 secondes au lieu de 5
+              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 1000; // 1 seconde - l'IA doit raccrocher IMMÉDIATEMENT après avoir dit au revoir
               
               if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && timeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
                 goodbyeDetected = true;
