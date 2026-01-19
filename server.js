@@ -4196,34 +4196,7 @@ But: être naturel et mettre le client en confiance.`,
                       const txt = (await openaiTranscribeWav(wav)).trim();
                       if (txt && !isJunkTranscript(txt)) {
                         enqueueIngest("user", txt);
-                        // Gestion consentement SMS plaque
-                        if (plateSmsConsentPending && nowMs() <= plateSmsConsentDeadlineMs) {
-                          console.log("📩 Consentement SMS plaque en attente, réponse utilisateur:", txt.substring(0, 100));
-                          if (isAffirmativeFr(txt)) {
-                            plateSmsConsentPending = false;
-                            // Envoyer le SMS à la fin de l'appel
-                            plateSmsSendOnFinalize = true;
-                            console.log("✅ Consentement SMS plaque obtenu, SMS sera envoyé à la fin de l'appel");
-                            enqueueElevenLabsTts(
-                              "Parfait. Je vous enverrai le SMS à la fin de l'appel. Vous pourrez répondre par SMS avec votre plaque.",
-                              { interrupt: true },
-                            );
-                          } else if (isNegativeFr(txt)) {
-                            plateSmsConsentPending = false;
-                            console.log("❌ Consentement SMS plaque refusé");
-                            enqueueElevenLabsTts("D'accord. Dans ce cas, dites-moi la plaque lettre par lettre, s'il vous plaît.", { interrupt: true });
-                          } else {
-                            // Si l'utilisateur ne répond ni oui ni non, mais que l'IA a proposé d'envoyer un message,
-                            // on considère que c'est un consentement implicite (surtout si l'utilisateur continue la conversation)
-                            console.log("⚠️ Réponse ambiguë pour SMS plaque, on attendra la fin de l'appel pour décider");
-                          }
-                        } else if (plateSmsConsentPending && nowMs() > plateSmsConsentDeadlineMs) {
-                          // Timeout: si l'utilisateur n'a pas répondu dans les 25 secondes, on envoie quand même le SMS
-                          // (consentement implicite si l'utilisateur continue la conversation)
-                          console.log("⏰ Timeout consentement SMS plaque, envoi automatique à la fin de l'appel");
-                          plateSmsConsentPending = false;
-                          plateSmsSendOnFinalize = true;
-                        }
+                        // (Consentement SMS plaque supprimé: envoi automatique à la fin de l'appel)
                       }
                     } catch {
                       // ignore
