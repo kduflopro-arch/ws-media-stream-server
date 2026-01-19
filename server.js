@@ -487,7 +487,7 @@ wss.on("connection", (ws, req) => {
     }
   }
 
-  async function requestPlateSmsIfNeeded(trigger = "assistant_plate_request") {
+  async function requestPlateSmsIfNeeded(trigger = "assistant_plate_request", forceSend = false) {
     try {
       const ingestUrl = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
       if (!ingestUrl) return { sent: false, reason: "no_ingest_url" };
@@ -512,6 +512,7 @@ wss.on("connection", (ws, req) => {
           garageId: garageId || null,
           fromNumber: to,
           trigger,
+          force: forceSend || plateSmsSendOnFinalize, // Forcer si demandé explicitement ou si l'IA a proposé
         }),
       }).catch(() => null);
       if (resp && resp.ok) {
@@ -519,8 +520,8 @@ wss.on("connection", (ws, req) => {
         // Si le client existe déjà avec une plaque, mais que l'IA a proposé d'envoyer un message,
         // on envoie quand même le SMS (le client peut avoir plusieurs véhicules ou vouloir mettre à jour)
         if (json?.skipped === "client_has_plate" && json?.existingPlate) {
-          // Si l'IA a explicitement proposé d'envoyer un message, on force l'envoi
-          if (plateSmsSendOnFinalize) {
+          // Si l'IA a explicitement proposé d'envoyer un message OU si forceSend=true, on force l'envoi
+          if (forceSend || plateSmsSendOnFinalize) {
             console.log("📩 Client existe avec plaque mais l'IA a proposé d'envoyer un message, on force l'envoi du SMS.", { 
               trigger, 
               existingPlate: json.existingPlate,
