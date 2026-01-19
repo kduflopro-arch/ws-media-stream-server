@@ -1292,12 +1292,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const taskStartedMsg = await waitForMessage("task_started");
       if (LOG_MINIMAX_EVENTS) console.log("✅ Tâche Minimax démarrée:", taskStartedMsg);
 
-      // Envoyer le texte
+      // Envoyer le texte à Minimax
+      // Le texte a été normalisé : conversion nombres->lettres pour tarifs/heures uniquement
+      // Minimax gère toutes les autres prononciations
       const continueMsg = {
         event: "task_continue",
         text: clean,
       };
-      if (LOG_MINIMAX_EVENTS) console.log("📤 Envoi task_continue:", { textLength: clean.length });
+      if (LOG_MINIMAX_EVENTS) {
+        console.log("📤 Envoi task_continue à Minimax:", { 
+          textLength: clean.length,
+          textPreview: clean.substring(0, 200) 
+        });
+      }
       minimaxWs.send(JSON.stringify(continueMsg));
 
       // Collecter l'audio en streaming - écouter tous les messages
@@ -1892,13 +1899,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   function normalizeFrenchTtsText(input) {
     let t = String(input || "").trim();
     if (!t) return "";
-    // Nettoyage léger
+    // Nettoyage léger : normaliser les espaces multiples
     t = t.replace(/\s+/g, " ");
-    // IMPORTANT: On laisse Minimax gérer toutes les prononciations sauf les nombres dans les tarifs
-    // On convertit UNIQUEMENT les nombres en lettres pour les montants en euros
-    // IMPORTANT: Convertir les heures AVANT de coller les chiffres séparés
-    // Heures au format "8h30" / "8 h 30" / "8:30" / "8H30" -> "huit heures trente"
-    // Gérer aussi le cas où les minutes sont séparées : "8 h 3 0" -> "huit heures trente"
+    // IMPORTANT: On laisse Minimax gérer TOUTES les prononciations
+    // On convertit UNIQUEMENT les nombres en lettres pour les montants en euros (pour éviter "un deux euros")
+    // On convertit aussi les heures pour une meilleure prononciation (8h30 -> "huit heures trente")
     
     // Format avec minutes séparées AVANT "heures" (ex: "8 h 3 0" ou "8 h 3  0")
     // IMPORTANT: Traiter AVANT le format "heures" pour éviter les conflits
