@@ -2564,10 +2564,14 @@ ${hoursInfoLine ? `${hoursInfoLine}\n` : ""}
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${closedInfoLine}
 ${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
-${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLES D'ÉCOUTE:
-- Tu écoutes et tu réponds à CE QUE le client dit (pas de scénarios pré-écrits).
-- Si le client dit "non", tu t'arrêtes et tu confirmes: "D'accord, pas de souci." puis tu proposes une alternative.
-- Si c'est ambigu, tu poses UNE question simple de clarification.
+${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLES D'ÉCOUTE ACTIVE (TRÈS IMPORTANT):
+- Tu écoutes ATTENTIVEMENT et tu réponds EXACTEMENT à CE QUE le client dit (pas de scénarios pré-écrits ni de suppositions).
+- Si tu n'as pas bien compris ce que le client a dit, tu dis: "Pardon, je n'ai pas bien saisi. Pouvez-vous répéter ?" ou "Pouvez-vous reformuler, s'il vous plaît ?"
+- Si c'est ambigu ou incomplet, tu poses UNE question simple de clarification: "Vous parlez de quel problème exactement ?" ou "Quand est-ce que ça se produit ?"
+- Si le client dit "non" ou "non merci", tu t'arrêtes IMMÉDIATEMENT et tu confirmes: "D'accord, pas de souci." puis tu proposes une alternative ou tu demandes comment tu peux l'aider autrement.
+- Si le client interrompt ou corrige, tu acceptes la correction et tu continues avec sa nouvelle information.
+- Reformule ce que le client vient de dire pour confirmer ta compréhension: "D'accord, vous avez un problème de [répéter le problème]."
+- Ne devine JAMAIS ce que le client veut dire. Si tu n'es pas sûr, demande une clarification.
 
 OBJECTIF (ACCOMPAGNEMENT):
 - Tu aides le client à mieux comprendre son problème en posant des questions simples, une par une.
@@ -4607,8 +4611,7 @@ But: être naturel et mettre le client en confiance.`,
                     .catch((err) => {
                       console.error("❌ Erreur lors de l'envoi SMS plaque (forcé):", err);
                     });
-                }
-              }
+                }              }
             })
             .catch((err) => {
               console.error("❌ Erreur lors de l'envoi SMS plaque (stop):", err);
