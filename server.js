@@ -503,6 +503,8 @@ wss.on("connection", (ws, req) => {
       ws.__plateSmsRequested = true;
 
       const url = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/plate-sms/request");
+      const shouldForce = forceSend || plateSmsSendOnFinalize;
+      console.log("📩 requestPlateSmsIfNeeded appelé:", { trigger, forceSend, plateSmsSendOnFinalize, shouldForce });
       const resp = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -512,7 +514,7 @@ wss.on("connection", (ws, req) => {
           garageId: garageId || null,
           fromNumber: to,
           trigger,
-          force: forceSend || plateSmsSendOnFinalize, // Forcer si demandé explicitement ou si l'IA a proposé
+          force: shouldForce, // Forcer si demandé explicitement ou si l'IA a proposé
         }),
       }).catch(() => null);
       if (resp && resp.ok) {
