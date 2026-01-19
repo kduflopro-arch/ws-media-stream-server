@@ -3278,6 +3278,36 @@ But: être naturel et mettre le client en confiance.`,
                 plateSmsSendOnFinalize = true;
                 console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
               }
+              // Détecter si l'IA dit au revoir
+              const goodbyePatterns = [
+                "au revoir", "aurevoir", "à bientôt", "a bientot", "bonne journée", "bonne journee",
+                "bonne soirée", "bonne soiree", "bonne fin de journée", "bonne fin de journee",
+                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
+                "merci et au revoir", "merci et bonne journée", "merci et bonne journee"
+              ];
+              const isGoodbye = goodbyePatterns.some(pattern => low.includes(pattern));
+              if (isGoodbye && !goodbyeDetected) {
+                goodbyeDetected = true;
+                console.log("👋 Détection au revoir de l'IA, hangup automatique dans", GOODBYE_DELAY_MS, "ms");
+                // Annuler le timer précédent s'il existe
+                if (goodbyeTimer) clearTimeout(goodbyeTimer);
+                // Programmer le hangup après un délai
+                goodbyeTimer = setTimeout(() => {
+                  const timeSinceLastUserActivity = nowMs() - lastUserActivityMs;
+                  // Si le client n'a pas parlé depuis au moins 2 secondes, on coupe
+                  if (timeSinceLastUserActivity >= 2000) {
+                    console.log("📞 Hangup automatique après au revoir (client inactif depuis", timeSinceLastUserActivity, "ms)");
+                    triggerHangup("auto_goodbye");
+                  } else {
+                    console.log("⏸️ Hangup reporté, client actif (dernière activité il y a", timeSinceLastUserActivity, "ms)");
+                    // Réessayer dans 2 secondes
+                    goodbyeTimer = setTimeout(() => {
+                      console.log("📞 Hangup automatique après au revoir (nouvelle tentative)");
+                      triggerHangup("auto_goodbye");
+                    }, 2000);
+                  }
+                }, GOODBYE_DELAY_MS);
+              }
               // IMPORTANT: Ne pas utiliser de fallback automatique. On attend TOUJOURS une confirmation explicite du client.
               // Le fallback a été supprimé pour éviter d'envoyer des SMS sans consentement clair.
               // Lancer la voix premium.
