@@ -2196,7 +2196,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // Vérifier le contexte après le nombre (tarifs, prix, etc.)
       const after = string.substring(offset + match.length, offset + match.length + 30);
       // Si le nombre est suivi de "euros", "€", "pour", "de", "tarif", "prix", etc., convertir en mots
-      if (/\s*(?:€|euros?|pour|de|tarif|prix|coût|montant|facture)/i.test(after)) {
+      // IMPORTANT: Vérifier même sans espace (ex: "12euros", "12€")
+      if (/\s*(?:€|euros?|pour|de|tarif|prix|coût|montant|facture)/i.test(after) || 
+          /^(?:€|euros?)/i.test(after.trim())) {
         return numberToFrenchWordsTts(n);
       }
       // Vérifier le contexte avant le nombre (tarifs, prix, etc.)
