@@ -3237,10 +3237,16 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               // Si l'assistant parle de plaque, proposer SMS MAIS NE PAS ENVOYER avant accord du client.
               const low = String(doneText || "").toLowerCase();
-              if (low.includes("plaque") || low.includes("immatric")) {
+              // Détecter si l'IA propose d'envoyer un message pour la plaque
+              // Chercher des patterns comme "envoyer un message", "envoyer message", "message pour plaque", etc.
+              const mentionsPlate = low.includes("plaque") || low.includes("immatric");
+              const mentionsMessage = (low.includes("envoyer") && low.includes("message")) || 
+                                      (low.includes("message") && (low.includes("plaque") || low.includes("immatric")));
+              if (mentionsPlate || mentionsMessage) {
                 // Mode "consentement": on attend un "oui" utilisateur
                 plateSmsConsentPending = true;
                 plateSmsConsentDeadlineMs = nowMs() + 25_000;
+                console.log("📩 Détection proposition SMS plaque:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
               }
               // IMPORTANT: Ne pas utiliser de fallback automatique. On attend TOUJOURS une confirmation explicite du client.
               // Le fallback a été supprimé pour éviter d'envoyer des SMS sans consentement clair.
@@ -3357,10 +3363,16 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               // Si l'assistant parle de plaque, proposer SMS MAIS NE PAS ENVOYER avant accord du client.
               const low = String(doneText || "").toLowerCase();
-              if (low.includes("plaque") || low.includes("immatric")) {
+              // Détecter si l'IA propose d'envoyer un message pour la plaque
+              // Chercher des patterns comme "envoyer un message", "envoyer message", "message pour plaque", etc.
+              const mentionsPlate = low.includes("plaque") || low.includes("immatric");
+              const mentionsMessage = (low.includes("envoyer") && low.includes("message")) || 
+                                      (low.includes("message") && (low.includes("plaque") || low.includes("immatric")));
+              if (mentionsPlate || mentionsMessage) {
                 // Mode "consentement": on attend un "oui" utilisateur
                 plateSmsConsentPending = true;
                 plateSmsConsentDeadlineMs = nowMs() + 25_000;
+                console.log("📩 Détection proposition SMS plaque:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
               }
               // Lancer la voix premium.
               // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
