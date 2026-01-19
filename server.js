@@ -3235,7 +3235,7 @@ But: être naturel et mettre le client en confiance.`,
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
-              // Si l'assistant parle de plaque, proposer SMS MAIS NE PAS ENVOYER avant accord du client.
+              // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               const low = String(doneText || "").toLowerCase();
               // Détecter si l'IA propose d'envoyer un message pour la plaque
               // Chercher des patterns comme "envoyer un message", "envoyer message", "message pour plaque", etc.
@@ -3243,10 +3243,9 @@ But: être naturel et mettre le client en confiance.`,
               const mentionsMessage = (low.includes("envoyer") && low.includes("message")) || 
                                       (low.includes("message") && (low.includes("plaque") || low.includes("immatric")));
               if (mentionsPlate || mentionsMessage) {
-                // Mode "consentement": on attend un "oui" utilisateur
-                plateSmsConsentPending = true;
-                plateSmsConsentDeadlineMs = nowMs() + 25_000;
-                console.log("📩 Détection proposition SMS plaque:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
+                // Envoyer le SMS directement à la fin de l'appel (pas besoin de consentement)
+                plateSmsSendOnFinalize = true;
+                console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
               }
               // IMPORTANT: Ne pas utiliser de fallback automatique. On attend TOUJOURS une confirmation explicite du client.
               // Le fallback a été supprimé pour éviter d'envoyer des SMS sans consentement clair.
@@ -3361,7 +3360,7 @@ But: être naturel et mettre le client en confiance.`,
               console.log("📝 Réponse texte IA reçue (GPT-5):", doneText.substring(0, 100));
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
-              // Si l'assistant parle de plaque, proposer SMS MAIS NE PAS ENVOYER avant accord du client.
+              // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               const low = String(doneText || "").toLowerCase();
               // Détecter si l'IA propose d'envoyer un message pour la plaque
               // Chercher des patterns comme "envoyer un message", "envoyer message", "message pour plaque", etc.
@@ -3369,10 +3368,9 @@ But: être naturel et mettre le client en confiance.`,
               const mentionsMessage = (low.includes("envoyer") && low.includes("message")) || 
                                       (low.includes("message") && (low.includes("plaque") || low.includes("immatric")));
               if (mentionsPlate || mentionsMessage) {
-                // Mode "consentement": on attend un "oui" utilisateur
-                plateSmsConsentPending = true;
-                plateSmsConsentDeadlineMs = nowMs() + 25_000;
-                console.log("📩 Détection proposition SMS plaque:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
+                // Envoyer le SMS directement à la fin de l'appel (pas besoin de consentement)
+                plateSmsSendOnFinalize = true;
+                console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 100) });
               }
               // Lancer la voix premium.
               // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
