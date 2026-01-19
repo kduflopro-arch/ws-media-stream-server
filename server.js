@@ -3253,13 +3253,23 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
-                // Programmer le hangup après un délai
+                // Programmer le hangup après un délai, en attendant que l'audio soit terminé
                 goodbyeTimer = setTimeout(() => {
                   const finalTimeSinceLastUserActivity = nowMs() - lastUserActivityMs;
                   // Vérifier une dernière fois que le client est toujours inactif
                   if (finalTimeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
-                    console.log("📞 Hangup automatique après détection fin d'échange (client inactif depuis", Math.round(finalTimeSinceLastUserActivity / 1000), "s)");
-                    triggerHangup("auto_goodbye");
+                    // Attendre que l'audio soit terminé avant de raccrocher
+                    const checkAudioAndHangup = () => {
+                      if (premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0) {
+                        // L'audio est encore en cours, réessayer dans 500ms
+                        setTimeout(checkAudioAndHangup, 500);
+                        return;
+                      }
+                      // L'audio est terminé, on peut raccrocher
+                      console.log("📞 Hangup automatique après détection fin d'échange (client inactif depuis", Math.round(finalTimeSinceLastUserActivity / 1000), "s, audio terminé)");
+                      triggerHangup("auto_goodbye");
+                    };
+                    checkAudioAndHangup();
                   } else {
                     console.log("⏸️ Hangup annulé, client a repris la parole (dernière activité il y a", Math.round(finalTimeSinceLastUserActivity / 1000), "s)");
                     goodbyeDetected = false;
@@ -3443,13 +3453,23 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
-                // Programmer le hangup après un délai
+                // Programmer le hangup après un délai, en attendant que l'audio soit terminé
                 goodbyeTimer = setTimeout(() => {
                   const finalTimeSinceLastUserActivity = nowMs() - lastUserActivityMs;
                   // Vérifier une dernière fois que le client est toujours inactif
                   if (finalTimeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
-                    console.log("📞 Hangup automatique après détection fin d'échange (client inactif depuis", Math.round(finalTimeSinceLastUserActivity / 1000), "s)");
-                    triggerHangup("auto_goodbye");
+                    // Attendre que l'audio soit terminé avant de raccrocher
+                    const checkAudioAndHangup = () => {
+                      if (premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0) {
+                        // L'audio est encore en cours, réessayer dans 500ms
+                        setTimeout(checkAudioAndHangup, 500);
+                        return;
+                      }
+                      // L'audio est terminé, on peut raccrocher
+                      console.log("📞 Hangup automatique après détection fin d'échange (client inactif depuis", Math.round(finalTimeSinceLastUserActivity / 1000), "s, audio terminé)");
+                      triggerHangup("auto_goodbye");
+                    };
+                    checkAudioAndHangup();
                   } else {
                     console.log("⏸️ Hangup annulé, client a repris la parole (dernière activité il y a", Math.round(finalTimeSinceLastUserActivity / 1000), "s)");
                     goodbyeDetected = false;
