@@ -380,6 +380,7 @@ wss.on("connection", (ws, req) => {
   let assistantVoice = "female"; // "female" | "male"
   let garageTone = "";
   let consentRequired = true;
+  let consentGiven = false; // Track si le consentement a déjà été donné
   let appointmentMode = "request";
   let garageClosed = false;
   let garageClosedReason = "";
@@ -2541,8 +2542,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande et le garage rappelle pour confirmer).";
 
         const consentLine =
-          consentRequired
-            ? "Dès le début de l'appel, annonce: 'Cet appel est enregistré pour préparer votre arrivée au garage. Si vous refusez, vous pouvez raccrocher à tout moment.' Puis demande un oui/non."
+          consentRequired && !consentGiven
+            ? "Dès le début de l'appel, annonce: 'Cet appel est enregistré pour préparer votre arrivée au garage. Si vous refusez, vous pouvez raccrocher à tout moment.' Puis demande un oui/non. IMPORTANT: Ne demande le consentement QU'UNE SEULE FOIS. Si le client a déjà donné son accord (oui, d'accord, ok, bien sûr), ne redemande PAS le consentement."
+            : consentRequired && consentGiven
+            ? "Consentement enregistrement: déjà donné par le client. NE PAS redemander le consentement."
             : "Consentement enregistrement: non requis.";
 
         // En mode "internal", on peut proposer de vrais créneaux: on précharge 2-3 suggestions.
@@ -3913,8 +3916,22 @@ But: être naturel et mettre le client en confiance.`,
             console.log("🎤 Client dit:", transcript);
             enqueueIngest("user", transcript);
             
-            // Détecter si le client confirme la plaque existante ou demande un autre véhicule
+            // Détecter si le client accepte le consentement
             const userText = String(transcript || "").toLowerCase().trim();
+            const acceptsConsent = userText.match(/\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement)\b/i);
+            // #region agent log
+            if (acceptsConsent && consentRequired && !consentGiven) {
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3912',message:'CONSENT ACCEPTÉ',data:{userText,transcript,consentRequired,consentGiven},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
+            }
+            // #endregion
+            if (acceptsConsent && consentRequired && !consentGiven) {
+              console.log("✅ Client accepte le consentement, ne plus redemander:", { userText });
+              consentGiven = true;
+              // Mettre à jour le prompt système pour éviter de redemander le consentement
+              // Le prompt sera mis à jour à la prochaine requête LLM
+            }
+            
+            // Détecter si le client confirme la plaque existante ou demande un autre véhicule
             // Si le client confirme la plaque (ex: "oui", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne")
             const confirmsPlate = userText.match(/\b(oui|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui c'est pour cette voiture|correct|exact)\b/i);
             // Si le client dit que c'est pour un autre véhicule (ex: "non", "ce n'est pas la bonne", "autre voiture", "autre véhicule")
