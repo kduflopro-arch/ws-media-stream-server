@@ -2161,6 +2161,21 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2076',message:'normalizeFrenchTtsText FINAL',data:{originalText,normalizedText:t,containsDouze:t.includes('douze'),containsUnDeux:t.includes('un deux')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     }
     // #endregion
+    // SÉCURITÉ FINALE: Capturer TOUS les nombres suivis de "euros" qui n'ont pas été convertis
+    // Cette regex finale garantit que même si les regexes précédentes ont échoué, on convertit quand même
+    // Elle cherche des chiffres (éventuellement séparés par des espaces) suivis de "euros" ou "€"
+    t = t.replace(/\b(\d{1,2}(?:\s+\d){0,3})\s+(?:€|euros?)\b/gi, (_, n) => {
+      const compact = String(n).replace(/\s+/g, "");
+      // Ne convertir que si c'est un nombre valide et si ce n'est pas déjà "douze", "treize", etc.
+      if (compact.length <= 4) {
+        const num = Number(compact);
+        if (num >= 0 && num <= 9999 && !t.includes(`${numberToFrenchWordsTts(num)} euros`)) {
+          return `${numberToFrenchWordsTts(num)} euros`;
+        }
+      }
+      return `${compact} euros`;
+    });
+    
     // Correction prononciation "est-ce que" pour Minimax
     t = t.replace(/\best-ce que\b/gi, "est ce que");
     t = t.replace(/\best ce que\b/gi, "est ce que");
