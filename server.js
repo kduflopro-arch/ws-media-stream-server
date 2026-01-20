@@ -3567,10 +3567,11 @@ But: être naturel et mettre le client en confiance.`,
                       // #region agent log
                       fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3314',message:'response.done consentement check',data:{userHasSpoken,isInitialConsent,text:extractedText.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
                       // #endregion
-                      // CORRECTION: allowWithoutUser doit être true si c'est le consentement initial OU si le consentement a déjà été donné
-                    // Sinon, l'IA ne pourra pas répondre après le consentement
-                    const allowResponse = isInitialConsent || consentGiven;
-                    enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: allowResponse });
+                      // CORRECTION: allowWithoutUser doit être true UNIQUEMENT si c'est le consentement initial
+                      // Après le consentement, l'IA ne doit répondre QUE si l'utilisateur a vraiment parlé
+                      // (vérifié via lastCommittedAt dans enqueuePremiumTts)
+                      // IMPORTANT: Ne pas utiliser consentGiven ici car cela permettrait à l'IA de répondre sans que l'utilisateur ait parlé
+                      enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: isInitialConsent });
                     }
                   }
                 } else if (msg.response?.output) {
@@ -3820,10 +3821,11 @@ But: être naturel et mettre le client en confiance.`,
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3541',message:'conversation.item.done consentement check',data:{userHasSpoken,isInitialConsent,text:clean.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
                     // #endregion
-                    // CORRECTION: allowWithoutUser doit être true si c'est le consentement initial OU si le consentement a déjà été donné
-                    // Sinon, l'IA ne pourra pas répondre après le consentement
-                    const allowResponse = isInitialConsent || consentGiven;
-                    enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: allowResponse });
+                    // CORRECTION: allowWithoutUser doit être true UNIQUEMENT si c'est le consentement initial
+                    // Après le consentement, l'IA ne doit répondre QUE si l'utilisateur a vraiment parlé
+                    // (vérifié via lastCommittedAt dans enqueuePremiumTts)
+                    // IMPORTANT: Ne pas utiliser consentGiven ici car cela permettrait à l'IA de répondre sans que l'utilisateur ait parlé
+                    enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: isInitialConsent });
                   }
                 } else {
                   console.warn("⚠️ Aucun texte assistant extrait depuis conversation.item.done");
