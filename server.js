@@ -4285,11 +4285,14 @@ But: être naturel et mettre le client en confiance.`,
                     } else if (clientInfo.name) {
                       salutationName = title ? `${title} ${clientInfo.name}` : clientInfo.name;
                     }
-                    const baseHello = `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`;
-                    const consentText = consentRequired
+                    // CORRECTION: Toujours dire bonjour et se présenter
+                    const baseHello = salutationName 
+                      ? `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`
+                      : `Bonjour ! Ici ${assistantName}, l'assistante du ${label}.`;
+                    const consentText = consentRequired && !consentGiven
                       ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
                       : "";
-                    const question = consentRequired
+                    const question = consentRequired && !consentGiven
                       ? "Est-ce que cela vous convient ?"
                       : "Dites-moi, quel est le souci avec votre véhicule ?";
                     const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
@@ -4350,11 +4353,12 @@ But: être naturel et mettre le client en confiance.`,
               // Marquer qu'on va jouer un greeting pour éviter les doublons
               const rawName = String(garageName || "AutoGuru").trim();
               const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
-              const baseHello = `Bonjour, ici ${assistantName}, l'assistante du ${label}.`;
-              const consentText = consentRequired
+              // CORRECTION: Toujours dire bonjour et se présenter
+              const baseHello = `Bonjour ! Ici ${assistantName}, l'assistante du ${label}.`;
+              const consentText = consentRequired && !consentGiven
                 ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
                 : "";
-              const question = consentRequired
+              const question = consentRequired && !consentGiven
                 ? "Est-ce que cela vous convient ?"
                 : "Dites-moi, quel est le souci avec votre véhicule ?";
               const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
