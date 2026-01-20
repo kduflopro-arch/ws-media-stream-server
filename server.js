@@ -1696,6 +1696,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
     }
 
+    // Fonction pour calculer la similarité entre deux textes (basée sur les mots communs)
+    // IMPORTANT: Définir AVANT son utilisation pour éviter ReferenceError
+    const calculateSimilarity = (text1, text2) => {
+      const words1 = text1.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const words2 = text2.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      if (words1.length === 0 || words2.length === 0) return 0;
+      const commonWords = words1.filter(w => words2.includes(w));
+      return commonWords.length / Math.max(words1.length, words2.length);
+    };
+    
     // Anti-répétition par texte sur fenêtre courte (même si responseId change)
     // CORRECTION: Vérifier aussi la similarité, pas seulement l'égalité exacte
     recentAssistantTexts = recentAssistantTexts.filter((t) => (now - t.ts) < 60_000);
@@ -1719,14 +1729,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
     // Éviter de rejouer en boucle exactement la même phrase (ex: greeting)
     // On vérifie aussi dans la queue pour éviter les doublons même si les événements arrivent en même temps
-    // Fonction pour calculer la similarité entre deux textes (basée sur les mots communs)
-    const calculateSimilarity = (text1, text2) => {
-      const words1 = text1.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-      const words2 = text2.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-      if (words1.length === 0 || words2.length === 0) return 0;
-      const commonWords = words1.filter(w => words2.includes(w));
-      return commonWords.length / Math.max(words1.length, words2.length);
-    };
+    // NOTE: calculateSimilarity est maintenant définie plus haut pour éviter ReferenceError
     
     if (premiumTtsLastText) {
       const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/[.,!?;:]/g, "").trim();
