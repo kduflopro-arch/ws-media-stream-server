@@ -1980,6 +1980,38 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // On convertit UNIQUEMENT les nombres en lettres pour les montants en euros (pour éviter "un deux euros")
     // On convertit aussi les heures pour une meilleure prononciation (8h30 -> "huit heures trente")
     
+    // PRIORITÉ 0: Gérer les cas sans espace avant le nombre (ex: "de8 heures30" -> "de huit heures et demie")
+    // CORRECTION: Traiter AVANT toutes les autres regexes pour éviter que "de8" soit collé en "de8"
+    t = t.replace(/([a-zàâçéèêëîïôûùüÿœ])(\d{1,2})\s*heures?\s*(\d{2})\b/gi, (_, prefix, h, m) => {
+      const hoursNum = Number(h);
+      const minutesNum = Number(m);
+      const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
+      
+      let timeExpression = "";
+      if (minutesNum === 0) {
+        timeExpression = hoursWord;
+      } else if (minutesNum === 30) {
+        timeExpression = `${hoursWord} et demie`;
+      } else if (minutesNum === 15) {
+        timeExpression = `${hoursWord} et quart`;
+      } else if (minutesNum === 45) {
+        const nextHour = hoursNum === 23 ? 0 : hoursNum + 1;
+        const nextHourWord = nextHour === 0 ? "minuit" : nextHour === 1 ? "une heure" : `${numberToFrenchWordsTts(nextHour)} heures`;
+        timeExpression = `${nextHourWord} moins le quart`;
+      } else {
+        const minutesWord = numberToFrenchWordsTts(minutesNum);
+        timeExpression = `${hoursWord} ${minutesWord}`;
+      }
+      
+      // #region agent log
+      if (hoursNum === 8 && minutesNum === 30) {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1983',message:'PRIORITÉ 0: de8 heures30 conversion',data:{originalText,prefix,h,m,timeExpression},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      }
+      // #endregion
+      
+      return `${prefix} ${timeExpression}`;
+    });
+    
     // Format avec minutes séparées AVANT "heures" (ex: "8 h 3 0" ou "8 h 3  0")
     // IMPORTANT: Traiter AVANT le format "heures" pour éviter les conflits
     // CORRECTION: Prononcer de manière naturelle comme une vraie personne
