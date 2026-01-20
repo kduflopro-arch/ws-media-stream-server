@@ -3437,7 +3437,8 @@ But: être naturel et mettre le client en confiance.`,
                 "merci et au revoir", "merci et bonne journée", "merci et bonne journee",
                 "à très bientôt", "a tres bientot", "à plus tard", "a plus tard",
                 "je vous souhaite une bonne journée", "je vous souhaite une bonne journee",
-                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee"
+                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
+                "bonne journée", "bonne journee", "bonne journée à vous", "bonne journee a vous", "bonne journée à vous !", "bonne journee a vous !"
               ];
               // Ne pas détecter "bonne journée" ou "bonne soirée" seuls car ils peuvent être dits pendant la conversation
               // Exclure si le texte contient des questions ou des phrases incomplètes (l'IA ne doit pas raccrocher si elle pose une question)
@@ -3684,7 +3685,8 @@ But: être naturel et mettre le client en confiance.`,
                 "merci et au revoir", "merci et bonne journée", "merci et bonne journee",
                 "à très bientôt", "a tres bientot", "à plus tard", "a plus tard",
                 "je vous souhaite une bonne journée", "je vous souhaite une bonne journee",
-                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee"
+                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
+                "bonne journée", "bonne journee", "bonne journée à vous", "bonne journee a vous", "bonne journée à vous !", "bonne journee a vous !"
               ];
               // Ne pas détecter "bonne journée" ou "bonne soirée" seuls car ils peuvent être dits pendant la conversation
               // Exclure si le texte contient des questions ou des phrases incomplètes (l'IA ne doit pas raccrocher si elle pose une question)
