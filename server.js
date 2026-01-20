@@ -747,10 +747,11 @@ wss.on("connection", (ws, req) => {
   const STT_MODEL = process.env.STT_MODEL ?? "whisper-1";
   const STT_LANGUAGE = process.env.STT_LANGUAGE ?? "fr";
   // Prompt Whisper: améliore la compréhension en téléphonie (vocabulaire garage + formats plaques)
-  const STT_PROMPT = process.env.STT_PROMPT ?? "Garage auto, pièces: vidange, freins, plaquettes, disques, embrayage, courroie de distribution, pneus, climatisation, diagnostic. Plaques françaises: AB-123-CD. Le client parle français.";
+  const STT_PROMPT = process.env.STT_PROMPT ?? "Garage auto, pièces: vidange, freins, plaquettes, disques, embrayage, courroie de distribution, pneus, climatisation, diagnostic. Plaques françaises: AB-123-CD. Le client parle français. Transcription précise des phrases complètes du client.";
   const LLM_MODEL = process.env.LLM_MODEL ?? "gpt-4o";
   // Réglages "fast-by-default" pour réduire la latence perçue
-  const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0.3");
+  // CORRECTION: Augmenter légèrement la température pour améliorer la compréhension des phrases
+  const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0.5");
   const LLM_MAX_TOKENS = Number(process.env.LLM_MAX_TOKENS ?? "160");
   // Valeurs par défaut plus tolérantes (meilleure compréhension si voix faible)
   const STT_SPEECH_THRESHOLD = Number(process.env.STT_SPEECH_THRESHOLD ?? "1500");
@@ -2020,11 +2021,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // CORRECTION URGENTE: Traiter "huit heures trois zéro" ou "huit heure trois zéro" -> "huit heures trente"
     // IMPORTANT: Placer APRÈS les autres traitements d'heures mais AVANT la normalisation générale
     // Cette regex doit matcher AVANT les regexes avec chiffres car GPT peut générer "trois zéro" en lettres
+    // CORRECTION: Gérer aussi le singulier "heure" (pas seulement "heures")
     t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf|zéro|zéro|zero)\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf|zéro|zéro|zero)\b/gi, (_, hoursWord, m1, m2) => {
       const minutesMap = { "un": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7, "huit": 8, "neuf": 9, "zéro": 0, "zero": 0 };
       const minutesNum = (minutesMap[m1.toLowerCase()] || 0) * 10 + (minutesMap[m2.toLowerCase()] || 0);
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord} heures${minutesWord}`.trim();
+      // #region agent log
+      if (originalText.match(/huit\s+heures?\s+trois\s+zéro|huit\s+heure\s+trois\s+zero/i)) {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2023',message:'heures trois zéro conversion',data:{originalText,normalizedText:t.substring(0,300),hoursWord,m1,m2,minutesNum,result:`${hoursWord} heures${minutesWord}`.trim()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      }
+      // #endregion
+      // Toujours utiliser "heures" au pluriel sauf pour "une heure"
+      const hoursForm = hoursWord === "une" ? "heure" : "heures";
+      return `${hoursWord} ${hoursForm}${minutesWord}`.trim();
     });
     // CORRECTION URGENTE: Traiter "huit heure 3 0" ou "huit heures 3 0" (chiffres séparés) -> "huit heures trente"
     // C'est le problème principal: GPT-5 génère "huit heure 3 0" au lieu de "huit heures 30"
@@ -2052,7 +2061,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Cette regex doit matcher AVANT que les chiffres soient collés
     t = t.replace(/\b(\d(?:\s+\d){1,4})\s+(?:€|euros?)\b/gi, (_, n) => {
       const compact = String(n).replace(/\s+/g, "");
-      return `${numberToFrenchWordsTts(compact)} euros`;
+      const result = `${numberToFrenchWordsTts(compact)} euros`;
+      // #region agent log
+      if (compact === "12" || originalText.match(/\b1\s*2\s*euros?/i)) {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2053',message:'PRIORITÉ 1 matched (12 euros)',data:{originalText,number:n,compact,result,matched:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
+      }
+      // #endregion
+      return result;
     });
     // PRIORITÉ 2: Montants avec chiffres séparés et symbole € (ex: "1 2 €" -> "douze euros")
     t = t.replace(/\b(\d(?:\s+\d){1,4})\s*€\b/gi, (_, n) => {
@@ -3311,9 +3326,12 @@ But: être naturel et mettre le client en confiance.`,
                       flushRealtimeElevenChunks(rid, true);
                     } else if (!spokenSet.has(rid)) {
                       spokenSet.add(rid);
-                      // CORRECTION: Pour les réponses normales après que l'utilisateur a parlé, on doit permettre
-                      const isFirstMessage = !userHasSpoken && !initialAssistantGreetingText;
-                      enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: isFirstMessage });
+                      // CORRECTION: L'IA doit toujours commencer en premier (consentement initial)
+                      const isInitialConsent = !userHasSpoken;
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3314',message:'response.done consentement check',data:{userHasSpoken,isInitialConsent,text:extractedText.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+                      // #endregion
+                      enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: isInitialConsent });
                     }
                   }
                 } else if (msg.response?.output) {
@@ -3538,11 +3556,14 @@ But: être naturel et mettre le client en confiance.`,
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3315',message:'calling enqueuePremiumTts from conversation.item.done',data:{text:clean.substring(0,200),responseId:rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
                     // #endregion
-                    // CORRECTION: Pour les réponses normales après que l'utilisateur a parlé, on doit permettre sans vérifier allowWithoutUser
-                    // car l'utilisateur a déjà parlé (le consentement a été donné)
-                    // Mais si c'est le premier message (greeting), allowWithoutUser devrait être true
-                    const isFirstMessage = !userHasSpoken && !initialAssistantGreetingText;
-                    enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: isFirstMessage });
+                    // CORRECTION: L'IA doit toujours commencer en premier (consentement initial)
+                    // Si l'utilisateur n'a pas encore parlé, c'est forcément le consentement/accueil
+                    // Donc on permet allowWithoutUser=true pour tous les premiers messages
+                    const isInitialConsent = !userHasSpoken;
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3541',message:'conversation.item.done consentement check',data:{userHasSpoken,isInitialConsent,text:clean.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+                    // #endregion
+                    enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: isInitialConsent });
                   }
                 } else {
                   console.warn("⚠️ Aucun texte assistant extrait depuis conversation.item.done");
