@@ -3856,25 +3856,34 @@ But: être naturel et mettre le client en confiance.`,
                   }
                   // Synthèse via TTS premium (Minimax/ElevenLabs)
                   if (REALTIME_USE_ELEVEN) {
-                    console.log("🎤 Envoi du texte à enqueuePremiumTts depuis conversation.item.done");
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3315',message:'calling enqueuePremiumTts from conversation.item.done',data:{text:clean.substring(0,200),responseId:rid,hasResponseId:!!rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-                    // #endregion
-                    // CORRECTION: Vérifier si ce texte a déjà été envoyé depuis response.done
-                    // Si responseId est null, on utilise le texte normalisé pour vérifier les doublons
-                    // CORRECTION CRITIQUE: Si responseId est null, on doit quand même vérifier les doublons par texte
-                    // car le même texte peut arriver depuis response.done (avec responseId) et conversation.item.done (sans responseId)
-                    const isInitialConsent = !userHasSpoken;
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3541',message:'conversation.item.done consentement check',data:{userHasSpoken,isInitialConsent,text:clean.substring(0,100),responseId:rid,hasResponseId:!!rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                    // #endregion
-                    // CORRECTION: allowWithoutUser doit être true UNIQUEMENT si c'est le consentement initial
-                    // Après le consentement, l'IA ne doit répondre QUE si l'utilisateur a vraiment parlé
-                    // (vérifié via lastCommittedAt dans enqueuePremiumTts)
-                    // IMPORTANT: Ne pas utiliser consentGiven ici car cela permettrait à l'IA de répondre sans que l'utilisateur ait parlé
-                    // CORRECTION: Si responseId est null, utiliser un identifiant basé sur le texte pour éviter les doublons
-                    // Le texte sera vérifié dans enqueuePremiumTts par recentAssistantTexts même si responseId est null
-                    enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: isInitialConsent });
+                    // CORRECTION CRITIQUE: Vérifier si ce texte a déjà été envoyé depuis response.done
+                    // Si responseId existe et est déjà dans spokenSet, on skip pour éviter les doublons
+                    const spokenSet = ws.__realtimeSpokenResponseId;
+                    if (rid && spokenSet && spokenSet.has(rid)) {
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3857',message:'conversation.item.done SKIPPED (déjà dans spokenSet)',data:{responseId:rid,text:clean.substring(0,150),spokenSetSize:spokenSet.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                      // #endregion
+                      if (LOG_TTS) console.log(`[TTS] SKIPPED conversation.item.done (déjà dans spokenSet):`, { rid, text: clean.substring(0, 100) });
+                    } else {
+                      console.log("🎤 Envoi du texte à enqueuePremiumTts depuis conversation.item.done");
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3860',message:'calling enqueuePremiumTts from conversation.item.done',data:{text:clean.substring(0,200),responseId:rid,hasResponseId:!!rid,spokenSetHasRid:rid&&spokenSet?spokenSet.has(rid):null},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                      // #endregion
+                      // CORRECTION: L'IA doit toujours commencer en premier (consentement initial)
+                      // Si l'utilisateur n'a pas encore parlé, c'est forcément le consentement/accueil
+                      // Donc on permet allowWithoutUser=true pour tous les premiers messages
+                      const isInitialConsent = !userHasSpoken;
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3868',message:'conversation.item.done consentement check',data:{userHasSpoken,isInitialConsent,text:clean.substring(0,100),responseId:rid,hasResponseId:!!rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+                      // #endregion
+                      // CORRECTION: allowWithoutUser doit être true UNIQUEMENT si c'est le consentement initial
+                      // Après le consentement, l'IA ne doit répondre QUE si l'utilisateur a vraiment parlé
+                      // (vérifié via lastCommittedAt dans enqueuePremiumTts)
+                      // IMPORTANT: Ne pas utiliser consentGiven ici car cela permettrait à l'IA de répondre sans que l'utilisateur ait parlé
+                      // CORRECTION: Si responseId est null, utiliser un identifiant basé sur le texte pour éviter les doublons
+                      // Le texte sera vérifié dans enqueuePremiumTts par recentAssistantTexts même si responseId est null
+                      enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: isInitialConsent });
+                    }
                   }
                 } else {
                   console.warn("⚠️ Aucun texte assistant extrait depuis conversation.item.done");
