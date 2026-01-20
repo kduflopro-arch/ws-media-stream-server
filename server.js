@@ -2941,6 +2941,7 @@ IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - RÈGLE ABSOLUE: Si le client confirme que la plaque annoncée est correcte et veut prendre rendez-vous pour cette plaque, NE PROPOSE PAS d'envoyer un message. Utilise directement la plaque enregistrée.
 
 IMPORTANT - GESTION DES RENDEZ-VOUS:
+- CRITIQUE: Quand le client décrit un problème, tu DOIS D'ABORD poser des questions pour mieux comprendre le problème (depuis quand, autres symptômes, contexte) AVANT de proposer ou confirmer un rendez-vous. Ne confirme JAMAIS un rendez-vous sans avoir posé des questions et obtenu une validation explicite du client.
 - Si le client appelle pour MODIFIER un rendez-vous: détecte sa demande et demande la nouvelle date/heure souhaitée.
   * Si mode rendez-vous = "interne": tu peux modifier directement le rendez-vous et confirmer.
   * Si mode rendez-vous = "demande" ou "aucun": tu notes la demande de modification et dis: "J'ai bien noté votre demande de modification. Le garage vous rappellera pour confirmer la nouvelle date et heure."
