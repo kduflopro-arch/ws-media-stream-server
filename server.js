@@ -2010,12 +2010,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // #endregion
       return timeExpression;
     });
-    // Format standard avec minutes collées AVANT "heures" (ex: "8h30" / "8 h 30" / "8:30")
+    // Format standard avec minutes collées AVANT "heures" (ex: "8h30" / "8 h 30" / "8:30" / "8 heures30" / "de8 heures30")
     // CORRECTION: Prononcer de manière naturelle comme une vraie personne
     // - 30 minutes -> "et demie" (ex: "8h30" -> "huit heures et demie")
     // - 15 minutes -> "et quart" (ex: "8h15" -> "huit heures et quart")
     // - 45 minutes -> "moins le quart" (ex: "8h45" -> "neuf heures moins le quart")
     // - Autres minutes -> nombre normal (ex: "8h20" -> "huit heures vingt")
+    // CORRECTION: Gérer aussi les cas sans espace entre le nombre et "heures" (ex: "8heures30", "de8 heures30")
     t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d{2})\b/g, (_, h, m) => {
       const hoursNum = Number(h);
       const minutesNum = Number(m);
@@ -2078,9 +2079,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return timeExpression;
     });
     // Format "X heures YY" ou "X heure YY" avec minutes collées (ex: "8 heures 30" -> "huit heures et demie")
-    // Gérer aussi les cas sans espaces : "8heures30" ou "8 heures30" ou "8heures 30"
+    // Gérer aussi les cas sans espaces : "8heures30" ou "8 heures30" ou "8heures 30" ou "de8 heures30"
     // CORRECTION: Prononcer de manière naturelle comme une vraie personne
-    t = t.replace(/\b(\d{1,2})\s*heures?\s*(\d{2})\b/gi, (_, h, m) => {
+    // CORRECTION: Gérer aussi les cas où il n'y a pas d'espace avant "heures" (ex: "de8 heures30")
+    t = t.replace(/(\d{1,2})\s*heures?\s*(\d{2})\b/gi, (_, h, m) => {
       const hoursNum = Number(h);
       const minutesNum = Number(m);
       const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
@@ -2773,7 +2775,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           appointmentMode === "none"
             ? "Mode rendez-vous: aucun (tu ne proposes pas de RDV, tu prends un message)."
             : appointmentMode === "internal"
-              ? `Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes seulement après validation explicite du client).${garageClosed ? " IMPORTANT: Si le garage est fermé (selon les horaires d'ouverture), tu NE peux PAS prendre de rendez-vous. Tu dis que le garage est actuellement fermé et que quelqu'un rappellera pour proposer un créneau quand le garage sera ouvert." : ""}`
+              ? `Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes UNIQUEMENT après validation explicite du client. IMPORTANT: Si le client décrit un problème, tu DOIS D'ABORD poser des questions pour mieux comprendre le problème et vérifier s'il y a d'autres symptômes AVANT de proposer ou confirmer un rendez-vous. Ne confirme JAMAIS un rendez-vous sans avoir posé des questions et obtenu une validation explicite du client).${garageClosed ? " IMPORTANT: Si le garage est fermé (selon les horaires d'ouverture), tu NE peux PAS prendre de rendez-vous. Tu dis que le garage est actuellement fermé et que quelqu'un rappellera pour proposer un créneau quand le garage sera ouvert." : ""}`
               : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande et le garage rappelle pour confirmer).";
 
         const consentLine =
