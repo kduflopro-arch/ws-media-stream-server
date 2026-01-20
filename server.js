@@ -4006,6 +4006,12 @@ But: être naturel et mettre le client en confiance.`,
             if (acceptsConsent && consentRequired && !consentGiven) {
               console.log("✅ Client accepte le consentement, ne plus redemander:", { userText });
               consentGiven = true;
+              // CORRECTION: Mettre à jour lastCommittedAt pour permettre à l'IA de répondre après le consentement
+              // Sinon, l'IA ne pourra pas répondre car allowWithoutUser sera false et hasRecentUserSpeech sera false
+              lastCommittedAt = nowMs();
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4008',message:'CONSENT GIVEN - mise à jour lastCommittedAt',data:{userText,consentGiven,lastCommittedAt},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
+              // #endregion
               // Mettre à jour le prompt système pour éviter de redemander le consentement
               // Le prompt sera mis à jour à la prochaine requête LLM
             }
