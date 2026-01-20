@@ -4927,6 +4927,17 @@ But: être naturel et mettre le client en confiance.`,
                             // Ne pas annuler le hangup si c'est du bruit
                             return;
                           }
+                          // CORRECTION: Détecter les confirmations négatives ("non, du tout", "c'est tout", "plus besoin")
+                          // Ces phrases signifient que le client n'a plus besoin d'informations, donc le hangup doit continuer
+                          const isNegativeConfirmation = /\b(non\s*,?\s*du\s*tout|c'est\s*tout|plus\s*besoin|rien\s*d'autre|pas\s*d'autre|plus\s*rien)\b/i.test(txt.trim());
+                          if (isNegativeConfirmation) {
+                            console.log("✅ Confirmation négative détectée (client n'a plus besoin d'informations):", txt.substring(0, 100), "- hangup continue");
+                            // #region agent log
+                            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4726',message:'CONFIRMATION NÉGATIVE (hangup continue)',data:{transcript:txt.substring(0,100),isNegativeConfirmation,goodbyeDetected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
+                            // #endregion
+                            // Ne pas annuler le hangup si c'est une confirmation négative
+                            return;
+                          }
                           // Vérifier aussi que la transcription est assez récente (< 2 secondes) pour être pertinente
                           const timeSinceLastActivity = nowMs() - lastUserActivityMs;
                           const RECENT_SPEECH_THRESHOLD_MS = 2000; // 2 secondes
