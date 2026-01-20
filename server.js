@@ -4016,10 +4016,13 @@ But: être naturel et mettre le client en confiance.`,
               // Sinon, l'IA ne pourra pas répondre car allowWithoutUser sera false et hasRecentUserSpeech sera false
               lastCommittedAt = nowMs();
               // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4008',message:'CONSENT GIVEN - mise à jour lastCommittedAt',data:{userText,consentGiven,lastCommittedAt},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4008',message:'CONSENT GIVEN - mise à jour lastCommittedAt',data:{userText,consentGiven,lastCommittedAt,consentRequired},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
               // #endregion
-              // Mettre à jour le prompt système pour éviter de redemander le consentement
-              // Le prompt sera mis à jour à la prochaine requête LLM
+              // CORRECTION: Mettre à jour le prompt système IMMÉDIATEMENT pour éviter de redemander le consentement
+              // Le prompt système est utilisé lors de la création de la conversation, donc on doit le mettre à jour
+              // avant la prochaine requête LLM. Pour l'instant, le prompt est construit dynamiquement à chaque requête
+              // donc consentGiven sera pris en compte automatiquement.
+              // IMPORTANT: S'assurer que le prompt système ne demande plus le consentement si consentGiven=true
             }
             
             // Détecter si le client confirme la plaque existante ou demande un autre véhicule
