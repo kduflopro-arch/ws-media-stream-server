@@ -2009,8 +2009,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
     });
     
-    // CORRECTION: Traiter "huit heures trois zéro" ou "huit heure trois zéro" -> "huit heures trente"
+    // CORRECTION URGENTE: Traiter "huit heures trois zéro" ou "huit heure trois zéro" -> "huit heures trente"
     // IMPORTANT: Placer APRÈS les autres traitements d'heures mais AVANT la normalisation générale
+    // Cette regex doit matcher AVANT les regexes avec chiffres car GPT peut générer "trois zéro" en lettres
     t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf|zéro|zéro|zero)\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf|zéro|zéro|zero)\b/gi, (_, hoursWord, m1, m2) => {
       const minutesMap = { "un": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7, "huit": 8, "neuf": 9, "zéro": 0, "zero": 0 };
       const minutesNum = (minutesMap[m1.toLowerCase()] || 0) * 10 + (minutesMap[m2.toLowerCase()] || 0);
@@ -2109,10 +2110,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     });
     
     // PRIORITÉ 14: Convertir les plaques d'immatriculation AVANT de coller les chiffres séparés
-    // Format: AA-123-CD ou AA 123 CD ou AA123CD -> AA trois-cent-vingt-trois CD
+    // Format: AA-123-CD ou AA 123 CD ou AA123CD ou AA 3 4 6 QT -> AA trois-cent-vingt-trois CD
     // IMPORTANT: Placer AVANT le collage des chiffres pour traiter "AA 3 4 6 QT" -> "AA trois-cent-quarante-six QT"
-    t = t.replace(/\b([A-Z]{2})[\s-]?(\d(?:\s+\d){0,3})[\s-]?([A-Z]{2})\b/gi, (_, letters1, numbers, letters2) => {
-      // Coller les chiffres séparés (ex: "3 4 6" -> "346")
+    // Regex pour plaques avec chiffres séparés OU collés
+    t = t.replace(/\b([A-Z]{2})[\s-]?(\d(?:\s+\d){0,3}|\d{2,4})[\s-]?([A-Z]{2})\b/gi, (_, letters1, numbers, letters2) => {
+      // Coller les chiffres séparés (ex: "3 4 6" -> "346") ou garder les chiffres collés
       const compact = String(numbers).replace(/\s+/g, "");
       const num = Number(compact);
       if (num >= 0 && num <= 9999) {
