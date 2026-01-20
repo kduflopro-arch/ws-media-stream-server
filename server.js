@@ -1950,11 +1950,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     let t = String(input || "").trim();
     if (!t) return "";
     const originalText = t;
-    // #region agent log - DÉBUT NORMALISATION
-    const shouldLog = t.includes('euros') || t.includes('€') || t.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/) || t.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i);
-    if (shouldLog) {
-      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1927',message:'normalizeFrenchTtsText DÉBUT',data:{input:t.substring(0,300)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-    }
+    // #region agent log - DÉBUT NORMALISATION (TOUS les textes pour debug)
+    // Log TOUS les textes pour voir ce qui arrive
+    const hasHourPattern = t.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/i);
+    const hasHourWords = t.match(/\b(huit|sept|six|cinq|quatre|trois|deux|une)\s+heures?\s+(trois|zéro|zero|\d)/i);
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1949',message:'normalizeFrenchTtsText DÉBUT (TOUS)',data:{input:t.substring(0,300),hasHourPattern:hasHourPattern?.[0],hasHourWords:hasHourWords?.[0],contains8h30:t.includes('8h30')||t.includes('8 h 30')||t.includes('8:30')||t.match(/8\s*[hH:]\s*30|8\s+heures?\s+30/i)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
     // #endregion
     // Nettoyage léger : normaliser les espaces multiples
     t = t.replace(/\s+/g, " ");
@@ -1967,16 +1967,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Format avec minutes séparées AVANT "heures" (ex: "8 h 3 0" ou "8 h 3  0")
     // IMPORTANT: Traiter AVANT le format "heures" pour éviter les conflits
     // CORRECTION: Ajouter logs pour diagnostiquer le problème "huit heure trois zero"
+    const beforeReplace1 = t;
     t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d)\s+(\d)\b/g, (_, h, m1, m2) => {
       const hoursNum = Number(h);
       const minutesNum = Number(m1 + m2);
       const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
       const result = `${hoursWord}${minutesWord}`.trim();
-      // #region agent log
-      if (hoursNum === 8 && m1 === "3" && m2 === "0") {
-        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1967',message:'8h30 conversion (format h:m1 m2)',data:{originalText,normalizedText:t.substring(0,300),h,m1,m2,minutesNum,result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-      }
+      // #region agent log - TOUS les remplacements d'heures
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1967',message:'8h30 conversion (format h:m1 m2)',data:{originalText,beforeReplace:beforeReplace1.substring(0,300),h,m1,m2,minutesNum,result,afterReplace:t.substring(0,300)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
       // #endregion
       return result;
     });
