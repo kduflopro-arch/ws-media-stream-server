@@ -3389,7 +3389,9 @@ But: être naturel et mettre le client en confiance.`,
               // 1. L'appel doit avoir duré au moins 30 secondes (pour éviter les faux positifs)
               // 2. Le client doit être inactif depuis au moins 3 secondes (réduit de 5 à 3 pour plus de réactivité)
               // 3. L'IA a dit au revoir ou une formule de politesse de fin
-              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 1000; // 1 seconde - l'IA doit raccrocher IMMÉDIATEMENT après avoir dit au revoir
+              // CORRECTION: Augmenter le délai pour éviter les raccrochages prématurés
+              // L'IA ne doit raccrocher que si le client est vraiment inactif depuis plusieurs secondes
+              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 5000; // 5 secondes - attendre que le client ait fini de parler
               
               if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && timeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
                 goodbyeDetected = true;
@@ -3601,7 +3603,9 @@ But: être naturel et mettre le client en confiance.`,
               // 1. L'appel doit avoir duré au moins 30 secondes (pour éviter les faux positifs)
               // 2. Le client doit être inactif depuis au moins 3 secondes (réduit de 5 à 3 pour plus de réactivité)
               // 3. L'IA a dit au revoir ou une formule de politesse de fin
-              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 1000; // 1 seconde - l'IA doit raccrocher IMMÉDIATEMENT après avoir dit au revoir
+              // CORRECTION: Augmenter le délai pour éviter les raccrochages prématurés
+              // L'IA ne doit raccrocher que si le client est vraiment inactif depuis plusieurs secondes
+              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 5000; // 5 secondes - attendre que le client ait fini de parler
               
               if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && timeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
                 goodbyeDetected = true;
@@ -4168,6 +4172,12 @@ But: être naturel et mettre le client en confiance.`,
                   // Jouer le greeting avec le nom du client APRÈS avoir chargé les infos
                   const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
                   const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
+                  // CORRECTION: Annuler le timer de greeting générique si on joue le greeting avec nom client
+                  if (ws.__greetingFallbackTimer) {
+                    clearTimeout(ws.__greetingFallbackTimer);
+                    ws.__greetingFallbackTimer = null;
+                    console.log("👋 Timer greeting générique annulé (greeting avec nom client sera joué).");
+                  }
                   if (!hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
                     const rawName = String(garageName || "AutoGuru").trim();
                     const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
@@ -4197,7 +4207,9 @@ But: être naturel et mettre le client en confiance.`,
                       ? "Est-ce que cela vous convient ?"
                       : "Dites-moi, quel est le souci avec votre véhicule ?";
                     const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+                    // Marquer immédiatement pour éviter les doublons
                     initialAssistantGreetingText = greeting;
+                    hasSentInitialGreeting = true;
                     enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
                     const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
                     console.log(`👋 Greeting avec nom client joué via ${providerName}.`, { callSid, consentRequired, salutationName, lastName, clientName: clientInfo.name });
@@ -4236,15 +4248,20 @@ But: être naturel et mettre le client en confiance.`,
         // - on injecte ensuite le même texte dans la conversation OpenAI pour éviter les répétitions
         // - ATTENTION: si clientInfo est disponible, le greeting sera joué APRÈS son chargement (dans le callback client-info)
         //   sinon, on joue un greeting générique après un court délai
+        // CORRECTION: Utiliser un flag pour éviter les greetings en double
         try {
           const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
           const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
           if ((!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN) {
-            // Fallback: si clientInfo n'est pas chargé après 500ms, jouer un greeting générique
-            setTimeout(() => {
-              // Si on a déjà joué un greeting avec le nom du client, ne pas en jouer un autre
-              if (initialAssistantGreetingText) return;
-              
+            // Flag pour éviter que le greeting générique soit joué si le greeting avec nom client est en cours
+            let greetingFallbackTimer = null;
+            greetingFallbackTimer = setTimeout(() => {
+              // Vérifier une dernière fois si un greeting n'a pas été joué entre-temps
+              if (initialAssistantGreetingText) {
+                console.log("👋 Greeting générique annulé (greeting avec nom client déjà joué).");
+                return;
+              }
+              // Marquer qu'on va jouer un greeting pour éviter les doublons
               const rawName = String(garageName || "AutoGuru").trim();
               const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
               const baseHello = `Bonjour, ici ${assistantName}, l'assistante du ${label}.`;
@@ -4255,12 +4272,17 @@ But: être naturel et mettre le client en confiance.`,
                 ? "Est-ce que cela vous convient ?"
                 : "Dites-moi, quel est le souci avec votre véhicule ?";
               const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+              // Marquer immédiatement pour éviter les doublons
               initialAssistantGreetingText = greeting;
+              hasSentInitialGreeting = true;
               enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
               const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
               console.log(`👋 Greeting générique (sans nom client) joué via ${providerName}.`, { callSid, consentRequired });
               if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
-            }, 500); // Délai augmenté : si clientInfo n'est pas chargé après 500ms, jouer greeting générique
+            }, 500); // Délai : si clientInfo n'est pas chargé après 500ms, jouer greeting générique
+            
+            // Stocker le timer pour pouvoir l'annuler si le greeting avec nom client est joué
+            ws.__greetingFallbackTimer = greetingFallbackTimer;
           }
         } catch (e) {
           const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
