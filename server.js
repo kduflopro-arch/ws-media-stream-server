@@ -3731,12 +3731,26 @@ But: être naturel et mettre le client en confiance.`,
                       }
                       // L'audio est terminé OU on a atteint la limite, on raccroche
                       console.log("📞 Hangup automatique après détection fin d'échange (client inactif depuis", Math.round(finalTimeSinceLastUserActivity / 1000), "s, audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending });
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3719',message:'HANGUP DÉCLENCHÉ (conversation.item.done)',data:{checkCount,hadAudioPending:hasAudioPending,timeSinceLastActivity:finalTimeSinceLastUserActivity,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
+                      // #endregion
                       triggerHangup("auto_goodbye");
                     };
                     checkAudioAndHangup();
                   } else {
-                    console.log("⏸️ Hangup annulé, client a repris la parole (dernière activité il y a", Math.round(finalTimeSinceLastUserActivity / 1000), "s)");
-                    goodbyeDetected = false;
+                    // CORRECTION: Ne pas annuler si c'est juste du bruit (vérifier que c'est vraiment une parole utilisateur)
+                    // Si le client n'a pas vraiment parlé récemment (< 2 secondes), c'est peut-être du bruit
+                    // On annule seulement si la dernière activité est très récente (< 2 secondes)
+                    const RECENT_SPEECH_THRESHOLD_MS = 2000; // 2 secondes
+                    if (finalTimeSinceLastUserActivity < RECENT_SPEECH_THRESHOLD_MS) {
+                      console.log("⏸️ Hangup annulé, client a probablement parlé récemment (dernière activité il y a", Math.round(finalTimeSinceLastUserActivity / 1000), "s)");
+                      goodbyeDetected = false;
+                    } else {
+                      // Le client n'a pas vraiment parlé récemment, on continue avec le hangup malgré tout
+                      // (peut-être que lastUserActivityMs a été mis à jour par erreur à cause du bruit)
+                      console.log("⚠️ Dernière activité utilisateur ancienne (", Math.round(finalTimeSinceLastUserActivity / 1000), "s), hangup va procéder quand même");
+                      checkAudioAndHangup();
+                    }
                   }
                 }, GOODBYE_DELAY_MS);
               } else if (isGoodbye && !goodbyeDetected) {
