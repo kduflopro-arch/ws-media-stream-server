@@ -3987,6 +3987,9 @@ But: être naturel et mettre le client en confiance.`,
           if (msg.type === "conversation.item.input_audio_transcription.completed") {
             const transcript = msg.transcript;
             console.log("🎤 Client dit:", transcript);
+            // #region agent log - TRANSCRIPTION CLIENT
+            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3987',message:'TRANSCRIPTION CLIENT',data:{transcript,transcriptLength:transcript?.length||0,isEmpty:!transcript||transcript.trim().length===0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+            // #endregion
             enqueueIngest("user", transcript);
             
             // Détecter si le client accepte le consentement
