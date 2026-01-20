@@ -2587,6 +2587,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             : consentRequired && consentGiven
             ? "Consentement enregistrement: déjà donné par le client. NE PAS redemander le consentement."
             : "Consentement enregistrement: non requis.";
+        // #region agent log - PROMPT SYSTÈME CONSENTEMENT
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2584',message:'PROMPT SYSTÈME CONSENTEMENT',data:{consentRequired,consentGiven,consentLine:consentLine.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
+        // #endregion
 
         // En mode "internal", on peut proposer de vrais créneaux: on précharge 2-3 suggestions.
         availableAppointmentSlotsLine = "";
