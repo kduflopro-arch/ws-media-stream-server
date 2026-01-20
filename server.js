@@ -1697,13 +1697,23 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
 
     // Anti-répétition par texte sur fenêtre courte (même si responseId change)
+    // CORRECTION: Vérifier aussi la similarité, pas seulement l'égalité exacte
     recentAssistantTexts = recentAssistantTexts.filter((t) => (now - t.ts) < 60_000);
-    const foundInRecent = recentAssistantTexts.some((t) => t.text === normalizedForCompare);
+    const foundInRecentExact = recentAssistantTexts.some((t) => t.text === normalizedForCompare);
+    // Vérifier aussi la similarité avec les textes récents (seuil plus bas : 70% au lieu de 80%)
+    const foundInRecentSimilar = recentAssistantTexts.some((t) => {
+      const similarity = calculateSimilarity(t.text, normalizedForCompare);
+      return similarity > 0.7 && normalizedForCompare.length > 15;
+    });
+    const foundInRecent = foundInRecentExact || foundInRecentSimilar;
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1665',message:'check recent texts anti-repeat',data:{normalizedText:normalizedForCompare.substring(0,100),foundInRecent,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1665',message:'check recent texts anti-repeat',data:{normalizedText:normalizedForCompare.substring(0,100),foundInRecent,foundInRecentExact,foundInRecentSimilar,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
     if (foundInRecent) {
-      if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment`, clean.substring(0, 120));
+      if (LOG_TTS) {
+        console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment (exact=${foundInRecentExact}, similar=${foundInRecentSimilar})`, clean.substring(0, 120));
+        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà prononcé récemment) [source: ${source}]:`, clean.substring(0, 120));
+      }
       return;
     }
 
@@ -1734,15 +1744,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
         return;
       }
-      // Vérifier la similarité (si > 80% de mots communs, considérer comme répétition)
+      // CORRECTION: Vérifier la similarité avec un seuil plus bas (70% au lieu de 80%) et longueur minimale réduite
+      // pour mieux détecter les répétitions même avec de petites variations
       const similarity = calculateSimilarity(lastNormalized, normalizedForCompare);
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1695',message:'check similarity',data:{similarity:Math.round(similarity*100),lastText:premiumTtsLastText.substring(0,100),currentText:clean.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1695',message:'check similarity',data:{similarity:Math.round(similarity*100),lastText:premiumTtsLastText.substring(0,100),currentText:clean.substring(0,100),threshold:70},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
-      if (similarity > 0.8 && normalizedForCompare.length > 20) {
+      if (similarity > 0.7 && normalizedForCompare.length > 15) {
         if (LOG_TTS) {
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (similaire à ${Math.round(similarity * 100)}%) [source: ${source}]:`, clean.substring(0, 120));
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
+          console.log(`🚨🚨🚨 REPETITION BLOQUÉE (similaire à ${Math.round(similarity * 100)}%) [source: ${source}]:`, clean.substring(0, 120));
         }
         return;
       }
@@ -1754,7 +1766,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const similarity = calculateSimilarity(jobNormalized, normalizedForCompare);
       return { isExact, similarity, jobText: job.text.substring(0, 100) };
     });
-    const foundInQueue = queueCheck.some(q => q.isExact || (q.similarity > 0.8 && normalizedForCompare.length > 20));
+    // CORRECTION: Seuil de similarité réduit à 70% et longueur minimale à 15 pour mieux détecter les répétitions
+    const foundInQueue = queueCheck.some(q => q.isExact || (q.similarity > 0.7 && normalizedForCompare.length > 15));
     // #region agent log
     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1706',message:'check queue anti-repeat',data:{foundInQueue,queueLen:premiumTtsQueue.length,currentText:clean.substring(0,100),queueChecks:queueCheck},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
     // #endregion
