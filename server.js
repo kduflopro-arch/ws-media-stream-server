@@ -2063,12 +2063,26 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // PRIORITÉ 2: Format avec chiffres séparés "huit heure 3 0" -> "huit heures trente"
     // C'est le problème principal: GPT-5 génère "huit heure 3 0" au lieu de "huit heures 30"
     // IMPORTANT: Placer AVANT la regex générale qui traite les heures en chiffres
+    // CORRECTION: Ajouter aussi le cas "huit heure trois zéro" (avec "trois" et "zéro" en lettres)
+    const beforeHourFix = t;
     t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(\d)\s+(\d)\b/gi, (_, hoursWord, m1, m2) => {
       const minutesNum = Number(m1 + m2);
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
       // #region agent log
-      if (hoursWord.toLowerCase() === "huit" && m1 === "3" && m2 === "0") {
-        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2042',message:'heures trois zéro conversion (chiffres)',data:{originalText,normalizedText:t.substring(0,300),hoursWord,m1,m2,minutesNum,result:`${hoursWord} heures${minutesWord}`.trim()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      if (hoursWord.toLowerCase() === "huit" && (m1 === "3" && m2 === "0" || m1 === "trois" && m2 === "zéro")) {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2042',message:'heures trois zéro conversion (chiffres)',data:{originalText,beforeHourFix:beforeHourFix.substring(0,300),normalizedText:t.substring(0,300),hoursWord,m1,m2,minutesNum,result:`${hoursWord} heures${minutesWord}`.trim()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      }
+      // #endregion
+      return `${hoursWord} heures${minutesWord}`.trim();
+    });
+    // CORRECTION: Traiter aussi "huit heure trois zéro" (avec "trois" et "zéro" en lettres, et "heure" au singulier)
+    t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(trois|zero|zéro)\s+(zéro|zero)\b/gi, (_, hoursWord, m1, m2) => {
+      const minutesMap = { "trois": 3, "zéro": 0, "zero": 0 };
+      const minutesNum = (minutesMap[m1.toLowerCase()] || 0) * 10 + (minutesMap[m2.toLowerCase()] || 0);
+      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      // #region agent log
+      if (hoursWord.toLowerCase() === "huit") {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2075',message:'heures trois zéro conversion (lettres avec heure singulier)',data:{originalText,beforeHourFix:beforeHourFix.substring(0,300),normalizedText:t.substring(0,300),hoursWord,m1,m2,minutesNum,result:`${hoursWord} heures${minutesWord}`.trim()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
       }
       // #endregion
       return `${hoursWord} heures${minutesWord}`.trim();
@@ -4723,11 +4737,37 @@ But: être naturel et mettre le client en confiance.`,
                         // CORRECTION: Ne pas annuler le hangup automatique si c'est juste du bruit ou une fausse détection
                         // Annuler seulement si la transcription est significative (déjà vérifié avec isJunkTranscript)
                         if (goodbyeDetected && txt && txt.trim().length >= 3) {
-                          console.log("🔄 Client a parlé après au revoir:", txt.substring(0, 100), "- annulation du hangup automatique");
-                          goodbyeDetected = false;
-                          if (goodbyeTimer) {
-                            clearTimeout(goodbyeTimer);
-                            goodbyeTimer = null;
+                          // CORRECTION: Ne pas annuler le hangup si c'est juste du bruit ou une transcription erronée
+                          // Vérifier que c'est vraiment une parole utilisateur pertinente (pas juste "Merci d'avoir regardé cette vidéo")
+                          // Ignorer les transcriptions qui semblent être du bruit ou des erreurs de transcription
+                          const isNoiseOrError = /^(merci d'avoir regardé|thank you for watching|subscribe|like|comment|vidéo|video|youtube|channel)/i.test(txt.trim());
+                          if (isNoiseOrError) {
+                            console.log("🔇 Transcription ignorée (probablement du bruit):", txt.substring(0, 100), "- hangup continue");
+                            // #region agent log
+                            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4726',message:'TRANSCRIPTION IGNORÉE (bruit)',data:{transcript:txt.substring(0,100),isNoiseOrError,goodbyeDetected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
+                            // #endregion
+                            // Ne pas annuler le hangup si c'est du bruit
+                            return;
+                          }
+                          // Vérifier aussi que la transcription est assez récente (< 2 secondes) pour être pertinente
+                          const timeSinceLastActivity = nowMs() - lastUserActivityMs;
+                          const RECENT_SPEECH_THRESHOLD_MS = 2000; // 2 secondes
+                          if (timeSinceLastActivity < RECENT_SPEECH_THRESHOLD_MS) {
+                            console.log("🔄 Client a parlé après au revoir:", txt.substring(0, 100), "- annulation du hangup automatique");
+                            // #region agent log
+                            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4726',message:'HANGUP ANNULÉ (parole récente)',data:{transcript:txt.substring(0,100),timeSinceLastActivity,goodbyeDetected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
+                            // #endregion
+                            goodbyeDetected = false;
+                            if (goodbyeTimer) {
+                              clearTimeout(goodbyeTimer);
+                              goodbyeTimer = null;
+                            }
+                          } else {
+                            console.log("🔇 Parole utilisateur trop ancienne (", Math.round(timeSinceLastActivity / 1000), "s), hangup continue:", txt.substring(0, 100));
+                            // #region agent log
+                            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4726',message:'HANGUP CONTINUE (parole ancienne)',data:{transcript:txt.substring(0,100),timeSinceLastActivity,goodbyeDetected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
+                            // #endregion
+                            // Ne pas annuler le hangup si la parole est trop ancienne
                           }
                         }
                       }
