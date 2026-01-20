@@ -3606,13 +3606,18 @@ But: être naturel et mettre le client en confiance.`,
                       // CORRECTION: L'IA doit toujours commencer en premier (consentement initial)
                       const isInitialConsent = !userHasSpoken;
                       // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3314',message:'response.done consentement check',data:{userHasSpoken,isInitialConsent,text:extractedText.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3604',message:'response.done calling enqueuePremiumTts',data:{userHasSpoken,isInitialConsent,text:extractedText.substring(0,150),responseId:rid,spokenSetSize:spokenSet.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
                       // #endregion
                       // CORRECTION: allowWithoutUser doit être true UNIQUEMENT si c'est le consentement initial
                       // Après le consentement, l'IA ne doit répondre QUE si l'utilisateur a vraiment parlé
                       // (vérifié via lastCommittedAt dans enqueuePremiumTts)
                       // IMPORTANT: Ne pas utiliser consentGiven ici car cela permettrait à l'IA de répondre sans que l'utilisateur ait parlé
                       enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: isInitialConsent });
+                    } else {
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3616',message:'response.done SKIPPED (déjà dans spokenSet)',data:{responseId:rid,text:extractedText.substring(0,150),spokenSetSize:spokenSet.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                      // #endregion
+                      if (LOG_TTS) console.log(`[TTS] SKIPPED response.done (déjà dans spokenSet):`, { rid, text: extractedText.substring(0, 100) });
                     }
                   }
                 } else if (msg.response?.output) {
