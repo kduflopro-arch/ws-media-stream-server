@@ -4296,10 +4296,16 @@ But: être naturel et mettre le client en confiance.`,
                       ? "Est-ce que cela vous convient ?"
                       : "Dites-moi, quel est le souci avec votre véhicule ?";
                     const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4288',message:'GREETING CONSTRUIT (avec nom client)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
+                    // #endregion
                     // Marquer immédiatement pour éviter les doublons
                     initialAssistantGreetingText = greeting;
                     hasSentInitialGreeting = true;
                     enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4302',message:'enqueuePremiumTts appelé pour greeting (avec nom)',data:{greeting:greeting.substring(0,200),allowWithoutUser:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
+                    // #endregion
                     const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
                     console.log(`👋 Greeting avec nom client joué via ${providerName}.`, { callSid, consentRequired, salutationName, lastName, clientName: clientInfo.name });
                     if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
@@ -4362,10 +4368,16 @@ But: être naturel et mettre le client en confiance.`,
                 ? "Est-ce que cela vous convient ?"
                 : "Dites-moi, quel est le souci avec votre véhicule ?";
               const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4353',message:'GREETING CONSTRUIT (générique)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
+              // #endregion
               // Marquer immédiatement pour éviter les doublons
               initialAssistantGreetingText = greeting;
               hasSentInitialGreeting = true;
               enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4364',message:'enqueuePremiumTts appelé pour greeting (générique)',data:{greeting:greeting.substring(0,200),allowWithoutUser:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
+              // #endregion
               const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
               console.log(`👋 Greeting générique (sans nom client) joué via ${providerName}.`, { callSid, consentRequired });
               if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
