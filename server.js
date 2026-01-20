@@ -2188,16 +2188,26 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // SÉCURITÉ FINALE: Capturer TOUS les nombres suivis de "euros" qui n'ont pas été convertis
     // Cette regex finale garantit que même si les regexes précédentes ont échoué, on convertit quand même
     // Elle cherche des chiffres (éventuellement séparés par des espaces) suivis de "euros" ou "€"
-    t = t.replace(/\b(\d{1,2}(?:\s+\d){0,3})\s+(?:€|euros?)\b/gi, (_, n) => {
+    // CORRECTION: Aussi matcher les nombres collés directement avant "euros" (ex: "12euros")
+    t = t.replace(/\b(\d{1,2}(?:\s+\d){0,3})(\s*)(?:€|euros?)\b/gi, (_, n, space) => {
       const compact = String(n).replace(/\s+/g, "");
+      // #region agent log
+      if (compact === "12" || originalText.match(/\b1\s*2\s*euros?|\b12\s*euros?/i)) {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2191',message:'SÉCURITÉ FINALE matched (12 euros)',data:{originalText,number:n,compact,currentText:t.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
+      }
+      // #endregion
       // Ne convertir que si c'est un nombre valide et si ce n'est pas déjà "douze", "treize", etc.
       if (compact.length <= 4) {
         const num = Number(compact);
-        if (num >= 0 && num <= 9999 && !t.includes(`${numberToFrenchWordsTts(num)} euros`)) {
-          return `${numberToFrenchWordsTts(num)} euros`;
+        if (num >= 0 && num <= 9999) {
+          const wordForm = numberToFrenchWordsTts(num);
+          // Vérifier si le mot n'est pas déjà présent (pour éviter les doublons)
+          if (!t.includes(`${wordForm} euros`)) {
+            return `${wordForm} euros`;
+          }
         }
       }
-      return `${compact} euros`;
+      return `${compact}${space}euros`;
     });
     
     // Correction prononciation "est-ce que" pour Minimax
