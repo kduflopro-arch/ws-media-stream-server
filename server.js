@@ -3311,7 +3311,9 @@ But: être naturel et mettre le client en confiance.`,
                       flushRealtimeElevenChunks(rid, true);
                     } else if (!spokenSet.has(rid)) {
                       spokenSet.add(rid);
-                      enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid });
+                      // CORRECTION: Pour les réponses normales après que l'utilisateur a parlé, on doit permettre
+                      const isFirstMessage = !userHasSpoken && !initialAssistantGreetingText;
+                      enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: isFirstMessage });
                     }
                   }
                 } else if (msg.response?.output) {
