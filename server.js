@@ -1660,10 +1660,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const now = nowMs();
 
     // Garder la parole uniquement si une prise de parole utilisateur est récente
+    // CORRECTION: Pour le greeting initial, on doit permettre sans user (allowWithoutUser=true)
+    // Mais pour les réponses normales, on doit attendre que l'utilisateur ait parlé
     if (!allowWithoutUser) {
       const hasRecentUserSpeech = lastCommittedAt > 0 && (now - lastCommittedAt) <= ASSISTANT_RESPONSE_WINDOW_MS;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1663',message:'check allowWithoutUser',data:{allowWithoutUser,hasRecentUserSpeech,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?now-lastCommittedAt:0,responseWindow:ASSISTANT_RESPONSE_WINDOW_MS,source},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       if (!hasRecentUserSpeech) {
-        if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: pas de parole utilisateur récente (lastCommittedAt=${lastCommittedAt})`);
+        if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: pas de parole utilisateur récente (lastCommittedAt=${lastCommittedAt}, timeSince=${lastCommittedAt > 0 ? now - lastCommittedAt : 'N/A'})`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1666',message:'BLOQUÉ pas de parole utilisateur récente',data:{allowWithoutUser,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?now-lastCommittedAt:0,responseWindow:ASSISTANT_RESPONSE_WINDOW_MS,source,text:clean.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
         return;
       }
       // Une seule réponse TTS par commit utilisateur (évite les répétitions multi-events)
@@ -3528,7 +3536,11 @@ But: être naturel et mettre le client en confiance.`,
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3315',message:'calling enqueuePremiumTts from conversation.item.done',data:{text:clean.substring(0,200),responseId:rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
                     // #endregion
-                    enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid });
+                    // CORRECTION: Pour les réponses normales après que l'utilisateur a parlé, on doit permettre sans vérifier allowWithoutUser
+                    // car l'utilisateur a déjà parlé (le consentement a été donné)
+                    // Mais si c'est le premier message (greeting), allowWithoutUser devrait être true
+                    const isFirstMessage = !userHasSpoken && !initialAssistantGreetingText;
+                    enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: isFirstMessage });
                   }
                 } else {
                   console.warn("⚠️ Aucun texte assistant extrait depuis conversation.item.done");
