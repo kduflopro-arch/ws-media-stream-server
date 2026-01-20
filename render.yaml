@@ -1,15 +1,11 @@
 services:
   - type: web
     name: ws-media-stream-server
-    env: node
-    nodeVersion: 20
+    runtime: node
+    nodeVersion: "20"
+    plan: starter
     buildCommand: npm install
     startCommand: node server.js
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        fromService:
-          name: ws-media-stream-server
-          type: web
-          property: port
