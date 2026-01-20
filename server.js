@@ -1996,31 +1996,97 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return result;
     });
     // Format standard avec minutes collées AVANT "heures" (ex: "8h30" / "8 h 30" / "8:30")
+    // CORRECTION: Prononcer de manière naturelle comme une vraie personne
+    // - 30 minutes -> "et demie" (ex: "8h30" -> "huit heures et demie")
+    // - 15 minutes -> "et quart" (ex: "8h15" -> "huit heures et quart")
+    // - 45 minutes -> "moins le quart" (ex: "8h45" -> "neuf heures moins le quart")
+    // - Autres minutes -> nombre normal (ex: "8h20" -> "huit heures vingt")
     t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d{2})\b/g, (_, h, m) => {
       const hoursNum = Number(h);
       const minutesNum = Number(m);
       const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord}${minutesWord}`.trim();
+      
+      let timeExpression = "";
+      if (minutesNum === 0) {
+        // Pas de minutes, juste l'heure
+        timeExpression = hoursWord;
+      } else if (minutesNum === 30) {
+        // 30 minutes -> "et demie"
+        timeExpression = `${hoursWord} et demie`;
+      } else if (minutesNum === 15) {
+        // 15 minutes -> "et quart"
+        timeExpression = `${hoursWord} et quart`;
+      } else if (minutesNum === 45) {
+        // 45 minutes -> "moins le quart" (heure suivante)
+        const nextHour = hoursNum === 23 ? 0 : hoursNum + 1;
+        const nextHourWord = nextHour === 0 ? "minuit" : nextHour === 1 ? "une heure" : `${numberToFrenchWordsTts(nextHour)} heures`;
+        timeExpression = `${nextHourWord} moins le quart`;
+      } else {
+        // Autres minutes -> nombre normal
+        const minutesWord = numberToFrenchWordsTts(minutesNum);
+        timeExpression = `${hoursWord} ${minutesWord}`;
+      }
+      
+      // #region agent log
+      if (minutesNum === 30 || minutesNum === 15 || minutesNum === 45) {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1998',message:'heures conversion naturelle',data:{originalText,hoursNum,minutesNum,timeExpression},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      }
+      // #endregion
+      
+      return timeExpression;
     });
     
-    // Format "X heures Y Z" ou "X heure Y Z" avec minutes séparées (ex: "8 heures 3 0" -> "huit heures trente")
+    // Format "X heures Y Z" ou "X heure Y Z" avec minutes séparées (ex: "8 heures 3 0" -> "huit heures et demie")
     // IMPORTANT: Placer cette regex AVANT celle avec (\d{2}) pour qu'elle matche en premier
+    // CORRECTION: Prononcer de manière naturelle comme une vraie personne
     t = t.replace(/\b(\d{1,2})\s+heures?\s+(\d)\s+(\d)\b/gi, (_, h, m1, m2) => {
       const hoursNum = Number(h);
       const minutesNum = Number(m1 + m2);
       const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord}${minutesWord}`.trim();
+      
+      let timeExpression = "";
+      if (minutesNum === 0) {
+        timeExpression = hoursWord;
+      } else if (minutesNum === 30) {
+        timeExpression = `${hoursWord} et demie`;
+      } else if (minutesNum === 15) {
+        timeExpression = `${hoursWord} et quart`;
+      } else if (minutesNum === 45) {
+        const nextHour = hoursNum === 23 ? 0 : hoursNum + 1;
+        const nextHourWord = nextHour === 0 ? "minuit" : nextHour === 1 ? "une heure" : `${numberToFrenchWordsTts(nextHour)} heures`;
+        timeExpression = `${nextHourWord} moins le quart`;
+      } else {
+        const minutesWord = numberToFrenchWordsTts(minutesNum);
+        timeExpression = `${hoursWord} ${minutesWord}`;
+      }
+      
+      return timeExpression;
     });
-    // Format "X heures YY" ou "X heure YY" avec minutes collées (ex: "8 heures 30" -> "huit heures trente")
+    // Format "X heures YY" ou "X heure YY" avec minutes collées (ex: "8 heures 30" -> "huit heures et demie")
     // Gérer aussi les cas sans espaces : "8heures30" ou "8 heures30" ou "8heures 30"
+    // CORRECTION: Prononcer de manière naturelle comme une vraie personne
     t = t.replace(/\b(\d{1,2})\s*heures?\s*(\d{2})\b/gi, (_, h, m) => {
       const hoursNum = Number(h);
       const minutesNum = Number(m);
       const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord}${minutesWord}`.trim();
+      
+      let timeExpression = "";
+      if (minutesNum === 0) {
+        timeExpression = hoursWord;
+      } else if (minutesNum === 30) {
+        timeExpression = `${hoursWord} et demie`;
+      } else if (minutesNum === 15) {
+        timeExpression = `${hoursWord} et quart`;
+      } else if (minutesNum === 45) {
+        const nextHour = hoursNum === 23 ? 0 : hoursNum + 1;
+        const nextHourWord = nextHour === 0 ? "minuit" : nextHour === 1 ? "une heure" : `${numberToFrenchWordsTts(nextHour)} heures`;
+        timeExpression = `${nextHourWord} moins le quart`;
+      } else {
+        const minutesWord = numberToFrenchWordsTts(minutesNum);
+        timeExpression = `${hoursWord} ${minutesWord}`;
+      }
+      
+      return timeExpression;
     });
     
     // Fallback: Si les heures sont déjà en mots français (huit, neuf, etc.) et les minutes sont en chiffres
@@ -2060,41 +2126,90 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const hoursForm = hoursWord === "une" ? "heure" : "heures";
       return `${hoursWord} ${hoursForm}${minutesWord}`.trim();
     });
-    // PRIORITÉ 2: Format avec chiffres séparés "huit heure 3 0" -> "huit heures trente"
+    // PRIORITÉ 2: Format avec chiffres séparés "huit heure 3 0" -> "huit heures et demie"
     // C'est le problème principal: GPT-5 génère "huit heure 3 0" au lieu de "huit heures 30"
     // IMPORTANT: Placer AVANT la regex générale qui traite les heures en chiffres
-    // CORRECTION: Ajouter aussi le cas "huit heure trois zéro" (avec "trois" et "zéro" en lettres)
+    // CORRECTION: Prononcer de manière naturelle comme une vraie personne
     const beforeHourFix = t;
     t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(\d)\s+(\d)\b/gi, (_, hoursWord, m1, m2) => {
       const minutesNum = Number(m1 + m2);
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      const hoursForm = hoursWord === "une" ? "heure" : "heures";
+      
+      let timeExpression = "";
+      if (minutesNum === 0) {
+        timeExpression = `${hoursWord} ${hoursForm}`;
+      } else if (minutesNum === 30) {
+        timeExpression = `${hoursWord} ${hoursForm} et demie`;
+      } else if (minutesNum === 15) {
+        timeExpression = `${hoursWord} ${hoursForm} et quart`;
+      } else if (minutesNum === 45) {
+        // Pour 45 minutes, on dit "l'heure suivante moins le quart"
+        // Mais on ne peut pas calculer l'heure suivante facilement depuis le mot, donc on dit "X heures moins le quart"
+        timeExpression = `${hoursWord} ${hoursForm} moins le quart`;
+      } else {
+        const minutesWord = numberToFrenchWordsTts(minutesNum);
+        timeExpression = `${hoursWord} ${hoursForm} ${minutesWord}`;
+      }
+      
       // #region agent log
       if (hoursWord.toLowerCase() === "huit" && (m1 === "3" && m2 === "0" || m1 === "trois" && m2 === "zéro")) {
-        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2042',message:'heures trois zéro conversion (chiffres)',data:{originalText,beforeHourFix:beforeHourFix.substring(0,300),normalizedText:t.substring(0,300),hoursWord,m1,m2,minutesNum,result:`${hoursWord} heures${minutesWord}`.trim()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2042',message:'heures trois zéro conversion (chiffres)',data:{originalText,beforeHourFix:beforeHourFix.substring(0,300),normalizedText:t.substring(0,300),hoursWord,m1,m2,minutesNum,result:timeExpression},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
       }
       // #endregion
-      return `${hoursWord} heures${minutesWord}`.trim();
+      return timeExpression;
     });
     // CORRECTION: Traiter aussi "huit heure trois zéro" (avec "trois" et "zéro" en lettres, et "heure" au singulier)
+    // Prononcer de manière naturelle : "huit heures et demie"
     t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(trois|zero|zéro)\s+(zéro|zero)\b/gi, (_, hoursWord, m1, m2) => {
       const minutesMap = { "trois": 3, "zéro": 0, "zero": 0 };
       const minutesNum = (minutesMap[m1.toLowerCase()] || 0) * 10 + (minutesMap[m2.toLowerCase()] || 0);
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      const hoursForm = hoursWord === "une" ? "heure" : "heures";
+      
+      let timeExpression = "";
+      if (minutesNum === 0) {
+        timeExpression = `${hoursWord} ${hoursForm}`;
+      } else if (minutesNum === 30) {
+        timeExpression = `${hoursWord} ${hoursForm} et demie`;
+      } else if (minutesNum === 15) {
+        timeExpression = `${hoursWord} ${hoursForm} et quart`;
+      } else if (minutesNum === 45) {
+        timeExpression = `${hoursWord} ${hoursForm} moins le quart`;
+      } else {
+        const minutesWord = numberToFrenchWordsTts(minutesNum);
+        timeExpression = `${hoursWord} ${hoursForm} ${minutesWord}`;
+      }
+      
       // #region agent log
       if (hoursWord.toLowerCase() === "huit") {
-        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2075',message:'heures trois zéro conversion (lettres avec heure singulier)',data:{originalText,beforeHourFix:beforeHourFix.substring(0,300),normalizedText:t.substring(0,300),hoursWord,m1,m2,minutesNum,result:`${hoursWord} heures${minutesWord}`.trim()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2075',message:'heures trois zéro conversion (lettres avec heure singulier)',data:{originalText,beforeHourFix:beforeHourFix.substring(0,300),normalizedText:t.substring(0,300),hoursWord,m1,m2,minutesNum,result:timeExpression},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
       }
       // #endregion
-      return `${hoursWord} heures${minutesWord}`.trim();
+      return timeExpression;
     });
     
     // CORRECTION: Traiter les heures avec minutes séparées EN LETTRES avant le collage des chiffres
-    // Ex: "huit heures 3 0" -> "huit heures trente" (les chiffres sont collés puis convertis)
+    // Ex: "huit heures 3 0" -> "huit heures et demie" (prononciation naturelle)
     // Mais si les minutes arrivent déjà séparées, on doit les traiter AVANT
+    // Prononcer de manière naturelle comme une vraie personne
     t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(\d)\s+(\d)\b/gi, (_, hoursWord, m1, m2) => {
       const minutesNum = Number(m1 + m2);
-      const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord} heures${minutesWord}`.trim();
+      const hoursForm = hoursWord === "une" ? "heure" : "heures";
+      
+      let timeExpression = "";
+      if (minutesNum === 0) {
+        timeExpression = `${hoursWord} ${hoursForm}`;
+      } else if (minutesNum === 30) {
+        timeExpression = `${hoursWord} ${hoursForm} et demie`;
+      } else if (minutesNum === 15) {
+        timeExpression = `${hoursWord} ${hoursForm} et quart`;
+      } else if (minutesNum === 45) {
+        timeExpression = `${hoursWord} ${hoursForm} moins le quart`;
+      } else {
+        const minutesWord = numberToFrenchWordsTts(minutesNum);
+        timeExpression = `${hoursWord} ${hoursForm} ${minutesWord}`;
+      }
+      
+      return timeExpression;
     });
     // IMPORTANT: Traiter les montants AVANT de coller les chiffres séparés
     // PRIORITÉ 0: Cas "de 1 2 euros" ou "le prix est de 1 2 euros" (avec chiffres séparés + "de" avant)
