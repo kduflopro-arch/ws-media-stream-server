@@ -658,6 +658,7 @@ wss.on("connection", (ws, req) => {
   let plateSmsWaitingForReply = false;
   let plateSmsPollTimer = null;
   let plateSmsSendOnFinalize = false;
+  let plateSmsAlreadyMentioned = false; // Track si l'IA a déjà mentionné l'envoi d'un SMS pour la plaque
 
   // --- Hangup automatique après au revoir ---
   // (Variables déplacées en haut de la fonction wss.on("connection") pour éviter les erreurs de scope)
@@ -4341,50 +4342,44 @@ But: être naturel et mettre le client en confiance.`,
         // - doit annoncer l'enregistrement AVANT que le client puisse répondre
         // - doit utiliser la voix TTS premium (Minimax/ElevenLabs, pas attendre OpenAI)
         // - on injecte ensuite le même texte dans la conversation OpenAI pour éviter les répétitions
-        // - ATTENTION: si clientInfo est disponible, le greeting sera joué APRÈS son chargement (dans le callback client-info)
-        //   sinon, on joue un greeting générique après un court délai
-        // CORRECTION: Utiliser un flag pour éviter les greetings en double
+        // CORRECTION: Jouer le greeting IMMÉDIATEMENT au début, même sans infos client
+        // Si les infos client arrivent plus tard, on pourra jouer un greeting personnalisé après
         try {
           const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
           const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
           // #region agent log
           fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4350',message:'CHECK GREETING CONDITIONS (générique)',data:{greetOncePerCall,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,hasInitialGreeting:!!initialAssistantGreetingText,willGreet:(!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
           // #endregion
-          if ((!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN) {
-            // Flag pour éviter que le greeting générique soit joué si le greeting avec nom client est en cours
-            let greetingFallbackTimer = null;
-            greetingFallbackTimer = setTimeout(() => {
-              // Vérifier une dernière fois si un greeting n'a pas été joué entre-temps
-              if (initialAssistantGreetingText) {
-                console.log("👋 Greeting générique annulé (greeting avec nom client déjà joué).");
-                return;
-              }
-              // Marquer qu'on va jouer un greeting pour éviter les doublons
-              const rawName = String(garageName || "AutoGuru").trim();
-              const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
-              // CORRECTION: Toujours dire bonjour et se présenter
-              const baseHello = `Bonjour ! Ici ${assistantName}, l'assistante du ${label}.`;
-              const consentText = consentRequired && !consentGiven
-                ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
-                : "";
-              const question = consentRequired && !consentGiven
-                ? "Est-ce que cela vous convient ?"
-                : "Dites-moi, quel est le souci avec votre véhicule ?";
-              const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4353',message:'GREETING CONSTRUIT (générique)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
-              // #endregion
-              // Marquer immédiatement pour éviter les doublons
-              initialAssistantGreetingText = greeting;
-              hasSentInitialGreeting = true;
-              enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4364',message:'enqueuePremiumTts appelé pour greeting (générique)',data:{greeting:greeting.substring(0,200),allowWithoutUser:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
-              // #endregion
-              const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
-              console.log(`👋 Greeting générique (sans nom client) joué via ${providerName}.`, { callSid, consentRequired });
-              if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
-            }, 500); // Délai : si clientInfo n'est pas chargé après 500ms, jouer greeting générique
+          if ((!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
+            // CORRECTION: Jouer le greeting IMMÉDIATEMENT (pas de délai de 500ms)
+            // Si les infos client arrivent après, on pourra jouer un greeting personnalisé
+            const rawName = String(garageName || "AutoGuru").trim();
+            const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
+            // CORRECTION: Toujours dire bonjour et se présenter
+            const baseHello = `Bonjour ! Ici ${assistantName}, l'assistante du ${label}.`;
+            const consentText = consentRequired && !consentGiven
+              ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
+              : "";
+            const question = consentRequired && !consentGiven
+              ? "Est-ce que cela vous convient ?"
+              : "Dites-moi, quel est le souci avec votre véhicule ?";
+            const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4353',message:'GREETING CONSTRUIT (générique IMMÉDIAT)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
+            // #endregion
+            // Marquer immédiatement pour éviter les doublons
+            initialAssistantGreetingText = greeting;
+            hasSentInitialGreeting = true;
+            enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4364',message:'enqueuePremiumTts appelé pour greeting (générique IMMÉDIAT)',data:{greeting:greeting.substring(0,200),allowWithoutUser:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
+            // #endregion
+            const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+            console.log(`👋 Greeting générique (sans nom client) joué IMMÉDIATEMENT via ${providerName}.`, { callSid, consentRequired });
+            if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+            
+            // Flag pour éviter que le greeting avec nom client soit joué si le greeting générique est déjà joué
+            ws.__greetingFallbackTimer = null; // Pas de timer fallback nécessaire
             
             // Stocker le timer pour pouvoir l'annuler si le greeting avec nom client est joué
             ws.__greetingFallbackTimer = greetingFallbackTimer;
