@@ -2021,27 +2021,32 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     });
     
     // CORRECTION URGENTE: Traiter "huit heures trois zéro" ou "huit heure trois zéro" -> "huit heures trente"
-    // IMPORTANT: Placer APRÈS les autres traitements d'heures mais AVANT la normalisation générale
-    // Cette regex doit matcher AVANT les regexes avec chiffres car GPT peut générer "trois zéro" en lettres
-    // CORRECTION: Gérer aussi le singulier "heure" (pas seulement "heures")
-    t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf|zéro|zéro|zero)\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf|zéro|zéro|zero)\b/gi, (_, hoursWord, m1, m2) => {
+    // IMPORTANT: Placer AVANT les autres traitements pour qu'elle matche en premier
+    // PRIORITÉ 1: Format avec lettres séparées "trois zéro"
+    t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf|zéro|zero)\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf|zéro|zero)\b/gi, (_, hoursWord, m1, m2) => {
       const minutesMap = { "un": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7, "huit": 8, "neuf": 9, "zéro": 0, "zero": 0 };
       const minutesNum = (minutesMap[m1.toLowerCase()] || 0) * 10 + (minutesMap[m2.toLowerCase()] || 0);
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
       // #region agent log
-      if (originalText.match(/huit\s+heures?\s+trois\s+zéro|huit\s+heure\s+trois\s+zero/i)) {
-        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2023',message:'heures trois zéro conversion',data:{originalText,normalizedText:t.substring(0,300),hoursWord,m1,m2,minutesNum,result:`${hoursWord} heures${minutesWord}`.trim()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      if (originalText.match(/huit\s+heures?\s+trois\s+zéro|huit\s+heure\s+trois\s+zero|8\s*[hH:]\s*3\s*0/i)) {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2023',message:'heures trois zéro conversion (lettres)',data:{originalText,normalizedText:t.substring(0,300),hoursWord,m1,m2,minutesNum,result:`${hoursWord} heures${minutesWord}`.trim()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
       }
       // #endregion
       // Toujours utiliser "heures" au pluriel sauf pour "une heure"
       const hoursForm = hoursWord === "une" ? "heure" : "heures";
       return `${hoursWord} ${hoursForm}${minutesWord}`.trim();
     });
-    // CORRECTION URGENTE: Traiter "huit heure 3 0" ou "huit heures 3 0" (chiffres séparés) -> "huit heures trente"
+    // PRIORITÉ 2: Format avec chiffres séparés "huit heure 3 0" -> "huit heures trente"
     // C'est le problème principal: GPT-5 génère "huit heure 3 0" au lieu de "huit heures 30"
+    // IMPORTANT: Placer AVANT la regex générale qui traite les heures en chiffres
     t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(\d)\s+(\d)\b/gi, (_, hoursWord, m1, m2) => {
       const minutesNum = Number(m1 + m2);
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
+      // #region agent log
+      if (hoursWord.toLowerCase() === "huit" && m1 === "3" && m2 === "0") {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2042',message:'heures trois zéro conversion (chiffres)',data:{originalText,normalizedText:t.substring(0,300),hoursWord,m1,m2,minutesNum,result:`${hoursWord} heures${minutesWord}`.trim()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      }
+      // #endregion
       return `${hoursWord} heures${minutesWord}`.trim();
     });
     
@@ -4618,11 +4623,13 @@ But: être naturel et mettre le client en confiance.`,
                       if (txt && !isJunkTranscript(txt)) {
                         enqueueIngest("user", txt);
                         // (Consentement SMS plaque supprimé: envoi automatique à la fin de l'appel)
-                        // Mettre à jour la dernière activité utilisateur
+                        // CORRECTION: Ne mettre à jour lastUserActivityMs QUE si c'est une vraie transcription utilisateur
+                        // (le texte a déjà été vérifié avec isJunkTranscript avant)
                         lastUserActivityMs = nowMs();
-                        // Si l'utilisateur parle après un au revoir, annuler le hangup automatique
-                        if (goodbyeDetected) {
-                          console.log("🔄 Client a parlé après au revoir, annulation du hangup automatique");
+                        // CORRECTION: Ne pas annuler le hangup automatique si c'est juste du bruit ou une fausse détection
+                        // Annuler seulement si la transcription est significative (déjà vérifié avec isJunkTranscript)
+                        if (goodbyeDetected && txt && txt.trim().length >= 3) {
+                          console.log("🔄 Client a parlé après au revoir:", txt.substring(0, 100), "- annulation du hangup automatique");
                           goodbyeDetected = false;
                           if (goodbyeTimer) {
                             clearTimeout(goodbyeTimer);
