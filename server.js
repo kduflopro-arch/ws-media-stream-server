@@ -1958,18 +1958,27 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // #endregion
     // Nettoyage léger : normaliser les espaces multiples
     t = t.replace(/\s+/g, " ");
+    // CORRECTION: Normaliser "est-ce bien" pour améliorer la prononciation
+    t = t.replace(/\best[- ]ce[- ]bien\b/gi, "est ce bien");
     // IMPORTANT: On laisse Minimax gérer TOUTES les prononciations
     // On convertit UNIQUEMENT les nombres en lettres pour les montants en euros (pour éviter "un deux euros")
     // On convertit aussi les heures pour une meilleure prononciation (8h30 -> "huit heures trente")
     
     // Format avec minutes séparées AVANT "heures" (ex: "8 h 3 0" ou "8 h 3  0")
     // IMPORTANT: Traiter AVANT le format "heures" pour éviter les conflits
+    // CORRECTION: Ajouter logs pour diagnostiquer le problème "huit heure trois zero"
     t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d)\s+(\d)\b/g, (_, h, m1, m2) => {
       const hoursNum = Number(h);
       const minutesNum = Number(m1 + m2);
       const hoursWord = hoursNum === 1 ? "une heure" : `${numberToFrenchWordsTts(hoursNum)} heures`;
       const minutesWord = minutesNum === 0 ? "" : ` ${numberToFrenchWordsTts(minutesNum)}`;
-      return `${hoursWord}${minutesWord}`.trim();
+      const result = `${hoursWord}${minutesWord}`.trim();
+      // #region agent log
+      if (hoursNum === 8 && m1 === "3" && m2 === "0") {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1967',message:'8h30 conversion (format h:m1 m2)',data:{originalText,normalizedText:t.substring(0,300),h,m1,m2,minutesNum,result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      }
+      // #endregion
+      return result;
     });
     // Format standard avec minutes collées AVANT "heures" (ex: "8h30" / "8 h 30" / "8:30")
     t = t.replace(/(\d{1,2})\s*[hH:]\s*(\d{2})\b/g, (_, h, m) => {
@@ -3977,14 +3986,27 @@ But: être naturel et mettre le client en confiance.`,
             
             // Détecter si le client confirme la plaque existante ou demande un autre véhicule
             // Si le client confirme la plaque (ex: "oui", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne")
-            const confirmsPlate = userText.match(/\b(oui|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui c'est pour cette voiture|correct|exact)\b/i);
+            // CORRECTION: Améliorer la détection de confirmation de plaque
+            // Patterns plus spécifiques pour éviter les faux positifs
+            const confirmsPlatePatterns = [
+              /\b(oui|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui c'est pour cette voiture|correct|exact|oui c'est bien|oui c'est la même|oui c'est celle-là)\b/i,
+              /\b(oui|exactement|précisément)\s+(c'est|c'est bien|c'est correct|c'est la bonne|c'est pour cette voiture)\b/i
+            ];
+            const confirmsPlate = confirmsPlatePatterns.some(pattern => pattern.test(userText));
             // Si le client dit que c'est pour un autre véhicule (ex: "non", "ce n'est pas la bonne", "autre voiture", "autre véhicule")
             const otherVehicle = userText.match(/\b(non|ce n'est pas|autre voiture|autre véhicule|j'ai changé|nouvelle voiture|nouveau véhicule)\b/i);
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3980',message:'DÉTECTION CONFIRMATION PLAQUE',data:{userText:userText.substring(0,200),confirmsPlate,otherVehicle:!!otherVehicle,plateSmsSendOnFinalize},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
+            // #endregion
             
             if (confirmsPlate && !otherVehicle) {
               console.log("✅ Client confirme la plaque existante, désactivation SMS:", { userText });
               plateSmsSendOnFinalize = false;
               plateSmsAlreadyMentioned = true; // Éviter de proposer à nouveau
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3990',message:'PLATE SMS DÉSACTIVÉ (confirmation plaque)',data:{userText:userText.substring(0,200),plateSmsSendOnFinalize:false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
+              // #endregion
             } else if (otherVehicle && !confirmsPlate) {
               console.log("🚗 Client demande un autre véhicule, l'IA devrait proposer d'envoyer un message pour plate_2:", { userText });
               // Ne pas activer ici, attendre que l'IA propose d'envoyer le message
