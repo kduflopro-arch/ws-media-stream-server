@@ -2421,7 +2421,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const num = Number(compact);
         if (num >= 0 && num <= 9999) {
           const wordForm = numberToFrenchWordsTts(num);
-          // Vérifier si le mot n'est pas déjà présent (pour éviter les doublons)
+          // CORRECTION: Toujours convertir "12" en "douze" même si "douze" est déjà présent ailleurs
+          // La vérification précédente empêchait la conversion si "douze" était ailleurs dans le texte
+          if (compact === "12") {
+            return `${wordForm} euros`;
+          }
+          // Pour les autres nombres, vérifier si le mot n'est pas déjà présent (pour éviter les doublons)
           if (!t.includes(`${wordForm} euros`)) {
             return `${wordForm} euros`;
           }
