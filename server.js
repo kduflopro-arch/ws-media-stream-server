@@ -3445,6 +3445,9 @@ But: être naturel et mettre le client en confiance.`,
               const hasQuestion = fullText.includes("?") || fullText.includes("comment") || fullText.includes("quel") || fullText.includes("pourquoi") || fullText.includes("quand") || fullText.includes("où");
               const isIncomplete = fullText.trim().endsWith(",") || fullText.trim().endsWith(":") || fullText.trim().endsWith("...");
               const isGoodbye = goodbyePatterns.some(pattern => fullText.includes(pattern)) && !hasQuestion && !isIncomplete;
+              // #region agent log - RÉSULTAT DÉTECTION GOODBYE
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3446',message:'GOODBYE RÉSULTAT',data:{fullText:fullText.substring(0,200),isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,matchedPatterns:goodbyePatterns.filter(p=>fullText.includes(p))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+              // #endregion
               
               // Conditions pour détecter la fin d'échange :
               // 1. L'appel doit avoir duré au moins 30 secondes (pour éviter les faux positifs)
@@ -3693,6 +3696,9 @@ But: être naturel et mettre le client en confiance.`,
               const hasQuestion = fullText.includes("?") || fullText.includes("comment") || fullText.includes("quel") || fullText.includes("pourquoi") || fullText.includes("quand") || fullText.includes("où");
               const isIncomplete = fullText.trim().endsWith(",") || fullText.trim().endsWith(":") || fullText.trim().endsWith("...");
               const isGoodbye = goodbyePatterns.some(pattern => fullText.includes(pattern)) && !hasQuestion && !isIncomplete;
+              // #region agent log - RÉSULTAT DÉTECTION GOODBYE
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3446',message:'GOODBYE RÉSULTAT',data:{fullText:fullText.substring(0,200),isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,matchedPatterns:goodbyePatterns.filter(p=>fullText.includes(p))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+              // #endregion
               
               // Conditions pour détecter la fin d'échange :
               // 1. L'appel doit avoir duré au moins 30 secondes (pour éviter les faux positifs)
