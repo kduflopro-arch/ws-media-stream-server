@@ -2,6 +2,7 @@ services:
   - type: web
     name: ws-media-stream-server
     env: node
+    nodeVersion: 20
     buildCommand: npm install
     startCommand: node server.js
     envVars:
