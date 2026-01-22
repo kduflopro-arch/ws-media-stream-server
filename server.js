@@ -1800,7 +1800,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     // Vérifier aussi dans la queue actuelle
     const queueCheck = premiumTtsQueue.map(job => {
-      const jobNormalized = normalizeFrenchTtsText(job.text.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim();
+      // CORRECTION: Normaliser aussi les apostrophes et espaces multiples pour mieux détecter les répétitions
+      const jobNormalized = normalizeFrenchTtsText(job.text.trim()).toLowerCase()
+        .replace(/['']/g, "'") // Normaliser les apostrophes
+        .replace(/\s+/g, " ") // Normaliser les espaces multiples
+        .replace(/[.,!?;:]/g, "") // Supprimer la ponctuation
+        .trim();
       const isExact = jobNormalized === normalizedForCompare;
       const similarity = calculateSimilarity(jobNormalized, normalizedForCompare);
       return { isExact, similarity, jobText: job.text.substring(0, 100) };
