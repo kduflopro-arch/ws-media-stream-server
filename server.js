@@ -1716,6 +1716,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // pour éviter les répétitions quand le même texte arrive depuis plusieurs sources sans responseId
     // Cette vérification doit être faite AVANT d'ajouter à recentAssistantTexts
     // SUPPRESSION LIMITE CARACTÈRES: Plus de limite de longueur minimale pour détecter TOUTES les répétitions
+    // CORRECTION RACE CONDITION: Nettoyer d'abord les anciens textes, puis vérifier, puis ajouter IMMÉDIATEMENT pour éviter les doublons simultanés
     recentAssistantTexts = recentAssistantTexts.filter((t) => (now - t.ts) < 60_000);
     const foundInRecentExact = recentAssistantTexts.some((t) => t.text === normalizedForCompare);
     // Vérifier aussi la similarité avec les textes récents (seuil plus bas : 60% pour textes courts, 70% pour textes longs)
@@ -1724,7 +1725,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const similarity = calculateSimilarity(t.text, normalizedForCompare);
       // #region agent log - pour diagnostiquer les répétitions
       if (similarity > 0.5) {
-        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1715',message:'similarity check',data:{similarity:Math.round(similarity*100),currentText:normalizedForCompare.substring(0,100),recentText:t.text.substring(0,100),source,threshold:normalizedForCompare.length<30?60:70},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1723',message:'similarity check',data:{similarity:Math.round(similarity*100),currentText:normalizedForCompare.substring(0,100),recentText:t.text.substring(0,100),source,threshold:normalizedForCompare.length<30?60:70},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       }
       // #endregion
       // CORRECTION: Réduire le seuil à 60% pour les textes courts (moins de 30 caractères) pour mieux détecter les répétitions
@@ -1733,7 +1734,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     });
     const foundInRecent = foundInRecentExact || foundInRecentSimilar;
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1720',message:'check recent texts anti-repeat',data:{normalizedText:normalizedForCompare.substring(0,100),foundInRecent,foundInRecentExact,foundInRecentSimilar,recentCount:recentAssistantTexts.length,source,textPreview:clean.substring(0,80)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1734',message:'check recent texts anti-repeat',data:{normalizedText:normalizedForCompare.substring(0,100),foundInRecent,foundInRecentExact,foundInRecentSimilar,recentCount:recentAssistantTexts.length,source,textPreview:clean.substring(0,80)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
     if (foundInRecent) {
       if (LOG_TTS) {
@@ -1741,10 +1742,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà prononcé récemment) [source: ${source}]:`, clean.substring(0, 120));
       }
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1723',message:'BLOQUÉ texte déjà prononcé récemment',data:{foundInRecent,foundInRecentExact,foundInRecentSimilar,normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1738',message:'BLOQUÉ texte déjà prononcé récemment',data:{foundInRecent,foundInRecentExact,foundInRecentSimilar,normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
       return;
     }
+    
+    // CORRECTION RACE CONDITION CRITIQUE: Ajouter IMMÉDIATEMENT à recentAssistantTexts APRÈS la vérification
+    // pour éviter que deux appels simultanés passent tous les deux avant que le premier ne soit ajouté
+    // Cela garantit qu'un texte ne peut être ajouté qu'une seule fois, même en cas de race condition
+    recentAssistantTexts.push({ text: normalizedForCompare, ts: now });
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1747',message:'added to recentAssistantTexts IMMEDIATELY after check',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
 
     // Éviter de rejouer en boucle exactement la même phrase (ex: greeting)
     // On vérifie aussi dans la queue pour éviter les doublons même si les événements arrivent en même temps
@@ -1825,12 +1834,26 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       premiumTtsAbort = new AbortController();
     }
 
+    // CORRECTION CRITIQUE: Vérifier une dernière fois dans la queue AVANT d'ajouter pour éviter les doublons simultanés
+    // Si deux appels arrivent en même temps, le premier ajoute à la queue, le second sera bloqué
+    const alreadyInQueue = premiumTtsQueue.some(job => {
+      const jobNormalized = normalizeFrenchTtsText(job.text.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim();
+      return jobNormalized === normalizedForCompare;
+    });
+    if (alreadyInQueue) {
+      if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà dans la queue (vérification finale)`, clean.substring(0, 120));
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1775',message:'BLOQUÉ déjà dans queue (vérification finale)',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,queueLen:premiumTtsQueue.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+      // #endregion
+      return;
+    }
+    
     premiumTtsQueue.push({ text: clean, interrupt });
     premiumTtsLastText = clean;
     lastAssistantSpokenAt = now;
     lastAssistantSpokenResponseId = responseId ?? lastAssistantSpokenResponseId;
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1734',message:'TEXT ENQUEUED',data:{source,responseId,text:clean.substring(0,200),queueLen:premiumTtsQueue.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1785',message:'TEXT ENQUEUED (après toutes vérifications)',data:{source,responseId,text:clean.substring(0,200),queueLen:premiumTtsQueue.length,normalizedText:normalizedForCompare.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
     if (responseId) {
       spokenResponseIds.set(responseId, now);
