@@ -1707,26 +1707,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return commonWords.length / Math.max(words1.length, words2.length);
     };
     
-    // Anti-répétition par texte sur fenêtre courte (même si responseId change)
-    // CORRECTION: Vérifier aussi la similarité, pas seulement l'égalité exacte
-    recentAssistantTexts = recentAssistantTexts.filter((t) => (now - t.ts) < 60_000);
-    const foundInRecentExact = recentAssistantTexts.some((t) => t.text === normalizedForCompare);
-    // Vérifier aussi la similarité avec les textes récents (seuil plus bas : 70% au lieu de 80%)
-    const foundInRecentSimilar = recentAssistantTexts.some((t) => {
-      const similarity = calculateSimilarity(t.text, normalizedForCompare);
-      return similarity > 0.7 && normalizedForCompare.length > 15;
-    });
-    const foundInRecent = foundInRecentExact || foundInRecentSimilar;
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1665',message:'check recent texts anti-repeat',data:{normalizedText:normalizedForCompare.substring(0,100),foundInRecent,foundInRecentExact,foundInRecentSimilar,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
-    if (foundInRecent) {
-      if (LOG_TTS) {
-        console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment (exact=${foundInRecentExact}, similar=${foundInRecentSimilar})`, clean.substring(0, 120));
-        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà prononcé récemment) [source: ${source}]:`, clean.substring(0, 120));
-      }
-      return;
-    }
 
     // Éviter de rejouer en boucle exactement la même phrase (ex: greeting)
     // On vérifie aussi dans la queue pour éviter les doublons même si les événements arrivent en même temps
