@@ -1426,12 +1426,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               
               // Envoyer par chunks de 20ms (160 bytes à 8kHz)
               const chunkSize = 160;
+              // CORRECTION: Réduire la pause pour éviter que le backlog ne s'accumule trop
+              // Si le backlog est déjà élevé, ne pas faire de pause
               for (let i = 0; i < mulaw.length; i += chunkSize) {
                 const chunk = mulaw.slice(i, i + chunkSize);
                 const mulawBuf = Buffer.from(chunk);
                 enqueueOutboundMulaw(mulawBuf);
-                // Petite pause pour éviter de surcharger
-                if (i % (chunkSize * 10) === 0) {
+                // Petite pause pour éviter de surcharger, mais seulement si le backlog est faible
+                const currentBacklogFrames = Math.floor(outboundQueuedBytes / 160);
+                if (currentBacklogFrames < 100 && i % (chunkSize * 10) === 0) {
                   await sleep(5);
                 }
               }
