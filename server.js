@@ -1765,7 +1765,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // NOTE: calculateSimilarity est maintenant définie plus haut pour éviter ReferenceError
     
     if (premiumTtsLastText) {
-      const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/[.,!?;:]/g, "").trim();
+      // CORRECTION: Normaliser aussi les apostrophes et espaces multiples pour mieux détecter les répétitions
+      const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase()
+        .replace(/['']/g, "'") // Normaliser les apostrophes
+        .replace(/\s+/g, " ") // Normaliser les espaces multiples
+        .replace(/[.,!?;:]/g, "") // Supprimer la ponctuation
+        .trim();
       // Vérifier l'égalité exacte
       const isExactMatch = lastNormalized === normalizedForCompare;
       // #region agent log
