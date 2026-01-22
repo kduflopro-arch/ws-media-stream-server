@@ -1685,18 +1685,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
     }
 
-    // Anti-répétition par responseId
-    if (responseId) {
-      const prev = spokenResponseIds.get(responseId);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1656',message:'check responseId anti-repeat',data:{responseId,hasPrev:!!prev,normalizedText:normalizedForCompare.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
-      if (prev) {
-        if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: responseId déjà parlé`, { responseId });
-        return;
-      }
-    }
-
     // Fonction pour calculer la similarité entre deux textes (basée sur les mots communs)
     // IMPORTANT: Définir AVANT son utilisation pour éviter ReferenceError
     const calculateSimilarity = (text1, text2) => {
@@ -1707,6 +1695,56 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return commonWords.length / Math.max(words1.length, words2.length);
     };
     
+    // Anti-répétition par responseId
+    // CORRECTION: Vérifier responseId AVANT de vérifier recentAssistantTexts pour éviter les doublons
+    // même si le même texte arrive depuis plusieurs sources (response.done et conversation.item.done)
+    if (responseId) {
+      const prev = spokenResponseIds.get(responseId);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1688',message:'check responseId anti-repeat',data:{responseId,hasPrev:!!prev,normalizedText:normalizedForCompare.substring(0,100),source,textPreview:clean.substring(0,80)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+      if (prev) {
+        if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: responseId déjà parlé`, { responseId, source });
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1694',message:'BLOQUÉ responseId déjà parlé',data:{responseId,source,normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),prevTimestamp:prev},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        return;
+      }
+    }
+    
+    // CORRECTION CRITIQUE: Même si responseId est null, vérifier par texte normalisé dans recentAssistantTexts
+    // pour éviter les répétitions quand le même texte arrive depuis plusieurs sources sans responseId
+    // Cette vérification doit être faite AVANT d'ajouter à recentAssistantTexts
+    // SUPPRESSION LIMITE CARACTÈRES: Plus de limite de longueur minimale pour détecter TOUTES les répétitions
+    recentAssistantTexts = recentAssistantTexts.filter((t) => (now - t.ts) < 60_000);
+    const foundInRecentExact = recentAssistantTexts.some((t) => t.text === normalizedForCompare);
+    // Vérifier aussi la similarité avec les textes récents (seuil plus bas : 60% pour textes courts, 70% pour textes longs)
+    // SUPPRESSION LIMITE CARACTÈRES: Plus de limite de longueur minimale
+    const foundInRecentSimilar = recentAssistantTexts.some((t) => {
+      const similarity = calculateSimilarity(t.text, normalizedForCompare);
+      // #region agent log - pour diagnostiquer les répétitions
+      if (similarity > 0.5) {
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1715',message:'similarity check',data:{similarity:Math.round(similarity*100),currentText:normalizedForCompare.substring(0,100),recentText:t.text.substring(0,100),source,threshold:normalizedForCompare.length<30?60:70},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      }
+      // #endregion
+      // CORRECTION: Réduire le seuil à 60% pour les textes courts (moins de 30 caractères) pour mieux détecter les répétitions
+      const threshold = normalizedForCompare.length < 30 ? 0.6 : 0.7;
+      return similarity > threshold; // SUPPRESSION LIMITE CARACTÈRES: Plus de && normalizedForCompare.length > 10
+    });
+    const foundInRecent = foundInRecentExact || foundInRecentSimilar;
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1720',message:'check recent texts anti-repeat',data:{normalizedText:normalizedForCompare.substring(0,100),foundInRecent,foundInRecentExact,foundInRecentSimilar,recentCount:recentAssistantTexts.length,source,textPreview:clean.substring(0,80)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    if (foundInRecent) {
+      if (LOG_TTS) {
+        console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment (exact=${foundInRecentExact}, similar=${foundInRecentSimilar})`, clean.substring(0, 120));
+        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà prononcé récemment) [source: ${source}]:`, clean.substring(0, 120));
+      }
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1723',message:'BLOQUÉ texte déjà prononcé récemment',data:{foundInRecent,foundInRecentExact,foundInRecentSimilar,normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      return;
+    }
 
     // Éviter de rejouer en boucle exactement la même phrase (ex: greeting)
     // On vérifie aussi dans la queue pour éviter les doublons même si les événements arrivent en même temps
