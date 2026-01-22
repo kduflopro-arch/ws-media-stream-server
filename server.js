@@ -1728,15 +1728,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
         return;
       }
-      // CORRECTION: Vérifier la similarité avec un seuil plus bas (60% pour textes courts, 70% pour textes longs) et longueur minimale réduite
+      // CORRECTION: Vérifier la similarité avec un seuil plus bas (60% pour textes courts, 70% pour textes longs)
       // pour mieux détecter les répétitions même avec de petites variations
+      // SUPPRESSION LIMITE CARACTÈRES: Plus de limite de longueur minimale pour détecter TOUTES les répétitions
       const similarity = calculateSimilarity(lastNormalized, normalizedForCompare);
       // CORRECTION: Réduire le seuil à 60% pour les textes courts (moins de 30 caractères) pour mieux détecter les répétitions
       const threshold = normalizedForCompare.length < 30 ? 0.6 : 0.7;
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1733',message:'check similarity with lastText',data:{similarity:Math.round(similarity*100),lastText:premiumTtsLastText.substring(0,100),currentText:clean.substring(0,100),normalizedLength:normalizedForCompare.length,threshold:Math.round(threshold*100),source},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
-      if (similarity > threshold && normalizedForCompare.length > 10) {
+      if (similarity > threshold) { // SUPPRESSION: && normalizedForCompare.length > 10
         if (LOG_TTS) {
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (similaire à ${Math.round(similarity * 100)}%) [source: ${source}]:`, clean.substring(0, 120));
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
@@ -1752,9 +1753,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const similarity = calculateSimilarity(jobNormalized, normalizedForCompare);
       return { isExact, similarity, jobText: job.text.substring(0, 100) };
     });
-    // CORRECTION: Seuil de similarité réduit à 60% pour textes courts, 70% pour textes longs, et longueur minimale à 10 pour mieux détecter les répétitions
+    // CORRECTION: Seuil de similarité réduit à 60% pour textes courts, 70% pour textes longs
+    // SUPPRESSION LIMITE CARACTÈRES: Plus de limite de longueur minimale pour détecter TOUTES les répétitions
     const threshold = normalizedForCompare.length < 30 ? 0.6 : 0.7;
-    const foundInQueue = queueCheck.some(q => q.isExact || (q.similarity > threshold && normalizedForCompare.length > 10));
+    const foundInQueue = queueCheck.some(q => q.isExact || q.similarity > threshold); // SUPPRESSION: && normalizedForCompare.length > 10
     // #region agent log
     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1706',message:'check queue anti-repeat',data:{foundInQueue,queueLen:premiumTtsQueue.length,currentText:clean.substring(0,100),queueChecks:queueCheck},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
     // #endregion
