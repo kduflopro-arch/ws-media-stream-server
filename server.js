@@ -3707,9 +3707,18 @@ But: être naturel et mettre le client en confiance.`,
                       console.log("📋 DEBUG response.output brut:", JSON.stringify(rawOutput).substring(0, 400));
                     }
                     transcriptMap.set(rid, (existingText + " " + extractedText).trim());
-                    // #region agent log - RAW TEXT FROM GPT-5
-                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3251',message:'RAW TEXT FROM GPT-5 response.done',data:{rawText:extractedText,containsEuros:extractedText.includes('euros')||extractedText.includes('€'),contains12:extractedText.match(/\b12\b|\b1\s+2\b|\bdouze\b/i)?.[0],containsHour:extractedText.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/i)?.[0],containsPlate:extractedText.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i)?.[0]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                    // #region agent log - RAW TEXT FROM GPT-5 + VÉRIFICATION QUESTION
+                    const endsWithQuestion = /[?？]\s*$/.test(extractedText.trim());
+                    const mentionsCauses = /\b(peut|pourrait|peuvent|pourraient)\s+(venir|provenir|être|découler)\s+(de|du|d'|des)/i.test(extractedText);
+                    const hasQuestionMark = extractedText.includes('?');
+                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3701',message:'RAW TEXT FROM GPT-5 response.done + VÉRIFICATION QUESTION',data:{rawText:extractedText.substring(0,300),endsWithQuestion,mentionsCauses,hasQuestionMark,containsEuros:extractedText.includes('euros')||extractedText.includes('€'),contains12:extractedText.match(/\b12\b|\b1\s+2\b|\bdouze\b/i)?.[0],containsHour:extractedText.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/i)?.[0],containsPlate:extractedText.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i)?.[0]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
                     // #endregion
+                    if (mentionsCauses && !hasQuestionMark) {
+                      console.warn("⚠️⚠️⚠️ ALERTE: L'IA a mentionné des causes possibles SANS poser de question !", extractedText.substring(0, 200));
+                      // #region agent log - ALERTE
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3709',message:'ALERTE: IA mentionne causes SANS question',data:{rawText:extractedText.substring(0,300),mentionsCauses,hasQuestionMark},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                      // #endregion
+                    }
                     if (REALTIME_ELEVEN_CHUNKING_ENABLED) {
                       flushRealtimeElevenChunks(rid, true);
                     } else if (!spokenSet.has(rid)) {
