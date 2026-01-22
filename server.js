@@ -1722,7 +1722,20 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Cette vérification doit être faite AVANT d'ajouter à recentAssistantTexts
     // SUPPRESSION LIMITE CARACTÈRES: Plus de limite de longueur minimale pour détecter TOUTES les répétitions
     // CORRECTION RACE CONDITION: Nettoyer d'abord les anciens textes, puis vérifier, puis ajouter IMMÉDIATEMENT pour éviter les doublons simultanés
+    // CORRECTION: Utiliser aussi un Set pour vérifier les textes en cours de traitement (évite les race conditions)
+    if (!ws.__processingTexts) ws.__processingTexts = new Set();
     recentAssistantTexts = recentAssistantTexts.filter((t) => (now - t.ts) < 60_000);
+    // Vérifier d'abord dans le Set des textes en cours de traitement (évite les race conditions)
+    if (ws.__processingTexts.has(normalizedForCompare)) {
+      if (LOG_TTS) {
+        console.log(`[TTS-ENQUEUE] BLOQUÉ: texte en cours de traitement (race condition évitée)`, clean.substring(0, 120));
+        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (en cours de traitement) [source: ${source}]:`, clean.substring(0, 120));
+      }
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1725',message:'BLOQUÉ texte en cours de traitement',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,processingSetSize:ws.__processingTexts.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
+      return;
+    }
     const foundInRecentExact = recentAssistantTexts.some((t) => t.text === normalizedForCompare);
     // Vérifier aussi la similarité avec les textes récents (seuil plus bas : 60% pour textes courts, 70% pour textes longs)
     // SUPPRESSION LIMITE CARACTÈRES: Plus de limite de longueur minimale
