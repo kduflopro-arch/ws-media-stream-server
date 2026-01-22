@@ -1460,8 +1460,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         premiumTtsLastError = null;
       }
       premiumTtsInFlight = false;
+      // #region agent log - MINIMAX TERMINÉ
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1462',message:'MINIMAX TERMINÉ',data:{premiumTtsInFlight:false,outboundQueuedBytes,outboundQueueLen:outboundQueue.length,backlogFrames:Math.floor(outboundQueuedBytes/160),backlogSeconds:Math.round((outboundQueuedBytes/160)*0.02*10)/10},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      // #endregion
     } catch (err) {
       premiumTtsInFlight = false;
+      // #region agent log - MINIMAX ERREUR
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1464',message:'MINIMAX ERREUR',data:{error:err.message,premiumTtsInFlight:false,outboundQueuedBytes,outboundQueueLen:outboundQueue.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+      // #endregion
       if (minimaxWs) {
         try {
           minimaxWs.close();
@@ -4897,11 +4903,18 @@ But: être naturel et mettre le client en confiance.`,
               // (Twilio tolère qu'on envoie un peu plus vite, ça réduit la latence sans drop).
               const backlogFrames = Math.floor(outboundQueuedBytes / 160);
               const framesToSend =
-                backlogFrames > 800 ? 4 : // >16s
-                backlogFrames > 300 ? 3 : // >6s
-                backlogFrames > 120 ? 2 : // >2.4s
-                1;
+                backlogFrames > 1200 ? 10 : // >24s - drainage agressif
+                backlogFrames > 800 ? 8 : // >16s - drainage très agressif
+                backlogFrames > 500 ? 6 : // >10s - drainage agressif
+                backlogFrames > 300 ? 4 : // >6s - drainage modéré
+                backlogFrames > 120 ? 3 : // >2.4s - drainage léger
+                1; // Normal
               sendOutboundFrames(framesToSend);
+              // #region agent log - OUTBOUND DRAINAGE
+              if (backlogFrames > 100) {
+                fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4898',message:'OUTBOUND DRAINAGE',data:{backlogFrames,backlogSeconds:Math.round(backlogFrames*0.02*10)/10,framesToSend,outboundQueuedBytes,queueLen:outboundQueue.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+              }
+              // #endregion
             } catch {
               // ignore
             }
