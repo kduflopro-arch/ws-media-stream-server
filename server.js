@@ -1803,7 +1803,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!allowWithoutUser && lastCommittedAt) {
       lastSpokenCommitAt = lastCommittedAt;
     }
+    // CORRECTION: Ajouter à recentAssistantTexts APRÈS toutes les vérifications anti-répétition
+    // pour éviter que le texte soit ajouté avant d'être vérifié
     recentAssistantTexts.push({ text: normalizedForCompare, ts: now });
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1806',message:'added to recentAssistantTexts',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     if (LOG_TTS) {
       console.log(`[TTS-ENQUEUE] ENQUEUED (ajouté à la queue) [source: ${source}] [queueLen=${premiumTtsQueue.length}] [interrupt=${interrupt}]`);
       console.log(`[TTS-ENQUEUE] TEXTE ENQUEUED:`, clean.substring(0, 200));
