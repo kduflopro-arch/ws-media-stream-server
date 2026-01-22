@@ -2476,16 +2476,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return `${context} de ${numberToFrenchWordsTts(n)} euros`;
     });
     // PRIORITÉ 13.5: CORRECTION CRITIQUE - Ajouter un espace entre déterminant et chiffre dans les tarifs
-    // Ex: "de83€" -> "de 83€", "est de83€" -> "est de 83€"
-    // CORRECTION: S'assurer qu'il y a toujours un espace entre "de", "à", "est", "sont" et un chiffre suivi de "€" ou "euros"
-    t = t.replace(/\b(de|à|est|sont)(\d{1,4})\s*(?:€|euros?)\b/gi, (_, det, n) => {
-      return `${det} ${n}${n.includes('€') ? '' : ' euros'}`;
-    });
-    // CORRECTION: S'assurer qu'il y a toujours un espace entre "de", "à", "est", "sont" et un chiffre suivi de "€"
-    t = t.replace(/\b(de|à|est|sont)(\d{1,4})€/gi, (_, det, n) => {
-      return `${det} ${n}€`;
-    });
-    // PRIORITÉ 13.5: CORRECTION CRITIQUE - Ajouter un espace entre déterminant et chiffre dans les tarifs
     // Ex: "de83€" -> "de 83€", "est de83€" -> "est de 83€", "Le tarif pour un diagnostic est de83€" -> "Le tarif pour un diagnostic est de 83€"
     // CORRECTION: S'assurer qu'il y a toujours un espace entre "de", "à", "est", "sont" et un chiffre suivi de "€"
     // IMPORTANT: Placer cette regex APRÈS toutes les conversions de nombres en lettres pour éviter les conflits
