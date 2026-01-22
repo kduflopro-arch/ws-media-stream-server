@@ -2475,6 +2475,27 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\b(tarif|prix|coût|montant|facture)\s+(?:de|à|est|sont)?\s*(\d{1,4})\s+(?:€|euros?)\b/gi, (_, context, n) => {
       return `${context} de ${numberToFrenchWordsTts(n)} euros`;
     });
+    // PRIORITÉ 13.5: CORRECTION CRITIQUE - Ajouter un espace entre déterminant et chiffre dans les tarifs
+    // Ex: "de83€" -> "de 83€", "est de83€" -> "est de 83€"
+    // CORRECTION: S'assurer qu'il y a toujours un espace entre "de", "à", "est", "sont" et un chiffre suivi de "€" ou "euros"
+    t = t.replace(/\b(de|à|est|sont)(\d{1,4})\s*(?:€|euros?)\b/gi, (_, det, n) => {
+      return `${det} ${n}${n.includes('€') ? '' : ' euros'}`;
+    });
+    // CORRECTION: S'assurer qu'il y a toujours un espace entre "de", "à", "est", "sont" et un chiffre suivi de "€"
+    t = t.replace(/\b(de|à|est|sont)(\d{1,4})€/gi, (_, det, n) => {
+      return `${det} ${n}€`;
+    });
+    // PRIORITÉ 13.5: CORRECTION CRITIQUE - Ajouter un espace entre déterminant et chiffre dans les tarifs
+    // Ex: "de83€" -> "de 83€", "est de83€" -> "est de 83€", "Le tarif pour un diagnostic est de83€" -> "Le tarif pour un diagnostic est de 83€"
+    // CORRECTION: S'assurer qu'il y a toujours un espace entre "de", "à", "est", "sont" et un chiffre suivi de "€"
+    // IMPORTANT: Placer cette regex APRÈS toutes les conversions de nombres en lettres pour éviter les conflits
+    t = t.replace(/\b(de|à|est|sont)(\d{1,4})€/gi, (_, det, n) => {
+      return `${det} ${n}€`;
+    });
+    // CORRECTION: S'assurer qu'il y a toujours un espace entre "de", "à", "est", "sont" et un chiffre suivi de "euros"
+    t = t.replace(/\b(de|à|est|sont)(\d{1,4})\s+euros?\b/gi, (_, det, n) => {
+      return `${det} ${n} euros`;
+    });
     
     // PRIORITÉ 14: Convertir les plaques d'immatriculation AVANT de coller les chiffres séparés
     // Format: AA-123-CD ou AA 123 CD ou AA123CD ou AA 3 4 6 QT -> AA trois-cent-vingt-trois CD
@@ -3082,9 +3103,10 @@ ${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${cl
 - CRITIQUE - UNE QUESTION À LA FOIS: Tu poses UNE SEULE question à la fois et tu attends la réponse du client avant de continuer. Ne pose JAMAIS plusieurs questions d'affilée (ex: "Depuis quand ? Et avez-vous remarqué..."). Ne propose JAMAIS un rendez-vous immédiatement après avoir posé une question. Attends d'abord la réponse du client.
 - INTERDICTION FORMELLE: Ne JAMAIS terminer une réponse par "ça peut venir de X ou Y" sans poser immédiatement une question. Chaque réponse qui mentionne des causes possibles DOIT se terminer par un point d'interrogation.
 - SÉQUENCE OBLIGATOIRE POUR PROPOSER UN DIAGNOSTIC:
-  1. Après avoir recueilli les informations, dis EXACTEMENT: "Je vous propose de venir faire un diagnostic au garage pour ce problème. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" (ATTENDS LA RÉPONSE)
+  1. Après avoir recueilli les informations, dis EXACTEMENT: "Je vous propose de venir faire un diagnostic au garage pour ce problème. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" (ATTENDS LA RÉPONSE - NE CONTINUE PAS AVANT D'AVOIR REÇU UNE RÉPONSE)
      - IMPORTANT: Remplace [TARIF] par le tarif réel du diagnostic depuis la section "Tarifs du garage" ci-dessus. Si le tarif n'est pas renseigné, dis "Le tarif sera établi lors du diagnostic" ou "Le tarif est sur devis".
-  2. Si le client répond positivement (oui, d'accord, c'est bon, oui je veux, etc.): Prends sa demande de rendez-vous et demande ses préférences (jour, heure).
+     - CRITIQUE: Après avoir posé cette question, tu DOIS ATTENDRE la réponse du client. Ne propose PAS de créneau, ne demande PAS de préférences, ne continue PAS. Attends UNIQUEMENT la réponse (oui/non).
+  2. Si le client répond positivement (oui, d'accord, c'est bon, oui je veux, etc.): Alors tu peux prendre sa demande de rendez-vous et demander ses préférences (jour, heure).
   3. Si le client refuse (non, pas maintenant, non merci, etc.): Demande "Avez-vous besoin d'autre chose ?" (ATTENDS LA RÉPONSE)
      - Si oui: Continue à l'aider
      - Si non: Dis "D'accord, nous sommes disponibles si vous avez besoin. Au revoir et bonne journée !"
