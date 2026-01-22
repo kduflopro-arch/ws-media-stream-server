@@ -1750,8 +1750,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const similarity = calculateSimilarity(jobNormalized, normalizedForCompare);
       return { isExact, similarity, jobText: job.text.substring(0, 100) };
     });
-    // CORRECTION: Seuil de similarité réduit à 70% et longueur minimale à 15 pour mieux détecter les répétitions
-    const foundInQueue = queueCheck.some(q => q.isExact || (q.similarity > 0.7 && normalizedForCompare.length > 15));
+    // CORRECTION: Seuil de similarité réduit à 60% pour textes courts, 70% pour textes longs, et longueur minimale à 10 pour mieux détecter les répétitions
+    const threshold = normalizedForCompare.length < 30 ? 0.6 : 0.7;
+    const foundInQueue = queueCheck.some(q => q.isExact || (q.similarity > threshold && normalizedForCompare.length > 10));
     // #region agent log
     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1706',message:'check queue anti-repeat',data:{foundInQueue,queueLen:premiumTtsQueue.length,currentText:clean.substring(0,100),queueChecks:queueCheck},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
     // #endregion
