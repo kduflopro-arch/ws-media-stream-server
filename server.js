@@ -1660,7 +1660,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
 
     // Normalisation agressive pour la comparaison (ignore ponctuation et casse)
-    const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
+    // CORRECTION: Normaliser aussi les apostrophes et espaces multiples pour mieux détecter les répétitions
+    const normalizedForCompare = clean.toLowerCase()
+      .replace(/['']/g, "'") // Normaliser les apostrophes
+      .replace(/\s+/g, " ") // Normaliser les espaces multiples
+      .replace(/[.,!?;:]/g, "") // Supprimer la ponctuation
+      .trim();
     const now = nowMs();
 
     // Garder la parole uniquement si une prise de parole utilisateur est récente
