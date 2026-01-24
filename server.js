@@ -4650,24 +4650,43 @@ But: être naturel et mettre le client en confiance.`,
 
           if (msg.type === "input_audio_buffer.committed") {
             appendedBytes = 0;
-            lastCommittedAt = nowMs();
-            console.log("✅ OpenAI buffer committed:", {
-              item_id: msg.item_id,
-              previous_item_id: msg.previous_item_id,
-            });
-            // Ne pas forcer response.create tout de suite: OpenAI peut auto-démarrer une réponse.
-            // On met un watchdog: si aucune réponse ne démarre après le commit, on envoie response.create.
-            const canRequest = (lastCommittedAt - lastResponseAt) > 600;
-            if (awaitingUserResponse && canRequest) {
-              lastResponseAt = lastCommittedAt;
-              awaitingUserResponse = false;
-              setTimeout(() => {
-                // Si OpenAI n'a pas démarré de réponse depuis ce commit, on déclenche.
-                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-                if (responseInProgress) return;
-                if (lastResponseCreatedAt >= lastCommittedAt) return;
-                requestResponseCreate("watchdog_after_commit");
-              }, WATCHDOG_AFTER_COMMIT_MS);
+            // CORRECTION: Ne mettre à jour lastCommittedAt QUE si on a vraiment reçu de la parole utilisateur
+            // Vérifier qu'il y a une transcription récente ou que speechActive était vrai
+            const hasRealSpeech = speechActive || (nowMs() - lastSpeechTs) < 2000;
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4651',message:'input_audio_buffer.committed',data:{itemId:msg.item_id,previousItemId:msg.previous_item_id,speechActive,lastSpeechTs,timeSinceSpeech:nowMs()-lastSpeechTs,hasRealSpeech,bytesSinceSpeechStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+            // #endregion
+            if (hasRealSpeech) {
+              lastCommittedAt = nowMs();
+              console.log("✅ OpenAI buffer committed (parole réelle détectée):", {
+                item_id: msg.item_id,
+                previous_item_id: msg.previous_item_id,
+                speechActive,
+                timeSinceSpeech: nowMs() - lastSpeechTs,
+              });
+              // Ne pas forcer response.create tout de suite: OpenAI peut auto-démarrer une réponse.
+              // On met un watchdog: si aucune réponse ne démarre après le commit, on envoie response.create.
+              const canRequest = (lastCommittedAt - lastResponseAt) > 600;
+              if (awaitingUserResponse && canRequest) {
+                lastResponseAt = lastCommittedAt;
+                awaitingUserResponse = false;
+                setTimeout(() => {
+                  // Si OpenAI n'a pas démarré de réponse depuis ce commit, on déclenche.
+                  if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+                  if (responseInProgress) return;
+                  if (lastResponseCreatedAt >= lastCommittedAt) return;
+                  requestResponseCreate("watchdog_after_commit");
+                }, WATCHDOG_AFTER_COMMIT_MS);
+              }
+            } else {
+              console.log("⚠️ OpenAI buffer committed IGNORÉ (pas de parole réelle détectée):", {
+                item_id: msg.item_id,
+                speechActive,
+                timeSinceSpeech: nowMs() - lastSpeechTs,
+              });
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4675',message:'COMMIT IGNORÉ pas de parole réelle',data:{itemId:msg.item_id,speechActive,timeSinceSpeech:nowMs()-lastSpeechTs},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+              // #endregion
             }
           }
 
