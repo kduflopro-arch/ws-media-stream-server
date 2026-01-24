@@ -3893,61 +3893,42 @@ But: être naturel et mettre le client en confiance.`,
               }
               // #endregion
               
-              // CORRECTION: Ne pas raccrocher si l'IA pose une question ou si le texte est incomplet
-              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && timeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS && !hasQuestion && !isIncomplete) {
+              // CORRECTION: Si l'IA dit "au revoir", raccrocher immédiatement après que l'audio soit terminé
+              // Ne pas attendre l'inactivité du client - l'IA a déjà dit au revoir, donc l'appel est terminé
+              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && !hasQuestion && !isIncomplete) {
                 goodbyeDetected = true;
-                console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique dans", GOODBYE_DELAY_MS, "ms", {
+                console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique après que l'audio soit terminé", {
                   callDuration: Math.round(callDurationMs / 1000) + "s",
                   userInactive: Math.round(timeSinceLastUserActivity / 1000) + "s",
                   textPreview: doneText.substring(0, 150)
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
-                // Programmer le hangup après un délai, en attendant que l'audio soit terminé
-                goodbyeTimer = setTimeout(() => {
-                  const finalTimeSinceLastUserActivity = nowMs() - lastUserActivityMs;
-                  // Vérifier une dernière fois que le client est toujours inactif
-                  if (finalTimeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
-                    // Attendre que l'audio soit terminé avant de raccrocher (max 5 secondes)
-                    let checkCount = 0;
-                    const MAX_CHECK_COUNT = 10; // 10 x 500ms = 5 secondes max
-                    const checkAudioAndHangup = () => {
-                      // Vérifier aussi outboundQueuedBytes pour détecter les buffers en attente
-                      const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
-                      // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3395',message:'checkAudioAndHangup',data:{checkCount,premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,outboundQueuedBytes,hasAudioPending,allEmpty:!hasAudioPending},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-                      // #endregion
-                      if (hasAudioPending && checkCount < MAX_CHECK_COUNT) {
-                        // L'audio est encore en cours, réessayer dans 500ms
-                        console.log("⏳ Audio encore en cours, attente...", { checkCount, premiumTtsInFlight, premiumTtsQueueLen: premiumTtsQueue.length, outboundQueueLen: outboundQueue.length, outboundQueuedBytes });
-                        checkCount++;
-                        setTimeout(checkAudioAndHangup, 500);
-                        return;
-                      }
-                      // L'audio est terminé OU on a atteint la limite, on raccroche
-                      console.log("📞 Hangup automatique après détection fin d'échange (client inactif depuis", Math.round(finalTimeSinceLastUserActivity / 1000), "s, audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending });
-                      // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3486',message:'HANGUP DÉCLENCHÉ (response.done)',data:{checkCount,hadAudioPending:hasAudioPending,timeSinceLastActivity:finalTimeSinceLastUserActivity,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
-                      // #endregion
-                      triggerHangup("auto_goodbye");
-                    };
-                    checkAudioAndHangup();
-                  } else {
-                    // CORRECTION: Ne pas annuler si c'est juste du bruit (vérifier que c'est vraiment une parole utilisateur)
-                    // Si le client n'a pas vraiment parlé récemment (< 2 secondes), c'est peut-être du bruit
-                    // On annule seulement si la dernière activité est très récente (< 2 secondes)
-                    const RECENT_SPEECH_THRESHOLD_MS = 2000; // 2 secondes
-                    if (finalTimeSinceLastUserActivity < RECENT_SPEECH_THRESHOLD_MS) {
-                      console.log("⏸️ Hangup annulé, client a probablement parlé récemment (dernière activité il y a", Math.round(finalTimeSinceLastUserActivity / 1000), "s)");
-                      goodbyeDetected = false;
-                    } else {
-                      // Le client n'a pas vraiment parlé récemment, on continue avec le hangup malgré tout
-                      // (peut-être que lastUserActivityMs a été mis à jour par erreur à cause du bruit)
-                      console.log("⚠️ Dernière activité utilisateur ancienne (", Math.round(finalTimeSinceLastUserActivity / 1000), "s), hangup va procéder quand même");
-                      checkAudioAndHangup();
-                    }
+                // Attendre que l'audio soit terminé avant de raccrocher (max 5 secondes)
+                let checkCount = 0;
+                const MAX_CHECK_COUNT = 10; // 10 x 500ms = 5 secondes max
+                const checkAudioAndHangup = () => {
+                  // Vérifier aussi outboundQueuedBytes pour détecter les buffers en attente
+                  const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3395',message:'checkAudioAndHangup',data:{checkCount,premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,outboundQueuedBytes,hasAudioPending,allEmpty:!hasAudioPending},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                  // #endregion
+                  if (hasAudioPending && checkCount < MAX_CHECK_COUNT) {
+                    // L'audio est encore en cours, réessayer dans 500ms
+                    console.log("⏳ Audio encore en cours, attente...", { checkCount, premiumTtsInFlight, premiumTtsQueueLen: premiumTtsQueue.length, outboundQueueLen: outboundQueue.length, outboundQueuedBytes });
+                    checkCount++;
+                    setTimeout(checkAudioAndHangup, 500);
+                    return;
                   }
-                }, GOODBYE_DELAY_MS);
+                  // L'audio est terminé OU on a atteint la limite, on raccroche
+                  console.log("📞 Hangup automatique après détection fin d'échange (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending });
+                  // #region agent log
+                  fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3486',message:'HANGUP DÉCLENCHÉ (response.done)',data:{checkCount,hadAudioPending:hasAudioPending,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
+                  // #endregion
+                  triggerHangup("auto_goodbye");
+                };
+                // Démarrer immédiatement la vérification de l'audio (pas de délai supplémentaire)
+                checkAudioAndHangup();
               } else if (isGoodbye && !goodbyeDetected) {
                 // Log pour debug si les conditions ne sont pas remplies
                 console.log("⚠️ Fin d'échange détectée mais conditions non remplies:", {
