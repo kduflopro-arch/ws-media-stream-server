@@ -3922,10 +3922,49 @@ But: être naturel et mettre le client en confiance.`,
                 let checkCount = 0;
                 const MAX_CHECK_COUNT = 10; // 10 x 500ms = 5 secondes max
                 const checkAudioAndHangup = () => {
+                  // CORRECTION: Vérifier si l'IA a déjà dit "au revoir" dans sa dernière réponse
+                  // Si ce n'est pas le cas, on doit faire dire "au revoir" à l'IA avant de raccrocher
+                  const lastText = premiumTtsLastText || doneText || "";
+                  const lastTextLower = lastText.toLowerCase();
+                  const hasSaidGoodbye = /au\s+revoir|aurevoir|bonne\s+journée|bonne\s+journee/i.test(lastTextLower);
+                  
+                  if (!hasSaidGoodbye && checkCount === 0) {
+                    // L'IA n'a pas encore dit "au revoir", on doit le faire dire avant de raccrocher
+                    console.log("👋 L'IA n'a pas encore dit 'au revoir', faire dire avant de raccrocher");
+                    // Faire dire "au revoir" à l'IA via OpenAI
+                    if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+                      const goodbyeMessage = {
+                        type: "conversation.item.create",
+                        item: {
+                          type: "message",
+                          role: "user",
+                          content: [
+                            {
+                              type: "input_text",
+                              text: "Au revoir"
+                            }
+                          ]
+                        }
+                      };
+                      openaiWs.send(JSON.stringify(goodbyeMessage));
+                      console.log("📤 Message 'Au revoir' envoyé à l'IA pour qu'elle réponde");
+                      // Attendre un peu pour que l'IA réponde, puis continuer la vérification
+                      setTimeout(() => {
+                        checkCount++;
+                        checkAudioAndHangup();
+                      }, 1500); // Attendre 1.5 secondes pour que l'IA commence à répondre
+                      return;
+                    } else {
+                      console.warn("⚠️ Impossible d'envoyer 'au revoir' à l'IA (WebSocket fermé), raccrochage direct");
+                      triggerHangup("auto_goodbye");
+                      return;
+                    }
+                  }
+                  
                   // Vérifier aussi outboundQueuedBytes pour détecter les buffers en attente
                   const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
                   // #region agent log
-                  fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3395',message:'checkAudioAndHangup',data:{checkCount,premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,outboundQueuedBytes,hasAudioPending,allEmpty:!hasAudioPending},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                  fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3395',message:'checkAudioAndHangup',data:{checkCount,premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,outboundQueuedBytes,hasAudioPending,allEmpty:!hasAudioPending,hasSaidGoodbye,lastTextPreview:lastText.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
                   // #endregion
                   if (hasAudioPending && checkCount < MAX_CHECK_COUNT) {
                     // L'audio est encore en cours, réessayer dans 500ms
@@ -3935,9 +3974,9 @@ But: être naturel et mettre le client en confiance.`,
                     return;
                   }
                   // L'audio est terminé OU on a atteint la limite, on raccroche
-                  console.log("📞 Hangup automatique après détection fin d'échange (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending });
+                  console.log("📞 Hangup automatique après détection fin d'échange (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending, hasSaidGoodbye });
                   // #region agent log
-                  fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3486',message:'HANGUP DÉCLENCHÉ (response.done)',data:{checkCount,hadAudioPending:hasAudioPending,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
+                  fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3486',message:'HANGUP DÉCLENCHÉ (response.done)',data:{checkCount,hadAudioPending:hasAudioPending,hasSaidGoodbye,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                   // #endregion
                   triggerHangup("auto_goodbye");
                 };
