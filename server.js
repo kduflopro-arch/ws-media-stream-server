@@ -5313,13 +5313,27 @@ But: être naturel et mettre le client en confiance.`,
                           }
                           // CORRECTION: Détecter les confirmations négatives ("non, du tout", "c'est tout", "plus besoin")
                           // Ces phrases signifient que le client n'a plus besoin d'informations, donc le hangup doit continuer
-                          const isNegativeConfirmation = /\b(non\s*,?\s*du\s*tout|c'est\s*tout|plus\s*besoin|rien\s*d'autre|pas\s*d'autre|plus\s*rien)\b/i.test(txt.trim());
+                          // IMPORTANT: Ne pas détecter "oui" comme une confirmation négative - "oui" peut être une confirmation de rendez-vous
+                          const txtLower = txt.toLowerCase().trim();
+                          const saidYesForAppointment = /\b(oui|d'accord|ok|bien sûr|c'est bon|parfait|oui je veux|oui je veux bien)\b/i.test(txtLower) && 
+                                                        (txtLower.includes("rendez") || txtLower.includes("rdv") || txtLower.includes("rendez-vous"));
+                          const isNegativeConfirmation = !saidYesForAppointment && /\b(non\s*,?\s*du\s*tout|c'est\s*tout|plus\s*besoin|rien\s*d'autre|pas\s*d'autre|plus\s*rien)\b/i.test(txtLower);
                           if (isNegativeConfirmation) {
                             console.log("✅ Confirmation négative détectée (client n'a plus besoin d'informations):", txt.substring(0, 100), "- hangup continue");
                             // #region agent log
-                            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4726',message:'CONFIRMATION NÉGATIVE (hangup continue)',data:{transcript:txt.substring(0,100),isNegativeConfirmation,goodbyeDetected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
+                            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4726',message:'CONFIRMATION NÉGATIVE (hangup continue)',data:{transcript:txt.substring(0,100),isNegativeConfirmation,saidYesForAppointment,goodbyeDetected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                             // #endregion
                             // Ne pas annuler le hangup si c'est une confirmation négative
+                            return;
+                          } else if (saidYesForAppointment) {
+                            // Si le client dit "oui" pour un rendez-vous, annuler le hangup
+                            console.log("✅ Client dit 'oui' pour rendez-vous, annulation hangup:", txt.substring(0, 100));
+                            // #region agent log
+                            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4735',message:'OUI POUR RDV (annulation hangup)',data:{transcript:txt.substring(0,100),saidYesForAppointment,goodbyeDetected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
+                            // #endregion
+                            goodbyeDetected = false;
+                            if (goodbyeTimer) clearTimeout(goodbyeTimer);
+                            goodbyeTimer = null;
                             return;
                           }
                           // Vérifier aussi que la transcription est assez récente (< 2 secondes) pour être pertinente
