@@ -1651,8 +1651,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (clean.length < normalized.length) {
       if (LOG_TTS) console.log(`[TTS-ENQUEUE] TEXTE TRONQUÉ: ${normalized.length} -> ${clean.length} chars`);
     }
-    // Log explicite du texte qui va être prononcé (l'utilisateur pourra le copier facilement)
-    console.log(`[AI-SAYS] ${clean}`);
     const lowerClean = clean.toLowerCase().trim();
     if (
       lowerClean === "output" ||
@@ -1884,6 +1882,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // #endregion
       return;
     }
+    
+    // CORRECTION CRITIQUE: Ajouter à processingTexts AVANT d'ajouter à la queue pour éviter les race conditions
+    ws.__processingTexts.add(normalizedForCompare);
+    // Retirer de processingTexts après 60 secondes (nettoyage automatique)
+    setTimeout(() => {
+      ws.__processingTexts.delete(normalizedForCompare);
+    }, 60_000);
+    
+    // Log explicite du texte qui va être prononcé (l'utilisateur pourra le copier facilement)
+    // IMPORTANT: Ce log est généré APRÈS toutes les vérifications anti-répétition pour éviter les doublons dans les logs
+    console.log(`[AI-SAYS] ${clean}`);
     
     premiumTtsQueue.push({ text: clean, interrupt });
     premiumTtsLastText = clean;
