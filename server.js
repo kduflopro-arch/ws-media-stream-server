@@ -3986,10 +3986,21 @@ But: être naturel et mettre le client en confiance.`,
                 // CORRECTION: Si l'IA n'a pas encore dit "au revoir" mais que l'appel doit se terminer,
                 // on doit faire dire "au revoir" à l'IA avant de raccrocher
                 // Vérifier si le client a confirmé qu'il n'a plus besoin d'aide (détection dans le texte)
+                // IMPORTANT: Ne pas détecter "oui" comme un goodbye - "oui" peut être une confirmation de rendez-vous
                 const clientText = doneText.toLowerCase();
-                const clientSaidNoMore = /(non|pas|plus)\s+(besoin|rien|autre|d'autre)/i.test(clientText) || 
-                                        /c'est\s+tout/i.test(clientText) || 
-                                        /(non|pas)\s+(du\s+tout|maintenant)/i.test(clientText);
+                // Vérifier d'abord si le client a dit "oui" pour un rendez-vous (ne pas considérer comme goodbye)
+                const saidYesForAppointment = /\b(oui|d'accord|ok|bien sûr|c'est bon|parfait|oui je veux|oui je veux bien)\b/i.test(clientText) && 
+                                              (clientText.includes("rendez") || clientText.includes("rdv") || clientText.includes("rendez-vous"));
+                // Patterns pour détecter que le client n'a plus besoin d'aide (seulement si pas de "oui" pour rendez-vous)
+                const clientSaidNoMore = !saidYesForAppointment && (
+                  /(non|pas|plus)\s+(besoin|rien|autre|d'autre)/i.test(clientText) || 
+                  /c'est\s+tout/i.test(clientText) || 
+                  /(non|pas)\s+(du\s+tout|maintenant)/i.test(clientText)
+                );
+                
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3988',message:'DÉTECTION CLIENT NO MORE',data:{clientText:clientText.substring(0,200),saidYesForAppointment,clientSaidNoMore,timeSinceLastUserActivity},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
+                // #endregion
                 
                 if (clientSaidNoMore) {
                   goodbyeDetected = true;
