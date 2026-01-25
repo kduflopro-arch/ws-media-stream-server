@@ -5325,13 +5325,14 @@ But: être naturel et mettre le client en confiance.`,
                       ? `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`
                       : `Bonjour ! Ici ${assistantName}, l'assistante du ${label}.`;
                     const quietPlaceRequest = "Pour une meilleure qualité d'appel, veuillez vous placer dans un endroit calme.";
+                    const naturalSpeechNote = "Vous pouvez me parler normalement, je comprendrai.";
                     const consentText = consentRequired && !consentGiven
                       ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
                       : "";
                     const question = consentRequired && !consentGiven
                       ? "Est-ce que cela vous convient ?"
                       : "Dites-moi, quel est le souci avec votre véhicule ?";
-                    const greeting = [baseHello, quietPlaceRequest, consentText, question].filter(Boolean).join(" ");
+                    const greeting = [baseHello, quietPlaceRequest, naturalSpeechNote, consentText, question].filter(Boolean).join(" ");
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4288',message:'GREETING CONSTRUIT (avec nom client)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
                     // #endregion
@@ -5393,13 +5394,14 @@ But: être naturel et mettre le client en confiance.`,
             // CORRECTION: Toujours dire bonjour et se présenter
             const baseHello = `Bonjour ! Ici ${assistantName}, l'assistante du ${label}.`;
             const quietPlaceRequest = "Pour une meilleure qualité d'appel, veuillez vous placer dans un endroit calme.";
+            const naturalSpeechNote = "Vous pouvez me parler normalement, je comprendrai.";
             const consentText = consentRequired && !consentGiven
               ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
               : "";
             const question = consentRequired && !consentGiven
               ? "Est-ce que cela vous convient ?"
               : "Dites-moi, quel est le souci avec votre véhicule ?";
-            const greeting = [baseHello, quietPlaceRequest, consentText, question].filter(Boolean).join(" ");
+            const greeting = [baseHello, quietPlaceRequest, naturalSpeechNote, consentText, question].filter(Boolean).join(" ");
             // #region agent log
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4353',message:'GREETING CONSTRUIT (générique IMMÉDIAT)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
             // #endregion
