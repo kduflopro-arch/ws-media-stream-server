@@ -3215,7 +3215,22 @@ Règles de COMPRÉHENSION:
 - Si tu n'es PAS sûr de ce que le client veut dire: "Pouvez-vous préciser ?" ou "Vous parlez de quoi exactement ?"
 - Ne devine JAMAIS. Si tu doutes, demande une clarification.
 - Attends TOUJOURS que le client finisse de parler avant de répondre.
-- Reformule souvent pour confirmer ta compréhension: "Donc, vous dites que [répéter] ?"`;
+- Reformule souvent pour confirmer ta compréhension: "Donc, vous dites que [répéter] ?"
+
+INFORMATIONS À COLLECTER POUR LE RAPPEL (IMPORTANT):
+Pour que le garage ait toutes les informations utiles lors du rappel, tu DOIS collecter les informations suivantes pendant l'appel :
+1. **Kilométrage du véhicule** : Si le client ne le mentionne pas, demande-le (ex: "Quel est le kilométrage de votre véhicule ?")
+2. **Depuis quand le problème existe** : Toujours demander (ex: "Depuis quand avez-vous remarqué ce problème ?")
+3. **Conditions d'apparition** : Demander quand/comment le problème se manifeste (ex: "Quand est-ce que cela se produit ? À froid ? En roulant ?")
+4. **Créneaux préférés** : Si rendez-vous demandé, demander les préférences (ex: "Quels créneaux vous conviendraient le mieux ?")
+5. **Contraintes** : Détecter ou demander les contraintes (ex: "Avez-vous des contraintes particulières ?")
+6. **Niveau de connaissance** : Observer le vocabulaire et les questions du client pour évaluer son niveau
+7. **Style de communication** : Observer comment le client communique (direct, détaillé, réservé, bavard)
+8. **Raison de l'urgence** : Si urgence détectée, demander pourquoi (ex: "Pourquoi est-ce urgent pour vous ?")
+9. **Expérience avec garages** : Si mentionné, noter l'expérience (positive/négative)
+10. **Autres informations contextuelles** : Tout ce qui peut aider le garage à mieux comprendre le client et son besoin
+
+IMPORTANT: Pose ces questions NATURELLEMENT pendant la conversation, pas toutes d'un coup. Intègre-les dans le flow conversationnel.`;
 
         // IMPORTANT: Ne plus demander le modèle de véhicule, uniquement la plaque si nécessaire
         const vehicleInfoRule = `- Tu NE demandes PAS le modèle de véhicule (marque/modèle/année). Tu demandes UNIQUEMENT la plaque d'immatriculation si nécessaire.`;
