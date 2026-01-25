@@ -1177,6 +1177,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.log(`[TTS-MINIMAX] ENTRÉE [interrupt=${interrupt}] [inFlight=${premiumTtsInFlight}] [lastText=${lastTextPreview}]`);
       console.log(`[TTS-MINIMAX] TEXTE:`, rawText);
       console.log(`🚨🚨🚨 speakWithMinimaxNow ENTRÉE (raw text):`, rawText);
+    }
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1177',message:'TTS START - IA commence à parler',data:{interrupt,premiumTtsInFlight,outboundQueuedBytes,text:rawText.substring(0,150)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
       console.log(`🚨🚨🚨 speakWithMinimaxNow ENTRÉE (interrupt=${interrupt}, inFlight=${premiumTtsInFlight}, lastText=${lastTextPreview})`);
     }
     
@@ -1470,6 +1474,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         if (msg.is_final || msg.event === "task_finished") {
           isFinal = true;
           console.log(`✅ Minimax TTS terminé: ${chunkCounter} chunks, ${audioData.length} bytes`);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1472',message:'TTS TERMINÉ - IA a fini de parler',data:{chunkCounter,audioDataLength:audioData.length,premiumTtsInFlight,outboundQueuedBytes,outboundQueueLen:outboundQueue.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
           
           // Décoder le PCM brut en PCM16
           // Minimax retourne généralement du PCM à 32kHz même si on demande 8kHz
@@ -3277,9 +3284,10 @@ DIAGNOSTIC GUIDÉ (si le client ne sait pas exactement):
 INTENTION RDV (TRÈS IMPORTANT):
 - Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
 - Tu déclenches le mode RDV UNIQUEMENT si le client dit explicitement qu'il veut un rendez-vous ou un créneau.
-- Après le consentement, tu attends que le client exprime son besoin (diagnostic, problème, information, etc.) AVANT de proposer quoi que ce soit.
+- ⚠️ CRITIQUE - APRÈS LE CONSENTEMENT: Après que le client donne son consentement (dit "oui", "d'accord", "ok" au sujet de l'enregistrement), tu DOIS TOUJOURS demander "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?" ou "Dites-moi, quel est le souci avec votre véhicule ?". NE PROPOSE JAMAIS de rendez-vous juste après le consentement. Le consentement est UNIQUEMENT une autorisation d'enregistrement, PAS une demande de rendez-vous.
 - Si le client donne son consentement mais ne mentionne pas de rendez-vous, tu demandes simplement "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?"
-- NE PAS supposer qu'un consentement = demande de rendez-vous. Le consentement est juste une autorisation d'enregistrement.
+- NE JAMAIS supposer qu'un consentement = demande de rendez-vous. Le consentement est juste une autorisation d'enregistrement.
+- INTERDICTION FORMELLE: Si le client dit juste "oui" ou "d'accord" après ta demande de consentement, tu NE DOIS PAS interpréter cela comme une demande de rendez-vous. Tu demandes simplement "En quoi puis-je vous aider ?"
 
 STYLE (échange humain):
 - Parle comme au téléphone avec une vraie personne: naturel, simple, fluide.
@@ -3716,9 +3724,10 @@ RENSEIGNEMENTS SUR LES PRESTATIONS (IMPORTANT):
 INTENTION RDV (TRÈS IMPORTANT):
 - Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
 - Tu déclenches le mode RDV UNIQUEMENT si le client dit explicitement qu'il veut un rendez-vous ou un créneau.
-- Après le consentement, tu attends que le client exprime son besoin (diagnostic, problème, information, etc.) AVANT de proposer quoi que ce soit.
+- ⚠️ CRITIQUE - APRÈS LE CONSENTEMENT: Après que le client donne son consentement (dit "oui", "d'accord", "ok" au sujet de l'enregistrement), tu DOIS TOUJOURS demander "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?" ou "Dites-moi, quel est le souci avec votre véhicule ?". NE PROPOSE JAMAIS de rendez-vous juste après le consentement. Le consentement est UNIQUEMENT une autorisation d'enregistrement, PAS une demande de rendez-vous.
 - Si le client donne son consentement mais ne mentionne pas de rendez-vous, tu demandes simplement "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?"
-- NE PAS supposer qu'un consentement = demande de rendez-vous. Le consentement est juste une autorisation d'enregistrement.
+- NE JAMAIS supposer qu'un consentement = demande de rendez-vous. Le consentement est juste une autorisation d'enregistrement.
+- INTERDICTION FORMELLE: Si le client dit juste "oui" ou "d'accord" après ta demande de consentement, tu NE DOIS PAS interpréter cela comme une demande de rendez-vous. Tu demandes simplement "En quoi puis-je vous aider ?"
 
 STYLE (échange humain):
 - Parle comme au téléphone avec une vraie personne: naturel, simple, fluide.
@@ -4154,6 +4163,9 @@ But: être naturel et mettre le client en confiance.`,
                       // Après le consentement, l'IA ne doit répondre QUE si l'utilisateur a vraiment parlé
                       // (vérifié via lastCommittedAt dans enqueuePremiumTts)
                       // IMPORTANT: Ne pas utiliser consentGiven ici car cela permettrait à l'IA de répondre sans que l'utilisateur ait parlé
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4157',message:'response.done - enqueuePremiumTts APRÈS CONSENT',data:{consentGiven,isInitialConsent,text:extractedText.substring(0,200),hasRdvMention:extractedText.toLowerCase().includes('rendez-vous')||extractedText.toLowerCase().includes('rdv'),responseId:rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                      // #endregion
                       enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: isInitialConsent });
                     } else {
                       // #region agent log
@@ -4516,6 +4528,9 @@ But: être naturel et mettre le client en confiance.`,
                       // IMPORTANT: Ne pas utiliser consentGiven ici car cela permettrait à l'IA de répondre sans que l'utilisateur ait parlé
                       // CORRECTION: Si responseId est null, utiliser un identifiant basé sur le texte pour éviter les doublons
                       // Le texte sera vérifié dans enqueuePremiumTts par recentAssistantTexts même si responseId est null
+                      // #region agent log
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4525',message:'conversation.item.done - enqueuePremiumTts APRÈS CONSENT',data:{consentGiven,isInitialConsent,text:clean.substring(0,200),hasRdvMention:clean.toLowerCase().includes('rendez-vous')||clean.toLowerCase().includes('rdv'),responseId:rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                      // #endregion
                       enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: isInitialConsent });
                     }
                   }
@@ -4935,7 +4950,7 @@ But: être naturel et mettre le client en confiance.`,
               // Le consentement n'est pas une vraie parole utilisateur qui nécessite une réponse
               // L'IA ne doit répondre QUE si l'utilisateur pose vraiment une question ou dit quelque chose
               // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4008',message:'CONSENT GIVEN - PAS de mise à jour lastCommittedAt',data:{userText,consentGiven,lastCommittedAt,consentRequired},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4008',message:'CONSENT GIVEN - PAS de mise à jour lastCommittedAt',data:{userText,consentGiven,lastCommittedAt,consentRequired,premiumTtsInFlight,outboundQueuedBytes,responseInProgress},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
               // #endregion
               // CORRECTION: Mettre à jour le prompt système IMMÉDIATEMENT pour éviter de redemander le consentement
               // Le prompt système est utilisé lors de la création de la conversation, donc on doit le mettre à jour
@@ -5006,6 +5021,9 @@ But: être naturel et mettre le client en confiance.`,
             // Vérifier que le niveau audio local confirme vraiment de la parole
             // Si le niveau audio récent est trop faible, c'est probablement un faux positif
             const shouldIgnore = INPUT_GATE_ENABLED && lastInputAudioLevel < INPUT_SPEECH_THRESHOLD;
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:5008',message:'INPUT AUDIO speech_started',data:{shouldIgnore,premiumTtsInFlight,outboundQueuedBytes,lastInputAudioLevel,INPUT_SPEECH_THRESHOLD},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
             if (shouldIgnore) {
               console.log("🔇 Ignoré speech_started OpenAI (faux positif, niveau audio trop faible:", lastInputAudioLevel, "<", INPUT_SPEECH_THRESHOLD + ")");
               return;
