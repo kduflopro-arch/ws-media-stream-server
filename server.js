@@ -3288,11 +3288,97 @@ STYLE (échange humain):
 - Si le client répond, tu enchaînes logiquement (pas de bloc pré-écrit).
 - Utilise la ponctuation pour sonner naturel.`;
 
-        // Base de connaissances mécaniques pour l'IA
-        const mechanicalKnowledgePrompt = `=== BASE DE CONNAISSANCES MÉCANIQUES ===
-Tu es un expert en mécanique automobile. Voici une base de connaissances pour t'aider à diagnostiquer les problèmes :
+        // Base de connaissances mécaniques pour l'IA - ENCYCLOPÉDIE COMPLÈTE
+        const mechanicalKnowledgePrompt = `=== BASE DE CONNAISSANCES MÉCANIQUES COMPLÈTE ===
+Tu es un expert en mécanique automobile avec une connaissance approfondie de tous les systèmes du véhicule. Voici une base de connaissances exhaustive pour t'aider à diagnostiquer les problèmes :
 
-PROBLÈMES COURANTS ET LEURS CAUSES PROBABLES :
+=== SYSTÈMES DU VÉHICULE ===
+
+**1. SYSTÈME MOTEUR**
+- Bloc moteur, culasse, pistons, bielles, vilebrequin
+- Système d'allumage (bougies, bobines, distributeur)
+- Système d'injection (injecteurs, pompe à essence, filtre à essence)
+- Système d'admission (filtre à air, collecteur d'admission)
+- Système d'échappement (collecteur, catalyseur, pot d'échappement)
+- Système de refroidissement (radiateur, pompe à eau, thermostat, liquide de refroidissement)
+- Système de lubrification (pompe à huile, filtre à huile, carter d'huile)
+
+**2. SYSTÈME ÉLECTRIQUE**
+- Batterie (12V, capacité, état de charge)
+- Alternateur (recharge batterie, 13-14V en fonctionnement)
+- Démarreur (moteur électrique pour démarrer)
+- Fusibles et relais
+- Câblage et connecteurs
+- Voyants du tableau de bord
+
+**3. SYSTÈME DE FREINAGE**
+- Plaquettes de frein (avant/arrière)
+- Disques de frein (avant/arrière)
+- Étriers de frein
+- Liquide de frein (purge tous les 2 ans)
+- Maître-cylindre
+- ABS (système antiblocage)
+
+**4. SUSPENSION ET DIRECTION**
+- Amortisseurs (avant/arrière)
+- Ressorts de suspension
+- Rotules de direction
+- Biellettes de direction
+- Barre stabilisatrice
+- Géométrie des trains (parallélisme, carrossage, chasse)
+
+**5. TRANSMISSION**
+- Boîte de vitesses (manuelle/automatique)
+- Embrayage (si manuelle)
+- Différentiel
+- Cardans et joints homocinétiques
+- Courroie de distribution
+
+**6. CLIMATISATION**
+- Compresseur de climatisation
+- Condenseur
+- Évaporateur
+- Gaz frigorigène (R134a, R1234yf)
+- Filtre habitacle
+
+**7. PNEUS ET ROUES**
+- Pneus (usure, pression, âge)
+- Jantes
+- Valves
+- Équilibrage et géométrie
+
+=== CODES OBD-II COURANTS ===
+
+**P0xxx - Codes génériques moteur**
+- P0300-P0308 : Ratés d'allumage (bougies, bobines, injecteurs)
+- P0171/P0174 : Mélange pauvre (fuite admission, filtre à air, capteur MAF)
+- P0172/P0175 : Mélange riche (injecteurs, régulateur pression, filtre à air)
+- P0420/P0430 : Efficacité catalyseur (catalyseur défaillant)
+- P0401-P0405 : EGR (vanne EGR encrassée)
+- P0440-P0446 : Évaporation carburant (bouchon réservoir, purge canister)
+- P0128 : Thermostat (thermostat défaillant, circuit refroidissement)
+
+**P1xxx - Codes spécifiques constructeur**
+- Variables selon marque et modèle
+
+**P2xxx - Codes génériques moteur (suite)**
+- P2100-P2109 : Contrôleur accélérateur (papillon électronique)
+- P2119-P2122 : Position papillon (capteur position papillon)
+
+**P3xxx - Codes allumage/auxiliaires**
+- P0300-P0316 : Ratés d'allumage multiples
+- P0320-P0339 : Problèmes allumage (capteur vilebrequin, arbre à cames)
+
+**C0xxx - Codes châssis**
+- C1200-C1299 : ABS/ESP (capteurs roues, calculateur ABS)
+
+**B0xxx - Codes carrosserie**
+- B1000-B1999 : Airbags, ceintures, modules carrosserie
+
+**U0xxx - Codes réseau**
+- U1000-U1999 : Problèmes communication bus CAN
+
+=== PROBLÈMES COURANTS ET LEURS CAUSES PROBABLES ===
 
 **Moteur qui tousse ou broute**
 - Urgence: MOYENNE
