@@ -680,6 +680,10 @@ wss.on("connection", (ws, req) => {
     // TV / sous-titres / disclaimers
     if (t.includes("amara.org") || t.includes("sous-titres") || t.includes("sous titres")) return true;
     if (t.includes("réalisés par la communauté")) return true;
+    // Vidéos / YouTube / TV
+    if (t.includes("vidéo") || t.includes("video") || t.includes("youtube") || t.includes("channel")) return true;
+    if (t.includes("ontario") || t.includes("partenariat") || t.includes("merci d'avoir regardé")) return true;
+    if (t.includes("subscribe") || t.includes("like") || t.includes("comment")) return true;
     // bruit très court
     const stripped = t.replace(/[\s\p{P}\p{S}]/gu, "");
     if (stripped.length < 2) return true;
@@ -5317,7 +5321,10 @@ But: être naturel et mettre le client en confiance.`,
                           // CORRECTION: Ne pas annuler le hangup si c'est juste du bruit ou une transcription erronée
                           // Vérifier que c'est vraiment une parole utilisateur pertinente (pas juste "Merci d'avoir regardé cette vidéo")
                           // Ignorer les transcriptions qui semblent être du bruit ou des erreurs de transcription
-                          const isNoiseOrError = /^(merci d'avoir regardé|thank you for watching|subscribe|like|comment|vidéo|video|youtube|channel)/i.test(txt.trim());
+                          const txtLower = txt.toLowerCase().trim();
+                          const isNoiseOrError = /^(merci d'avoir regardé|thank you for watching|subscribe|like|comment|vidéo|video|youtube|channel)/i.test(txtLower) ||
+                                                 txtLower.includes("ontario") || txtLower.includes("partenariat") || 
+                                                 txtLower.includes("réalisée") || txtLower.includes("réalisé");
                           if (isNoiseOrError) {
                             console.log("🔇 Transcription ignorée (probablement du bruit):", txt.substring(0, 100), "- hangup continue");
                             // #region agent log
