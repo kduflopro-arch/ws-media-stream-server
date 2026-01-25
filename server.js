@@ -4167,6 +4167,11 @@ But: être naturel et mettre le client en confiance.`,
               const resp = msg.response || {};
               const status = resp.status;
               const statusDetails = resp.status_details || resp.statusDetails || null;
+              // #region agent log - RESPONSE.DONE STATUS
+              const isFailed = status === 'failed';
+              const isRateLimit = isFailed && statusDetails?.error?.code === 'rate_limit_exceeded';
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4168',message:'response.done STATUS',data:{rid,status,isFailed,isRateLimit,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken,hasOutputItems:!!resp.output},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+              // #endregion
               const usage = resp.usage || null;
               const meta = resp.metadata || null;
               const safeOutputPreview = Array.isArray(resp.output)
@@ -4241,6 +4246,17 @@ But: être naturel et mettre le client en confiance.`,
                 } else if (msg.response?.output) {
                   // Debug approfondi si aucun texte n'a pu être extrait alors que output existe
                   console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
+                  // Vérifier si c'est un rate limit
+                  const isRateLimit = status === 'failed' && statusDetails?.error?.code === 'rate_limit_exceeded';
+                  if (isRateLimit) {
+                    const rateLimitMsg = statusDetails?.error?.message || '';
+                    const retryAfterMatch = rateLimitMsg.match(/try again in ([\d.]+)s/);
+                    const retryAfterSeconds = retryAfterMatch ? parseFloat(retryAfterMatch[1]) : null;
+                    console.error("❌ RATE LIMIT DÉTECTÉ - Réponse bloquée:", { rid, retryAfterSeconds, rateLimitMsg: rateLimitMsg.substring(0, 200) });
+                    // #region agent log - RATE LIMIT
+                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4241',message:'RATE LIMIT - Réponse bloquée',data:{rid,status,retryAfterSeconds,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                    // #endregion
+                  }
                   // Toujours logguer la structure brute (tronquée) pour pouvoir ajuster l'extracteur
                   try {
                     console.log(
@@ -4536,6 +4552,45 @@ But: être naturel et mettre le client en confiance.`,
               // Si c'est un message user, on marque qu'il a parlé (utile pour ignorer le greeting en double)
               if (item.role === "user") {
                 userHasSpoken = true;
+                // CORRECTION CRITIQUE: Extraire le texte depuis conversation.item.done pour les messages user
+                // et mettre à jour lastCommittedAt si la transcription n'est pas arrivée via input_audio_transcription.completed
+                try {
+                  let userText = "";
+                  if (item.content) {
+                    userText = extractTextFromResponseOutput(item.content);
+                  }
+                  if (!userText && typeof item.text === "string") {
+                    userText = item.text;
+                  }
+                  if (userText && userText.trim() && !isJunkTranscript(userText)) {
+                    // Mettre à jour lastCommittedAt si ce n'est pas déjà fait (évite les doublons)
+                    const now = nowMs();
+                    const timeSinceLastCommit = lastCommittedAt > 0 ? now - lastCommittedAt : Infinity;
+                    // Ne mettre à jour que si lastCommittedAt n'a pas été mis à jour récemment (dans les 2 dernières secondes)
+                    // pour éviter les doublons avec input_audio_buffer.committed
+                    if (timeSinceLastCommit > 2000) {
+                      const oldLastCommittedAt = lastCommittedAt;
+                      lastCommittedAt = now;
+                      console.log("✅ lastCommittedAt mis à jour depuis conversation.item.done (user):", { 
+                        text: userText.substring(0, 100), 
+                        oldLastCommittedAt, 
+                        lastCommittedAt,
+                        timeSinceLastCommit 
+                      });
+                      // #region agent log - MISE À JOUR lastCommittedAt depuis conversation.item.done (user)
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4553',message:'MISE À JOUR lastCommittedAt depuis conversation.item.done (user)',data:{text:userText.substring(0,100),oldLastCommittedAt,lastCommittedAt,timeSinceLastCommit,isJunk:false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+                      // #endregion
+                    }
+                  } else if (userText && userText.trim()) {
+                    // Transcription détectée mais considérée comme bruit
+                    console.log("⚠️ Transcription user ignorée (bruit détecté) depuis conversation.item.done:", userText.substring(0, 50));
+                    // #region agent log - TRANSCRIPTION USER IGNORÉE
+                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4565',message:'TRANSCRIPTION USER IGNORÉE depuis conversation.item.done',data:{text:userText.substring(0,100),isJunk:true,lastCommittedAt},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+                    // #endregion
+                  }
+                } catch (e) {
+                  console.error("❌ Erreur extraction texte user depuis conversation.item.done:", e);
+                }
               }
             } else {
               // Éviter de rejouer la phrase d'accueil qu'on a déjà synthétisée en local
@@ -5134,6 +5189,7 @@ But: être naturel et mettre le client en confiance.`,
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4651',message:'input_audio_buffer.committed',data:{itemId:msg.item_id,previousItemId:msg.previous_item_id,speechActive,lastSpeechTs,timeSinceSpeech:nowMs()-lastSpeechTs,hasRealSpeech,bytesSinceSpeechStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
             // #endregion
             if (hasRealSpeech) {
+              const oldLastCommittedAt = lastCommittedAt;
               lastCommittedAt = nowMs();
               console.log("✅ OpenAI buffer committed (parole réelle détectée):", {
                 item_id: msg.item_id,
@@ -5141,6 +5197,9 @@ But: être naturel et mettre le client en confiance.`,
                 speechActive,
                 timeSinceSpeech: nowMs() - lastSpeechTs,
               });
+              // #region agent log - MISE À JOUR lastCommittedAt depuis committed
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:5137',message:'MISE À JOUR lastCommittedAt depuis input_audio_buffer.committed',data:{itemId:msg.item_id,oldLastCommittedAt,lastCommittedAt,speechActive,timeSinceSpeech:nowMs()-lastSpeechTs},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+              // #endregion
               // Ne pas forcer response.create tout de suite: OpenAI peut auto-démarrer une réponse.
               // On met un watchdog: si aucune réponse ne démarre après le commit, on envoie response.create.
               const canRequest = (lastCommittedAt - lastResponseAt) > 600;
