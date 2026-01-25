@@ -743,6 +743,9 @@ wss.on("connection", (ws, req) => {
     if (t.includes("vidéo") || t.includes("video") || t.includes("youtube") || t.includes("channel")) return true;
     if (t.includes("ontario") || t.includes("partenariat") || t.includes("merci d'avoir regardé")) return true;
     if (t.includes("subscribe") || t.includes("like") || t.includes("comment")) return true;
+    // Phrases incohérentes ou hors contexte (ex: "L'on est au bois", "je suis dans la forêt")
+    if (t.includes("au bois") || t.includes("dans la forêt") || t.includes("dans le bois") || 
+        t.includes("je suis dans") || t.includes("nous sommes dans") || t.includes("on est dans")) return true;
     // Bruit très court (moins de 3 caractères significatifs)
     const stripped = t.replace(/[\s\p{P}\p{S}]/gu, "");
     if (stripped.length < 3) return true;
@@ -758,6 +761,12 @@ wss.on("connection", (ws, req) => {
       const commonFrenchWords = ["oui", "non", "bonjour", "merci", "salut", "allo", "bonsoir"];
       const isCommonWord = words.some(w => commonFrenchWords.includes(w));
       if (!isCommonWord) return true;
+    }
+    // Phrases qui ne font pas sens dans le contexte d'un appel garage (ex: "je suis au parc", "on va à la plage")
+    const contextWords = ["parc", "plage", "mer", "montagne", "campagne", "ville", "rue", "avenue", "boulevard"];
+    if (contextWords.some(w => t.includes(w)) && !t.includes("voiture") && !t.includes("véhicule") && !t.includes("garage") && !t.includes("problème") && !t.includes("panne")) {
+      // Si la phrase contient un mot de contexte mais pas de mot lié au garage, c'est probablement du bruit
+      return true;
     }
     return false;
   }
