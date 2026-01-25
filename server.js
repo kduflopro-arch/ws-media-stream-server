@@ -734,7 +734,7 @@ wss.on("connection", (ws, req) => {
   }
 
   function isJunkTranscript(text) {
-    const t = String(text || "").toLowerCase();
+    const t = String(text || "").toLowerCase().trim();
     if (!t) return true;
     // TV / sous-titres / disclaimers
     if (t.includes("amara.org") || t.includes("sous-titres") || t.includes("sous titres")) return true;
@@ -743,9 +743,22 @@ wss.on("connection", (ws, req) => {
     if (t.includes("vidéo") || t.includes("video") || t.includes("youtube") || t.includes("channel")) return true;
     if (t.includes("ontario") || t.includes("partenariat") || t.includes("merci d'avoir regardé")) return true;
     if (t.includes("subscribe") || t.includes("like") || t.includes("comment")) return true;
-    // bruit très court
+    // Bruit très court (moins de 3 caractères significatifs)
     const stripped = t.replace(/[\s\p{P}\p{S}]/gu, "");
-    if (stripped.length < 2) return true;
+    if (stripped.length < 3) return true;
+    // Sons isolés ou bruits (ex: "ah", "eh", "oh", "mm", "hmm", "euh")
+    const isolatedSounds = /^(ah|eh|oh|mm|hmm|euh|hum|huh|uh|mh|hm|a|e|i|o|u)$/i.test(t);
+    if (isolatedSounds) return true;
+    // Mots isolés très courts qui sont probablement du bruit
+    const words = t.split(/\s+/).filter(w => w.length > 0);
+    if (words.length === 1 && words[0].length < 3) return true;
+    // Phrases incomplètes ou très courtes qui ressemblent à du bruit
+    if (words.length <= 2 && t.length < 10) {
+      // Vérifier si ce sont des mots français valides
+      const commonFrenchWords = ["oui", "non", "bonjour", "merci", "salut", "allo", "bonsoir"];
+      const isCommonWord = words.some(w => commonFrenchWords.includes(w));
+      if (!isCommonWord) return true;
+    }
     return false;
   }
 
@@ -5059,13 +5072,14 @@ But: être naturel et mettre le client en confiance.`,
                     const baseHello = salutationName 
                       ? `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`
                       : `Bonjour ! Ici ${assistantName}, l'assistante du ${label}.`;
+                    const quietPlaceRequest = "Pour une meilleure qualité d'appel, veuillez vous placer dans un endroit calme.";
                     const consentText = consentRequired && !consentGiven
                       ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
                       : "";
                     const question = consentRequired && !consentGiven
                       ? "Est-ce que cela vous convient ?"
                       : "Dites-moi, quel est le souci avec votre véhicule ?";
-                    const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+                    const greeting = [baseHello, quietPlaceRequest, consentText, question].filter(Boolean).join(" ");
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4288',message:'GREETING CONSTRUIT (avec nom client)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
                     // #endregion
