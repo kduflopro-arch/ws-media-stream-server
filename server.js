@@ -1840,7 +1840,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (!hasRecentUserSpeech) {
         if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: pas de parole utilisateur récente (lastCommittedAt=${lastCommittedAt}, timeSince=${lastCommittedAt > 0 ? now - lastCommittedAt : 'N/A'})`);
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1666',message:'BLOQUÉ pas de parole utilisateur récente',data:{allowWithoutUser,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?now-lastCommittedAt:0,responseWindow:ASSISTANT_RESPONSE_WINDOW_MS,source,text:clean.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        const timeSinceCommit = lastCommittedAt > 0 ? now - lastCommittedAt : -1;
+        const expired = lastCommittedAt > 0 && timeSinceCommit > ASSISTANT_RESPONSE_WINDOW_MS;
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1840',message:'BLOQUÉ pas de parole utilisateur récente',data:{allowWithoutUser,lastCommittedAt,timeSinceCommit,expired,responseWindow:ASSISTANT_RESPONSE_WINDOW_MS,source,text:clean.substring(0,100),userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
         // #endregion
         return;
       }
@@ -4792,7 +4794,10 @@ But: être naturel et mettre le client en confiance.`,
                 // Ne pas interrompre si on a déjà commencé à parler (évite les coupures)
                 const alreadySpeaking = rid && spokenSet.has(rid);
                 // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3441',message:'calling enqueuePremiumTts from response.output_text.done',data:{text:doneText.substring(0,200),responseId:rid,alreadySpeaking},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                const nowForLog = nowMs();
+                const timeSinceCommit = lastCommittedAt > 0 ? nowForLog - lastCommittedAt : -1;
+                const hasRecentSpeech = lastCommittedAt > 0 && timeSinceCommit <= ASSISTANT_RESPONSE_WINDOW_MS;
+                fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4797',message:'calling enqueuePremiumTts from response.output_text.done',data:{text:doneText.substring(0,200),responseId:rid,alreadySpeaking,lastCommittedAt,timeSinceCommit,hasRecentSpeech,responseWindow:ASSISTANT_RESPONSE_WINDOW_MS,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
                 // #endregion
                 enqueuePremiumTts(doneText, { interrupt: !alreadySpeaking, source: "response.output_text.done", responseId: rid });
               }
@@ -4984,17 +4989,32 @@ But: être naturel et mettre le client en confiance.`,
             
             // CORRECTION: Mettre à jour lastCommittedAt quand l'utilisateur parle vraiment
             // Vérifier que la transcription n'est pas vide et n'est pas du bruit
-            if (transcript && transcript.trim() && !isJunkTranscript(transcript)) {
+            const isJunk = isJunkTranscript(transcript);
+            const transcriptTrimmed = transcript && transcript.trim();
+            const shouldUpdate = transcriptTrimmed && !isJunk;
+            // #region agent log - AVANT VÉRIFICATION
+            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4987',message:'TRANSCRIPTION REÇUE - AVANT VÉRIFICATION',data:{transcript:transcript?.substring(0,100)||'',transcriptLength:transcript?.length||0,isJunk,shouldUpdate,lastCommittedAtBefore:lastCommittedAt},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            if (shouldUpdate) {
+              const oldLastCommittedAt = lastCommittedAt;
               lastCommittedAt = nowMs();
               userHasSpoken = true;
               lastUserActivityMs = nowMs();
-              console.log("✅ Transcription utilisateur reçue, lastCommittedAt mis à jour:", { transcript: transcript.substring(0, 100), lastCommittedAt });
+              console.log("✅ Transcription utilisateur reçue, lastCommittedAt mis à jour:", { transcript: transcript.substring(0, 100), lastCommittedAt, oldLastCommittedAt });
               // #region agent log - MISE À JOUR lastCommittedAt
-              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4644',message:'MISE À JOUR lastCommittedAt',data:{transcript:transcript.substring(0,100),lastCommittedAt,userHasSpoken,isJunk:isJunkTranscript(transcript)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4991',message:'MISE À JOUR lastCommittedAt - SUCCÈS',data:{transcript:transcript.substring(0,100),lastCommittedAt,oldLastCommittedAt,userHasSpoken,isJunk:false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
               // #endregion
-            } else if (transcript && transcript.trim()) {
+            } else if (transcriptTrimmed) {
               // Transcription détectée mais considérée comme bruit
               console.log("⚠️ Transcription ignorée (bruit détecté):", transcript.substring(0, 50));
+              // #region agent log - TRANSCRIPTION IGNORÉE
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4997',message:'TRANSCRIPTION IGNORÉE - BRUIT',data:{transcript:transcript.substring(0,100),isJunk:true,lastCommittedAt},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+              // #endregion
+            } else {
+              // Transcription vide
+              // #region agent log - TRANSCRIPTION VIDE
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4999',message:'TRANSCRIPTION VIDE',data:{transcript:transcript||'',lastCommittedAt},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+              // #endregion
             }
             
             // Détecter si le client accepte le consentement
