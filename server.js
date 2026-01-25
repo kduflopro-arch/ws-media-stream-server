@@ -3942,8 +3942,17 @@ But: être naturel et mettre le client en confiance.`,
               const fullText = doneText.trim().toLowerCase();
               const hasQuestion = fullText.includes("?") || fullText.includes("comment") || fullText.includes("quel") || fullText.includes("pourquoi") || fullText.includes("quand") || fullText.includes("où");
               const isIncomplete = fullText.trim().endsWith(",") || fullText.trim().endsWith(":") || fullText.trim().endsWith("...");
+              // Définir goodbyePatterns pour le log (copie locale pour éviter erreur de scope)
+              const goodbyePatternsForLog = [
+                "au revoir", "aurevoir", 
+                "merci et au revoir", "merci et bonne journée", "merci et bonne journee",
+                "à très bientôt", "a tres bientot", "à plus tard", "a plus tard",
+                "je vous souhaite une bonne journée", "je vous souhaite une bonne journee",
+                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
+                "au revoir et bonne journée", "aurevoir et bonne journee", "au revoir, bonne journée", "aurevoir, bonne journee"
+              ];
               // #region agent log - RÉSULTAT DÉTECTION GOODBYE
-              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3446',message:'GOODBYE RÉSULTAT',data:{fullText:fullText.substring(0,200),isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,matchedPatterns:goodbyePatterns.filter(p=>fullText.includes(p))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3446',message:'GOODBYE RÉSULTAT',data:{fullText:fullText.substring(0,200),isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,matchedPatterns:goodbyePatternsForLog.filter(p=>fullText.includes(p))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
               // #endregion
               
               // Conditions pour détecter la fin d'échange :
@@ -4292,8 +4301,17 @@ But: être naturel et mettre le client en confiance.`,
               const fullText = doneText.trim().toLowerCase();
               const hasQuestion = fullText.includes("?") || fullText.includes("comment") || fullText.includes("quel") || fullText.includes("pourquoi") || fullText.includes("quand") || fullText.includes("où");
               const isIncomplete = fullText.trim().endsWith(",") || fullText.trim().endsWith(":") || fullText.trim().endsWith("...");
+              // Définir goodbyePatterns pour le log (copie locale pour éviter erreur de scope)
+              const goodbyePatternsForLog = [
+                "au revoir", "aurevoir", 
+                "merci et au revoir", "merci et bonne journée", "merci et bonne journee",
+                "à très bientôt", "a tres bientot", "à plus tard", "a plus tard",
+                "je vous souhaite une bonne journée", "je vous souhaite une bonne journee",
+                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
+                "au revoir et bonne journée", "aurevoir et bonne journee", "au revoir, bonne journée", "aurevoir, bonne journee"
+              ];
               // #region agent log - RÉSULTAT DÉTECTION GOODBYE
-              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3446',message:'GOODBYE RÉSULTAT',data:{fullText:fullText.substring(0,200),isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,matchedPatterns:goodbyePatterns.filter(p=>fullText.includes(p))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3446',message:'GOODBYE RÉSULTAT',data:{fullText:fullText.substring(0,200),isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,matchedPatterns:goodbyePatternsForLog.filter(p=>fullText.includes(p))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
               // #endregion
               
               // Conditions pour détecter la fin d'échange :
@@ -5354,8 +5372,9 @@ But: être naturel et mettre le client en confiance.`,
                                                      /\b(exactement|parfait|correct|oui\s*je\s*confirme)\b/i.test(txtLower);
                         if (clientConfirmsPlate && (txtLower.includes("plaque") || txtLower.includes("immatric") || txtLower.includes("voiture"))) {
                           console.log("✅ Client confirme la plaque existante dans sa transcription:", txt.substring(0, 100));
+                          // CRITIQUE: Mettre à false AVANT de mettre plateSmsAlreadyMentioned à true
                           plateSmsSendOnFinalize = false;
-                          plateSmsAlreadyMentioned = true;
+                          plateSmsAlreadyMentioned = true; // Marquer que la plaque a été confirmée pour éviter l'envoi de SMS
                           // Si on a la plaque du client dans clientInfo, l'envoyer à l'API de finalisation pour mise à jour
                           if (clientInfo?.plate) {
                             enqueueIngest("user", `Plaque confirmée: ${clientInfo.plate}`);
@@ -5621,6 +5640,14 @@ But: être naturel et mettre le client en confiance.`,
         if (goodbyeTimer) {
           clearTimeout(goodbyeTimer);
           goodbyeTimer = null;
+        }
+        // Vérifier si le client a confirmé la plaque avant d'envoyer le SMS
+        // Si plateSmsAlreadyMentioned est true, cela signifie que le client a confirmé la plaque
+        // et qu'on ne doit pas envoyer de SMS (plateSmsSendOnFinalize devrait être false)
+        if (plateSmsAlreadyMentioned && plateSmsSendOnFinalize) {
+          // Le client a confirmé la plaque mais plateSmsSendOnFinalize est encore true, corriger
+          console.log("ℹ️ SMS plaque non envoyé car client a confirmé la plaque existante (plateSmsAlreadyMentioned=true)");
+          plateSmsSendOnFinalize = false;
         }
         if (plateSmsSendOnFinalize) {
           const shouldSend = plateSmsSendOnFinalize;
