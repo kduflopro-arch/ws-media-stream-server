@@ -300,7 +300,7 @@ wss.on("connection", (ws, req) => {
   const OUTPUT_USER_SILENCE_THRESHOLD = Number(process.env.OUTPUT_USER_SILENCE_THRESHOLD ?? "1100");
   const OUTPUT_USER_SILENCE_FRAMES = Number(process.env.OUTPUT_USER_SILENCE_FRAMES ?? "18"); // ~360ms
   // N'autoriser une réponse IA que dans une fenêtre proche de la dernière prise de parole utilisateur
-  const ASSISTANT_RESPONSE_WINDOW_MS = Number(process.env.ASSISTANT_RESPONSE_WINDOW_MS ?? "15000");
+  const ASSISTANT_RESPONSE_WINDOW_MS = Number(process.env.ASSISTANT_RESPONSE_WINDOW_MS ?? "20000"); // Augmenté à 20s pour être plus permissif
   const LOG_TTS = (process.env.LOG_TTS ?? "false").toLowerCase() === "true";
   const LOG_MINIMAX_CHUNKS = (process.env.LOG_MINIMAX_CHUNKS ?? "false").toLowerCase() === "true";
   const LOG_MINIMAX_CHUNK_EVERY = Number(process.env.LOG_MINIMAX_CHUNK_EVERY ?? "50");
@@ -3228,12 +3228,14 @@ ${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${cl
 RÈGLES D'ÉCOUTE ACTIVE:
 - Tu écoutes ATTENTIVEMENT et tu réponds EXACTEMENT à CE QUE le client dit (pas de scénarios pré-écrits ni de suppositions).
 - ⚠️ CRITIQUE - SI TU N'AS PAS COMPRIS: Si tu n'as pas bien compris ce que le client a dit (transcription incomplète, bruit, phrase incohérente), tu DOIS le dire CLAIREMENT et IMMÉDIATEMENT. Dis EXACTEMENT: "Pardon, je n'ai pas bien compris. Pouvez-vous répéter, s'il vous plaît ?" ou "Je n'ai pas bien saisi ce que vous avez dit. Pouvez-vous reformuler, s'il vous plaît ?" NE FAIS PAS de suppositions. NE CONTINUE PAS comme si tu avais compris.
+- ⚠️ CRITIQUE - IDENTIFICATION DU PROBLÈME: Si le client décrit un problème mais que tu n'es pas sûr de bien comprendre (symptôme vague, description incomplète, contexte manquant), tu DOIS poser des questions de clarification AVANT de proposer des causes ou solutions. Exemples: "Pouvez-vous me décrire plus précisément le problème ?", "Quand est-ce que cela se produit exactement ?", "Avez-vous remarqué d'autres symptômes ?", "Le problème se produit-il à froid ou à chaud ?", "Depuis quand avez-vous remarqué ce problème ?"
 - Si c'est ambigu ou incomplet, tu poses UNE question simple de clarification: "Vous parlez de quel problème exactement ?" ou "Quand est-ce que ça se produit ?" MAIS tu continues ensuite à guider vers un rendez-vous.
 - Si le client dit "non" ou "non merci", tu t'arrêtes IMMÉDIATEMENT et tu confirmes: "D'accord, pas de souci." puis tu proposes une alternative ou tu demandes comment tu peux l'aider autrement.
 - Si le client interrompt ou corrige, tu acceptes la correction et tu continues avec sa nouvelle information.
 - Reformule ce que le client vient de dire pour confirmer ta compréhension: "D'accord, vous avez un problème de [répéter le problème]."
 - Ne devine JAMAIS ce que le client veut dire. Si tu n'es pas sûr, demande une clarification.
 - ⚠️ IMPORTANT: Si la transcription semble être du bruit ou une phrase incohérente, dis clairement que tu n'as pas compris et demande au client de répéter.
+- ⚠️ IMPORTANT: Si le client mentionne un problème mais que la description est vague ou incomplète, pose TOUJOURS des questions de clarification avant de proposer des causes ou solutions. Ne devine JAMAIS ce que le client veut dire.
 
 OBJECTIF (ACCOMPAGNEMENT PROACTIF):
 - CRITIQUE: Tu DOIS proposer la prestation la plus adaptée OU poser des questions si nécessaire pour recueillir un maximum d'informations utiles pour le garage. Tu ne dois JAMAIS attendre passivement.
