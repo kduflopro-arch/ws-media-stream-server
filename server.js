@@ -3205,12 +3205,13 @@ ${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${cl
 
 RÈGLES D'ÉCOUTE ACTIVE:
 - Tu écoutes ATTENTIVEMENT et tu réponds EXACTEMENT à CE QUE le client dit (pas de scénarios pré-écrits ni de suppositions).
-- Si tu n'as pas bien compris ce que le client a dit, tu dis: "Pardon, je n'ai pas bien saisi. Pouvez-vous répéter ?" ou "Pouvez-vous reformuler, s'il vous plaît ?"
+- ⚠️ CRITIQUE - SI TU N'AS PAS COMPRIS: Si tu n'as pas bien compris ce que le client a dit (transcription incomplète, bruit, phrase incohérente), tu DOIS le dire CLAIREMENT et IMMÉDIATEMENT. Dis EXACTEMENT: "Pardon, je n'ai pas bien compris. Pouvez-vous répéter, s'il vous plaît ?" ou "Je n'ai pas bien saisi ce que vous avez dit. Pouvez-vous reformuler, s'il vous plaît ?" NE FAIS PAS de suppositions. NE CONTINUE PAS comme si tu avais compris.
 - Si c'est ambigu ou incomplet, tu poses UNE question simple de clarification: "Vous parlez de quel problème exactement ?" ou "Quand est-ce que ça se produit ?" MAIS tu continues ensuite à guider vers un rendez-vous.
 - Si le client dit "non" ou "non merci", tu t'arrêtes IMMÉDIATEMENT et tu confirmes: "D'accord, pas de souci." puis tu proposes une alternative ou tu demandes comment tu peux l'aider autrement.
 - Si le client interrompt ou corrige, tu acceptes la correction et tu continues avec sa nouvelle information.
 - Reformule ce que le client vient de dire pour confirmer ta compréhension: "D'accord, vous avez un problème de [répéter le problème]."
 - Ne devine JAMAIS ce que le client veut dire. Si tu n'es pas sûr, demande une clarification.
+- ⚠️ IMPORTANT: Si la transcription semble être du bruit ou une phrase incohérente, dis clairement que tu n'as pas compris et demande au client de répéter.
 
 OBJECTIF (ACCOMPAGNEMENT PROACTIF):
 - CRITIQUE: Tu DOIS proposer la prestation la plus adaptée OU poser des questions si nécessaire pour recueillir un maximum d'informations utiles pour le garage. Tu ne dois JAMAIS attendre passivement.
@@ -4645,15 +4646,13 @@ But: être naturel et mettre le client en confiance.`,
               lastCommittedAt = nowMs();
               userHasSpoken = true;
               lastUserActivityMs = nowMs();
-              // #region agent log - MISE À JOUR lastCommittedAt
-              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4616',message:'MISE À JOUR lastCommittedAt',data:{transcript:transcript.substring(0,100),lastCommittedAt,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-              // #endregion
-            }
-            // Cela permet à l'IA de répondre après que l'utilisateur ait parlé
-            if (transcript && transcript.trim().length > 0 && !isJunkTranscript(transcript)) {
-              lastCommittedAt = nowMs();
-              userHasSpoken = true;
               console.log("✅ Transcription utilisateur reçue, lastCommittedAt mis à jour:", { transcript: transcript.substring(0, 100), lastCommittedAt });
+              // #region agent log - MISE À JOUR lastCommittedAt
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4644',message:'MISE À JOUR lastCommittedAt',data:{transcript:transcript.substring(0,100),lastCommittedAt,userHasSpoken,isJunk:isJunkTranscript(transcript)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+              // #endregion
+            } else if (transcript && transcript.trim()) {
+              // Transcription détectée mais considérée comme bruit
+              console.log("⚠️ Transcription ignorée (bruit détecté):", transcript.substring(0, 50));
             }
             
             // Détecter si le client accepte le consentement
@@ -5127,13 +5126,14 @@ But: être naturel et mettre le client en confiance.`,
             const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
             // CORRECTION: Toujours dire bonjour et se présenter
             const baseHello = `Bonjour ! Ici ${assistantName}, l'assistante du ${label}.`;
+            const quietPlaceRequest = "Pour une meilleure qualité d'appel, veuillez vous placer dans un endroit calme.";
             const consentText = consentRequired && !consentGiven
               ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
               : "";
             const question = consentRequired && !consentGiven
               ? "Est-ce que cela vous convient ?"
               : "Dites-moi, quel est le souci avec votre véhicule ?";
-            const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+            const greeting = [baseHello, quietPlaceRequest, consentText, question].filter(Boolean).join(" ");
             // #region agent log
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4353',message:'GREETING CONSTRUIT (générique IMMÉDIAT)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
             // #endregion
