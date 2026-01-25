@@ -5330,6 +5330,23 @@ But: être naturel et mettre le client en confiance.`,
                         // CORRECTION: Ne mettre à jour lastUserActivityMs QUE si c'est une vraie transcription utilisateur
                         // (le texte a déjà été vérifié avec isJunkTranscript avant)
                         lastUserActivityMs = nowMs();
+                        
+                        // Détecter si le client confirme la plaque existante
+                        const txtLower = txt.toLowerCase().trim();
+                        const clientConfirmsPlate = /\b(oui\s*,?\s*c'est\s*(bien|correct|la\s*bonne|pour\s*cette\s*voiture|exact|ça|c'est\s*ça))\b/i.test(txtLower) ||
+                                                     /\b(c'est\s*(bien|correct|la\s*bonne|exact|ça|c'est\s*ça))\b/i.test(txtLower) ||
+                                                     /\b(oui\s*,?\s*(c'est\s*)?(pour\s*)?(cette\s*)?(voiture|plaque|immatriculation))\b/i.test(txtLower) ||
+                                                     /\b(exactement|parfait|correct|oui\s*je\s*confirme)\b/i.test(txtLower);
+                        if (clientConfirmsPlate && (txtLower.includes("plaque") || txtLower.includes("immatric") || txtLower.includes("voiture"))) {
+                          console.log("✅ Client confirme la plaque existante dans sa transcription:", txt.substring(0, 100));
+                          plateSmsSendOnFinalize = false;
+                          plateSmsAlreadyMentioned = true;
+                          // Si on a la plaque du client dans clientInfo, l'envoyer à l'API de finalisation pour mise à jour
+                          if (clientInfo?.plate) {
+                            enqueueIngest("user", `Plaque confirmée: ${clientInfo.plate}`);
+                            console.log("📝 Plaque confirmée envoyée à l'API de finalisation:", clientInfo.plate);
+                          }
+                        }
                         // CORRECTION: Ne pas annuler le hangup automatique si c'est juste du bruit ou une fausse détection
                         // Annuler seulement si la transcription est significative (déjà vérifié avec isJunkTranscript)
                         if (goodbyeDetected && txt && txt.trim().length >= 3) {
