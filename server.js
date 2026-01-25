@@ -3937,6 +3937,8 @@ But: être naturel et mettre le client en confiance.`,
               // Détection de fin d'échange : utiliser la fonction utilitaire pour éviter les faux positifs
               const isGoodbye = isRealGoodbye(doneText);
               const fullText = doneText.trim().toLowerCase();
+              const hasQuestion = fullText.includes("?") || fullText.includes("comment") || fullText.includes("quel") || fullText.includes("pourquoi") || fullText.includes("quand") || fullText.includes("où");
+              const isIncomplete = fullText.trim().endsWith(",") || fullText.trim().endsWith(":") || fullText.trim().endsWith("...");
               // #region agent log - RÉSULTAT DÉTECTION GOODBYE
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3446',message:'GOODBYE RÉSULTAT',data:{fullText:fullText.substring(0,200),isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,matchedPatterns:goodbyePatterns.filter(p=>fullText.includes(p))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
               // #endregion
@@ -4285,6 +4287,8 @@ But: être naturel et mettre le client en confiance.`,
               // Détection de fin d'échange : utiliser la fonction utilitaire pour éviter les faux positifs
               const isGoodbye = isRealGoodbye(doneText);
               const fullText = doneText.trim().toLowerCase();
+              const hasQuestion = fullText.includes("?") || fullText.includes("comment") || fullText.includes("quel") || fullText.includes("pourquoi") || fullText.includes("quand") || fullText.includes("où");
+              const isIncomplete = fullText.trim().endsWith(",") || fullText.trim().endsWith(":") || fullText.trim().endsWith("...");
               // #region agent log - RÉSULTAT DÉTECTION GOODBYE
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3446',message:'GOODBYE RÉSULTAT',data:{fullText:fullText.substring(0,200),isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,matchedPatterns:goodbyePatterns.filter(p=>fullText.includes(p))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
               // #endregion
@@ -4587,6 +4591,14 @@ But: être naturel et mettre le client en confiance.`,
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3987',message:'TRANSCRIPTION CLIENT',data:{transcript,transcriptLength:transcript?.length||0,isEmpty:!transcript||transcript.trim().length===0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
             // #endregion
             enqueueIngest("user", transcript);
+            
+            // CORRECTION: Mettre à jour lastCommittedAt quand l'utilisateur parle vraiment
+            // Cela permet à l'IA de répondre après que l'utilisateur ait parlé
+            if (transcript && transcript.trim().length > 0 && !isJunkTranscript(transcript)) {
+              lastCommittedAt = nowMs();
+              userHasSpoken = true;
+              console.log("✅ Transcription utilisateur reçue, lastCommittedAt mis à jour:", { transcript: transcript.substring(0, 100), lastCommittedAt });
+            }
             
             // Détecter si le client accepte le consentement
             const userText = String(transcript || "").toLowerCase().trim();
