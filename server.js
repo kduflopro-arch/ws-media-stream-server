@@ -3934,23 +3934,9 @@ But: être naturel et mettre le client en confiance.`,
               const callDurationMs = nowMs() - callStartTimeMs;
               const timeSinceLastUserActivity = nowMs() - lastUserActivityMs;
               
-              // Détection de fin d'échange : chercher dans tout le texte (pas seulement la fin)
+              // Détection de fin d'échange : utiliser la fonction utilitaire pour éviter les faux positifs
+              const isGoodbye = isRealGoodbye(doneText);
               const fullText = doneText.trim().toLowerCase();
-              // CORRECTION: Patterns plus stricts pour éviter les faux positifs
-              // Ne détecter "au revoir" que si c'est vraiment à la fin de la phrase et après une interaction complète
-              const goodbyePatterns = [
-                "au revoir", "aurevoir", 
-                "merci et au revoir", "merci et bonne journée", "merci et bonne journee",
-                "à très bientôt", "a tres bientot", "à plus tard", "a plus tard",
-                "je vous souhaite une bonne journée", "je vous souhaite une bonne journee",
-                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
-                "bonne journée", "bonne journee", "bonne journée à vous", "bonne journee a vous", "bonne journée à vous !", "bonne journee a vous !"
-              ];
-              // Ne pas détecter "bonne journée" ou "bonne soirée" seuls car ils peuvent être dits pendant la conversation
-              // Exclure si le texte contient des questions ou des phrases incomplètes (l'IA ne doit pas raccrocher si elle pose une question)
-              const hasQuestion = fullText.includes("?") || fullText.includes("comment") || fullText.includes("quel") || fullText.includes("pourquoi") || fullText.includes("quand") || fullText.includes("où");
-              const isIncomplete = fullText.trim().endsWith(",") || fullText.trim().endsWith(":") || fullText.trim().endsWith("...");
-              const isGoodbye = goodbyePatterns.some(pattern => fullText.includes(pattern)) && !hasQuestion && !isIncomplete;
               // #region agent log - RÉSULTAT DÉTECTION GOODBYE
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3446',message:'GOODBYE RÉSULTAT',data:{fullText:fullText.substring(0,200),isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,matchedPatterns:goodbyePatterns.filter(p=>fullText.includes(p))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
               // #endregion
@@ -3964,14 +3950,14 @@ But: être naturel et mettre le client en confiance.`,
               const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 5000; // 5 secondes - attendre que le client ait fini de parler
               
               // #region agent log - DÉTECTION GOODBYE
-              if (isGoodbye || goodbyePatterns.some(pattern => fullText.includes(pattern))) {
-                fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3385',message:'GOODBYE DÉTECTÉ',data:{isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,minInactivity:MIN_USER_INACTIVITY_FOR_GOODBYE_MS,minCallDuration:MIN_CALL_DURATION_MS,fullText:fullText.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+              if (isGoodbye) {
+                fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3385',message:'GOODBYE DÉTECTÉ',data:{isGoodbye,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,minInactivity:MIN_USER_INACTIVITY_FOR_GOODBYE_MS,minCallDuration:MIN_CALL_DURATION_MS,fullText:fullText.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
               }
               // #endregion
               
               // CORRECTION: Si l'IA dit "au revoir", raccrocher immédiatement après que l'audio soit terminé
               // Ne pas attendre l'inactivité du client - l'IA a déjà dit au revoir, donc l'appel est terminé
-              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && !hasQuestion && !isIncomplete) {
+              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS) {
                 goodbyeDetected = true;
                 console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique après que l'audio soit terminé", {
                   callDuration: Math.round(callDurationMs / 1000) + "s",
@@ -4296,23 +4282,9 @@ But: être naturel et mettre le client en confiance.`,
               const callDurationMs = nowMs() - callStartTimeMs;
               const timeSinceLastUserActivity = nowMs() - lastUserActivityMs;
               
-              // Détection de fin d'échange : chercher dans tout le texte (pas seulement la fin)
+              // Détection de fin d'échange : utiliser la fonction utilitaire pour éviter les faux positifs
+              const isGoodbye = isRealGoodbye(doneText);
               const fullText = doneText.trim().toLowerCase();
-              // CORRECTION: Patterns plus stricts pour éviter les faux positifs
-              // Ne détecter "au revoir" que si c'est vraiment à la fin de la phrase et après une interaction complète
-              const goodbyePatterns = [
-                "au revoir", "aurevoir", 
-                "merci et au revoir", "merci et bonne journée", "merci et bonne journee",
-                "à très bientôt", "a tres bientot", "à plus tard", "a plus tard",
-                "je vous souhaite une bonne journée", "je vous souhaite une bonne journee",
-                "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
-                "bonne journée", "bonne journee", "bonne journée à vous", "bonne journee a vous", "bonne journée à vous !", "bonne journee a vous !"
-              ];
-              // Ne pas détecter "bonne journée" ou "bonne soirée" seuls car ils peuvent être dits pendant la conversation
-              // Exclure si le texte contient des questions ou des phrases incomplètes (l'IA ne doit pas raccrocher si elle pose une question)
-              const hasQuestion = fullText.includes("?") || fullText.includes("comment") || fullText.includes("quel") || fullText.includes("pourquoi") || fullText.includes("quand") || fullText.includes("où");
-              const isIncomplete = fullText.trim().endsWith(",") || fullText.trim().endsWith(":") || fullText.trim().endsWith("...");
-              const isGoodbye = goodbyePatterns.some(pattern => fullText.includes(pattern)) && !hasQuestion && !isIncomplete;
               // #region agent log - RÉSULTAT DÉTECTION GOODBYE
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3446',message:'GOODBYE RÉSULTAT',data:{fullText:fullText.substring(0,200),isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,matchedPatterns:goodbyePatterns.filter(p=>fullText.includes(p))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
               // #endregion
@@ -4326,14 +4298,14 @@ But: être naturel et mettre le client en confiance.`,
               const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 5000; // 5 secondes - attendre que le client ait fini de parler
               
               // #region agent log - DÉTECTION GOODBYE
-              if (isGoodbye || goodbyePatterns.some(pattern => fullText.includes(pattern))) {
-                fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3385',message:'GOODBYE DÉTECTÉ',data:{isGoodbye,hasQuestion,isIncomplete,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,minInactivity:MIN_USER_INACTIVITY_FOR_GOODBYE_MS,minCallDuration:MIN_CALL_DURATION_MS,fullText:fullText.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+              if (isGoodbye) {
+                fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3385',message:'GOODBYE DÉTECTÉ',data:{isGoodbye,goodbyeDetected,callDurationMs,timeSinceLastUserActivity,minInactivity:MIN_USER_INACTIVITY_FOR_GOODBYE_MS,minCallDuration:MIN_CALL_DURATION_MS,fullText:fullText.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
               }
               // #endregion
               
               // CORRECTION: Si l'IA dit "au revoir", raccrocher immédiatement après que l'audio soit terminé
               // Ne pas attendre l'inactivité du client - l'IA a déjà dit au revoir, donc l'appel est terminé
-              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && !hasQuestion && !isIncomplete) {
+              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS) {
                 goodbyeDetected = true;
                 console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique après que l'audio soit terminé", {
                   callDuration: Math.round(callDurationMs / 1000) + "s",
