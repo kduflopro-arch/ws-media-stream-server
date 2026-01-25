@@ -443,7 +443,9 @@ wss.on("connection", (ws, req) => {
       if (!callSid) return;
       const finalizeUrl = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/realtime-finalize");
       await ingestChain.catch(() => {});
-      await fetch(finalizeUrl, {
+      
+      console.log("🧾 Envoi finalize à AutoGuru...", { finalizeUrl, callSid, reason });
+      const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -454,8 +456,22 @@ wss.on("connection", (ws, req) => {
           appointmentMode: appointmentMode || null,
           reason,
         }),
-      }).catch(() => {});
-      console.log("🧾 Finalize envoyé à AutoGuru.", { reason });
+      }).catch((err) => {
+        console.error("❌ Erreur lors de l'appel à realtime-finalize:", err);
+        return null;
+      });
+
+      if (finalizeResponse) {
+        if (!finalizeResponse.ok) {
+          const errorText = await finalizeResponse.text().catch(() => "unknown error");
+          console.error("❌ realtime-finalize a retourné une erreur:", finalizeResponse.status, errorText);
+        } else {
+          const result = await finalizeResponse.json().catch(() => null);
+          console.log("✅ Finalize réussi:", result);
+        }
+      } else {
+        console.error("❌ Impossible d'appeler realtime-finalize (fetch a échoué)");
+      }
     } catch {
       // ignore
     }
