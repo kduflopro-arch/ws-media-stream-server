@@ -1558,6 +1558,24 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // #region agent log - MINIMAX TERMINÉ
       fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1462',message:'MINIMAX TERMINÉ',data:{premiumTtsInFlight:false,outboundQueuedBytes,outboundQueueLen:outboundQueue.length,backlogFrames:Math.floor(outboundQueuedBytes/160),backlogSeconds:Math.round((outboundQueuedBytes/160)*0.02*10)/10},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
       // #endregion
+      
+      // Réactiver l'input audio après que l'IA a fini de parler
+      // Attendre que le backlog soit vidé avant de réactiver
+      const checkAndReenableInput = () => {
+        if (outboundQueuedBytes === 0 && outboundQueue.length === 0) {
+          // L'audio a été complètement envoyé, on peut réactiver l'input
+          // L'input audio sera automatiquement réactivé au prochain input_audio_buffer.append
+          // On n'a pas besoin de faire quoi que ce soit, l'API Realtime gère cela automatiquement
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1557',message:'INPUT AUDIO READY - IA a fini de parler',data:{premiumTtsInFlight:false,outboundQueuedBytes,outboundQueueLen:outboundQueue.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
+        } else {
+          // Le backlog n'est pas encore vidé, réessayer dans 100ms
+          setTimeout(checkAndReenableInput, 100);
+        }
+      };
+      // Vérifier immédiatement et aussi après un court délai pour être sûr
+      setTimeout(checkAndReenableInput, 200);
     } catch (err) {
       premiumTtsInFlight = false;
       // #region agent log - MINIMAX ERREUR
