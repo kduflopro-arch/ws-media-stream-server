@@ -1259,6 +1259,20 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     premiumTtsInFlight = true;
     premiumTtsLastError = null;
+    
+    // Désactiver l'input audio pendant que l'IA parle pour éviter de capturer des sons
+    if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+      try {
+        openaiWs.send(JSON.stringify({
+          type: "input_audio_buffer.clear"
+        }));
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1260',message:'INPUT AUDIO CLEAR - IA commence à parler (Minimax)',data:{premiumTtsInFlight:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+      } catch (err) {
+        console.warn("⚠️ Erreur lors de la désactivation de l'input audio:", err);
+      }
+    }
 
     let minimaxWs = null;
     try {
@@ -1629,6 +1643,20 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     premiumTtsInFlight = true;
     premiumTtsLastError = null;
+    
+    // Désactiver l'input audio pendant que l'IA parle pour éviter de capturer des sons
+    if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+      try {
+        openaiWs.send(JSON.stringify({
+          type: "input_audio_buffer.clear"
+        }));
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1630',message:'INPUT AUDIO CLEAR - IA commence à parler (ElevenLabs)',data:{premiumTtsInFlight:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+      } catch (err) {
+        console.warn("⚠️ Erreur lors de la désactivation de l'input audio:", err);
+      }
+    }
 
     try {
       const url =
