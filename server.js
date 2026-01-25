@@ -674,6 +674,49 @@ wss.on("connection", (ws, req) => {
     return /\b(non|pas du tout|nan|nann|nope|laisse tomber)\b/.test(t);
   }
 
+  // Fonction utilitaire pour détecter si un texte est un vrai goodbye (pas juste "bonne journée" dans une phrase normale)
+  function isRealGoodbye(text) {
+    const fullText = String(text || "").trim().toLowerCase();
+    if (!fullText) return false;
+    
+    // Patterns stricts pour les vrais goodbyes
+    const goodbyePatterns = [
+      "au revoir", "aurevoir", 
+      "merci et au revoir", "merci et bonne journée", "merci et bonne journee",
+      "à très bientôt", "a tres bientot", "à plus tard", "a plus tard",
+      "je vous souhaite une bonne journée", "je vous souhaite une bonne journee",
+      "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
+      // "bonne journée" seul n'est PAS un goodbye - seulement si précédé de "au revoir" ou "merci"
+      "au revoir et bonne journée", "aurevoir et bonne journee", "au revoir, bonne journée", "aurevoir, bonne journee"
+    ];
+    
+    // Patterns pour détecter "bonne journée" seul (ne PAS considérer comme goodbye dans une phrase normale)
+    const standaloneGoodbyePatterns = [
+      "bonne journée", "bonne journee", "bonne journée à vous", "bonne journee a vous", "bonne journée à vous !", "bonne journee a vous !"
+    ];
+    
+    // Exclure si le texte contient des questions ou des phrases incomplètes
+    const hasQuestion = fullText.includes("?") || fullText.includes("comment") || fullText.includes("quel") || fullText.includes("pourquoi") || fullText.includes("quand") || fullText.includes("où");
+    const isIncomplete = fullText.trim().endsWith(",") || fullText.trim().endsWith(":") || fullText.trim().endsWith("...");
+    
+    // Vérifier les patterns stricts
+    const hasStrictGoodbye = goodbyePatterns.some(pattern => fullText.includes(pattern));
+    
+    // Vérifier "bonne journée" seul (seulement si vraiment à la fin et pas dans une phrase normale)
+    const isStandaloneGoodbye = standaloneGoodbyePatterns.some(pattern => {
+      const patternIndex = fullText.indexOf(pattern);
+      if (patternIndex === -1) return false;
+      // Vérifier que "bonne journée" est à la fin du texte (derniers 50 caractères)
+      const textAfterPattern = fullText.substring(patternIndex + pattern.length);
+      const isAtEnd = textAfterPattern.length < 50;
+      // Ne pas détecter si c'est dans une phrase normale de conclusion (ex: "Je vais transmettre... Bonne journée")
+      const isNormalConclusion = fullText.includes("transmettre") || fullText.includes("rappelleront") || fullText.includes("confirmer") || fullText.includes("demande");
+      return isAtEnd && !isNormalConclusion;
+    });
+    
+    return (hasStrictGoodbye || isStandaloneGoodbye) && !hasQuestion && !isIncomplete;
+  }
+
   function isJunkTranscript(text) {
     const t = String(text || "").toLowerCase();
     if (!t) return true;
