@@ -4614,6 +4614,15 @@ But: être naturel et mettre le client en confiance.`,
             enqueueIngest("user", transcript);
             
             // CORRECTION: Mettre à jour lastCommittedAt quand l'utilisateur parle vraiment
+            // Vérifier que la transcription n'est pas vide et n'est pas du bruit
+            if (transcript && transcript.trim() && !isJunkTranscript(transcript)) {
+              lastCommittedAt = nowMs();
+              userHasSpoken = true;
+              lastUserActivityMs = nowMs();
+              // #region agent log - MISE À JOUR lastCommittedAt
+              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4616',message:'MISE À JOUR lastCommittedAt',data:{transcript:transcript.substring(0,100),lastCommittedAt,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+              // #endregion
+            }
             // Cela permet à l'IA de répondre après que l'utilisateur ait parlé
             if (transcript && transcript.trim().length > 0 && !isJunkTranscript(transcript)) {
               lastCommittedAt = nowMs();
