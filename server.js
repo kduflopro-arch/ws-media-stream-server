@@ -5351,7 +5351,7 @@ But: être naturel et mettre le client en confiance.`,
                           // CORRECTION: Détecter les confirmations négatives ("non, du tout", "c'est tout", "plus besoin")
                           // Ces phrases signifient que le client n'a plus besoin d'informations, donc le hangup doit continuer
                           // IMPORTANT: Ne pas détecter "oui" comme une confirmation négative - "oui" peut être une confirmation de rendez-vous
-                          const txtLower = txt.toLowerCase().trim();
+                          // txtLower est déjà déclaré plus haut, on le réutilise
                           const saidYesForAppointment = /\b(oui|d'accord|ok|bien sûr|c'est bon|parfait|oui je veux|oui je veux bien)\b/i.test(txtLower) && 
                                                         (txtLower.includes("rendez") || txtLower.includes("rdv") || txtLower.includes("rendez-vous"));
                           const isNegativeConfirmation = !saidYesForAppointment && /\b(non\s*,?\s*du\s*tout|c'est\s*tout|plus\s*besoin|rien\s*d'autre|pas\s*d'autre|plus\s*rien)\b/i.test(txtLower);
