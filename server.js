@@ -1174,8 +1174,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
 
   async function speakWithMinimaxNow(text, { interrupt = true } = {}) {
-    // LOG TRÈS VISIBLE au tout début pour tracer chaque appel (avec et sans emojis pour compatibilité)
     const rawText = String(text || "").substring(0, 200);
+    console.log(`🔊 Minimax TTS entry: "${rawText.substring(0, 80)}${rawText.length > 80 ? "…" : ""}"`);
     const lastTextPreview = premiumTtsLastText ? premiumTtsLastText.substring(0, 50) : "null";
     if (LOG_TTS) {
       console.log(`[TTS-MINIMAX] ENTRÉE [interrupt=${interrupt}] [inFlight=${premiumTtsInFlight}] [lastText=${lastTextPreview}]`);
@@ -1594,6 +1594,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       setTimeout(checkAndReenableInput, 200);
     } catch (err) {
       premiumTtsInFlight = false;
+      const errorMsg = err?.message || String(err);
+      console.log(`❌ Minimax TTS error: ${errorMsg}`);
       // #region agent log - MINIMAX ERREUR
       fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1464',message:'MINIMAX ERREUR',data:{error:err.message,premiumTtsInFlight:false,outboundQueuedBytes,outboundQueueLen:outboundQueue.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
       // #endregion
@@ -1606,7 +1608,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         console.log("🛑 Minimax TTS annulé (interrupt)");
         return;
       }
-      const errorMsg = err?.message || String(err);
       console.error("❌ Erreur Minimax TTS WebSocket:", errorMsg);
       premiumTtsLastError = errorMsg;
       // En cas d'erreur rate limit, attendre 60 secondes avant de réessayer
@@ -2093,7 +2094,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
 
   async function drainPremiumTtsQueue() {
-    if (premiumTtsDrainInFlight) return;
+    if (premiumTtsDrainInFlight) {
+      console.log(`🔊 drain skipped (premiumTtsDrainInFlight=true, queueLen=${premiumTtsQueue.length})`);
+      return;
+    }
     premiumTtsDrainInFlight = true;
     try {
       let lastProcessedText = "";
@@ -2104,6 +2108,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const jobNormalized = normalizeFrenchTtsText(job.text.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim();
         const lastNormalized = lastProcessedText ? normalizeFrenchTtsText(lastProcessedText.trim()).toLowerCase().replace(/[.,!?;:]/g, "").trim() : "";
         if (lastNormalized && jobNormalized === lastNormalized) {
+          console.log(`🔊 drain ignored duplicate: "${job.text.substring(0, 60)}…"`);
           if (LOG_TTS) {
             console.log(`[TTS-DRAIN] IGNORÉ (doublon dans la queue):`, job.text.substring(0, 120));
             console.log(`🔁 drainPremiumTtsQueue ignoré (doublon dans la queue):`, job.text.substring(0, 120));
@@ -2111,8 +2116,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           continue;
         }
         lastProcessedText = job.text;
-        // Interrupt a déjà été géré à l'enqueue: ici on ne re-clear pas l'audio.
+        const preview = job.text.substring(0, 70) + (job.text.length > 70 ? "…" : "");
         if (PREMIUM_TTS_PROVIDER === "minimax") {
+          console.log(`🔊 drain calling speakWithMinimaxNow: "${preview}"`);
           await speakWithMinimaxNow(job.text, { interrupt: false });
         } else if (PREMIUM_TTS_PROVIDER === "elevenlabs") {
           await speakWithElevenLabsNow(job.text, { interrupt: false });
