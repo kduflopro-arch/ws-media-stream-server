@@ -465,7 +465,9 @@ wss.on("connection", (ws, req) => {
       if (finalizeResponse) {
         if (!finalizeResponse.ok) {
           const errorText = await finalizeResponse.text().catch(() => "unknown error");
-          console.error("❌ realtime-finalize a retourné une erreur:", finalizeResponse.status, errorText);
+          let errObj = {};
+          try { errObj = JSON.parse(errorText); } catch (_) {}
+          console.error("❌ realtime-finalize a retourné une erreur:", finalizeResponse.status, errObj.error || errorText, errObj.message || "");
         } else {
           const result = await finalizeResponse.json().catch(() => null);
           console.log("✅ Finalize réussi:", result);
