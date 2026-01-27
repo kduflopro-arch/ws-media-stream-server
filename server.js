@@ -455,6 +455,7 @@ wss.on("connection", (ws, req) => {
           fromNumber: fromNumber || null,
           appointmentMode: appointmentMode || null,
           reason,
+          plate_confirmed_by_client: plateConfirmedByClient,
         }),
       }).catch((err) => {
         console.error("❌ Erreur lors de l'appel à realtime-finalize:", err);
@@ -675,6 +676,7 @@ wss.on("connection", (ws, req) => {
   let plateSmsPollTimer = null;
   let plateSmsSendOnFinalize = false;
   let plateSmsAlreadyMentioned = false; // Track si l'IA a déjà mentionné l'envoi d'un SMS pour la plaque
+  let plateConfirmedByClient = false;  // Si true: client a confirmé la plaque énoncée par l'IA pour le RDV → pas de SMS, valider en dossier
 
   // --- Hangup automatique après au revoir ---
   // (Variables déplacées en haut de la fonction wss.on("connection") pour éviter les erreurs de scope)
@@ -4259,6 +4261,14 @@ But: être naturel et mettre le client en confiance.`,
                     // #region agent log - RATE LIMIT
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4241',message:'RATE LIMIT - Réponse bloquée',data:{rid,status:respStatus,retryAfterSeconds,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
                     // #endregion
+                    // Retry: relancer response.create après le délai indiqué par OpenAI pour éviter "je dois répéter"
+                    const delayMs = Math.ceil((retryAfterSeconds || 2) * 1000);
+                    console.log("🔄 Retry response.create dans", delayMs, "ms (rate limit)");
+                    setTimeout(() => {
+                      if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+                        requestResponseCreate("rate_limit_retry");
+                      }
+                    }, delayMs);
                   } else if (isInsufficientQuota) {
                     console.error("❌ QUOTA INSUFFISANT - Réponse bloquée:", { rid, message: respStatusDetails?.error?.message?.substring(0, 200) });
                     // #region agent log - QUOTA
@@ -4321,9 +4331,9 @@ But: être naturel et mettre le client en confiance.`,
                 console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, confirmsPlate, textPreview: doneText.substring(0, 100) });
               } else if (confirmsPlate) {
                 console.log("✅ Client confirme la plaque existante, SMS non nécessaire:", { textPreview: doneText.substring(0, 100) });
-                // S'assurer que plateSmsSendOnFinalize est false si le client confirme
                 plateSmsSendOnFinalize = false;
-                plateSmsAlreadyMentioned = true; // Éviter de proposer à nouveau
+                plateSmsAlreadyMentioned = true;
+                plateConfirmedByClient = true; // IA confirme que le client a validé la plaque pour le RDV
               }
               // Détecter si l'IA dit au revoir ou si l'échange est terminé
               const callDurationMs = nowMs() - callStartTimeMs;
@@ -4722,9 +4732,9 @@ But: être naturel et mettre le client en confiance.`,
                 console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, confirmsPlate, textPreview: doneText.substring(0, 100) });
               } else if (confirmsPlate) {
                 console.log("✅ IA confirme plaque existante, SMS non nécessaire:", { textPreview: doneText.substring(0, 100) });
-                // S'assurer que plateSmsSendOnFinalize est false si confirmation détectée
                 plateSmsSendOnFinalize = false;
-                plateSmsAlreadyMentioned = true; // Éviter de proposer à nouveau
+                plateSmsAlreadyMentioned = true;
+                plateConfirmedByClient = true; // IA confirme que le client a validé la plaque pour le RDV
               }
               // Détecter si l'IA dit au revoir ou si l'échange est terminé
               const callDurationMs = nowMs() - callStartTimeMs;
@@ -5124,6 +5134,7 @@ But: être naturel et mettre le client en confiance.`,
               console.log("✅ Client confirme la plaque existante, désactivation SMS:", { userText });
               plateSmsSendOnFinalize = false;
               plateSmsAlreadyMentioned = true; // Éviter de proposer à nouveau
+              plateConfirmedByClient = true;   // RDV: ne pas envoyer de SMS, valider la plaque en dossier
               // #region agent log
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3990',message:'PLATE SMS DÉSACTIVÉ (confirmation plaque)',data:{userText:userText.substring(0,200),plateSmsSendOnFinalize:false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
               // #endregion
@@ -5843,6 +5854,7 @@ But: être naturel et mettre le client en confiance.`,
                           // CRITIQUE: Mettre à false AVANT de mettre plateSmsAlreadyMentioned à true
                           plateSmsSendOnFinalize = false;
                           plateSmsAlreadyMentioned = true; // Marquer que la plaque a été confirmée pour éviter l'envoi de SMS
+                          plateConfirmedByClient = true;   // RDV: ne pas envoyer de SMS, valider la plaque en dossier
                           // Si on a la plaque du client dans clientInfo, l'envoyer à l'API de finalisation pour mise à jour
                           if (clientInfo?.plate) {
                             enqueueIngest("user", `Plaque confirmée: ${clientInfo.plate}`);
@@ -6110,10 +6122,12 @@ But: être naturel et mettre le client en confiance.`,
           goodbyeTimer = null;
         }
         // Vérifier si le client a confirmé la plaque avant d'envoyer le SMS
-        // Si plateSmsAlreadyMentioned est true, cela signifie que le client a confirmé la plaque
-        // et qu'on ne doit pas envoyer de SMS (plateSmsSendOnFinalize devrait être false)
+        // Si plateConfirmedByClient ou plateSmsAlreadyMentioned: pas de SMS, valider la plaque en dossier
+        if (plateConfirmedByClient) {
+          plateSmsSendOnFinalize = false;
+          console.log("ℹ️ SMS plaque non envoyé car client a confirmé la plaque pour le RDV (plateConfirmedByClient=true)");
+        }
         if (plateSmsAlreadyMentioned && plateSmsSendOnFinalize) {
-          // Le client a confirmé la plaque mais plateSmsSendOnFinalize est encore true, corriger
           console.log("ℹ️ SMS plaque non envoyé car client a confirmé la plaque existante (plateSmsAlreadyMentioned=true)");
           plateSmsSendOnFinalize = false;
         }
@@ -6182,6 +6196,7 @@ But: être naturel et mettre le client en confiance.`,
 
   ws.on("close", () => {
     console.log("🔌 Connection closed. Media frames total:", mediaCount);
+    if (plateConfirmedByClient) plateSmsSendOnFinalize = false;
     if (plateSmsSendOnFinalize) {
       const shouldSend = plateSmsSendOnFinalize;
       plateSmsSendOnFinalize = false;
