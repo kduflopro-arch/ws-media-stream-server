@@ -5203,9 +5203,10 @@ But: être naturel et mettre le client en confiance.`,
 
           if (msg.type === "input_audio_buffer.committed") {
             appendedBytes = 0;
-            // CORRECTION: Ne mettre à jour lastCommittedAt QUE si on a vraiment reçu de la parole utilisateur
-            // Vérifier qu'il y a une transcription récente ou que speechActive était vrai
-            const hasRealSpeech = speechActive || (nowMs() - lastSpeechTs) < 2000;
+            // CORRECTION: Ne mettre à jour lastCommittedAt QUE si on a vraiment reçu de la parole utilisateur.
+            // Fenêtre large (15s) : une phrase utilisateur peut durer plusieurs secondes ; 2s rejetait les vrais messages.
+            const COMMIT_SPEECH_WINDOW_MS = Number(process.env.COMMIT_SPEECH_WINDOW_MS ?? "15000");
+            const hasRealSpeech = speechActive || (nowMs() - lastSpeechTs) < COMMIT_SPEECH_WINDOW_MS;
             // #region agent log
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4651',message:'input_audio_buffer.committed',data:{itemId:msg.item_id,previousItemId:msg.previous_item_id,speechActive,lastSpeechTs,timeSinceSpeech:nowMs()-lastSpeechTs,hasRealSpeech,bytesSinceSpeechStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
             // #endregion
