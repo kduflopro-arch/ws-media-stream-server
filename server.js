@@ -4246,15 +4246,23 @@ But: être naturel et mettre le client en confiance.`,
                 } else if (msg.response?.output) {
                   // Debug approfondi si aucun texte n'a pu être extrait alors que output existe
                   console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
-                  // Vérifier si c'est un rate limit
-                  const isRateLimit = status === 'failed' && statusDetails?.error?.code === 'rate_limit_exceeded';
+                  // Vérifier si c'est un rate limit ou quota insuffisant (resp depuis msg.response car hors scope du try plus haut)
+                  const respStatus = msg.response?.status;
+                  const respStatusDetails = msg.response?.status_details || msg.response?.statusDetails || null;
+                  const isRateLimit = respStatus === 'failed' && respStatusDetails?.error?.code === 'rate_limit_exceeded';
+                  const isInsufficientQuota = respStatus === 'failed' && respStatusDetails?.error?.code === 'insufficient_quota';
                   if (isRateLimit) {
-                    const rateLimitMsg = statusDetails?.error?.message || '';
+                    const rateLimitMsg = respStatusDetails?.error?.message || '';
                     const retryAfterMatch = rateLimitMsg.match(/try again in ([\d.]+)s/);
                     const retryAfterSeconds = retryAfterMatch ? parseFloat(retryAfterMatch[1]) : null;
                     console.error("❌ RATE LIMIT DÉTECTÉ - Réponse bloquée:", { rid, retryAfterSeconds, rateLimitMsg: rateLimitMsg.substring(0, 200) });
                     // #region agent log - RATE LIMIT
-                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4241',message:'RATE LIMIT - Réponse bloquée',data:{rid,status,retryAfterSeconds,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4241',message:'RATE LIMIT - Réponse bloquée',data:{rid,status:respStatus,retryAfterSeconds,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                    // #endregion
+                  } else if (isInsufficientQuota) {
+                    console.error("❌ QUOTA INSUFFISANT - Réponse bloquée:", { rid, message: respStatusDetails?.error?.message?.substring(0, 200) });
+                    // #region agent log - QUOTA
+                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4252',message:'QUOTA INSUFFISANT - Réponse bloquée',data:{rid,status:respStatus,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
                     // #endregion
                   }
                   // Toujours logguer la structure brute (tronquée) pour pouvoir ajuster l'extracteur
