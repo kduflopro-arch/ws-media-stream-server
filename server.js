@@ -1191,12 +1191,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // #region agent log - MINIMAX_GUARD_CHECK
     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1178',message:'MINIMAX_GUARD_CHECK',data:{enabled:PREMIUM_TTS_ENABLED,provider:PREMIUM_TTS_PROVIDER,bypassUntil:premiumTtsBypassUntilMs,now:Date.now(),hasMinimaxKey:!!MINIMAX_API_KEY,hasMinimaxGroup:!!MINIMAX_GROUP_ID},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'MINIMAX_GUARD'})}).catch(()=>{});
     // #endregion
+    const selectedVoiceIdPreview = assistantVoice === "male"
+      ? (MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT)
+      : (MINIMAX_VOICE_ID_FEMALE || MINIMAX_VOICE_ID_DEFAULT);
     console.log("🔊 [Minimax] guards:", {
       enabled: PREMIUM_TTS_ENABLED,
       provider: PREMIUM_TTS_PROVIDER,
       bypassUntil: premiumTtsBypassUntilMs,
+      now: nowMs(),
+      inBypass: nowMs() < premiumTtsBypassUntilMs,
       hasMinimaxKey: !!MINIMAX_API_KEY,
       hasMinimaxGroup: !!MINIMAX_GROUP_ID,
+      hasVoice: !!(selectedVoiceIdPreview && selectedVoiceIdPreview.trim()),
+      voicePreview: selectedVoiceIdPreview ? String(selectedVoiceIdPreview).substring(0, 30) + "…" : "MISSING",
     });
     const lastTextPreview = premiumTtsLastText ? premiumTtsLastText.substring(0, 50) : "null";
     if (LOG_TTS) {
@@ -1223,22 +1230,21 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return;
     }
     if (nowMs() < premiumTtsBypassUntilMs) {
-      if (LOG_TTS) {
-        console.log(`[TTS-MINIMAX] SORTIE: bypass actif jusqu'à ${premiumTtsBypassUntilMs}`);
-        console.log(`🚨 speakWithMinimaxNow SORTIE: bypass actif jusqu'à ${premiumTtsBypassUntilMs}`);
-      }
+      const remainingMin = Math.ceil((premiumTtsBypassUntilMs - nowMs()) / 60000);
+      console.warn(`🔊 Minimax SORTIE: bypass actif (reste ~${remainingMin} min). Pas de TTS jusqu'à la fin du bypass.`);
       return;
     }
     const selectedVoiceId =
       assistantVoice === "male"
         ? (MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT)
         : (MINIMAX_VOICE_ID_FEMALE || MINIMAX_VOICE_ID_DEFAULT);
-    if (!MINIMAX_API_KEY || !selectedVoiceId) {
-      console.error("❌ PREMIUM_TTS activé mais MINIMAX_API_KEY ou MINIMAX_VOICE_ID manquants.");
-      premiumTtsLastError = "Configuration Minimax incomplète";
+    if (!MINIMAX_API_KEY || !selectedVoiceId || !String(selectedVoiceId).trim()) {
+      console.error("❌ PREMIUM_TTS activé mais MINIMAX_API_KEY ou MINIMAX_VOICE_ID manquants. Définir MINIMAX_VOICE_ID (ex: French_Female_News Anchor) sur Render.");
+      premiumTtsLastError = "Configuration Minimax incomplète (clé ou voix manquante)";
       premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
       return;
     }
+    console.log("🔊 Minimax: bypass OK, voix OK → connexion WebSocket...");
     // MINIMAX_GROUP_ID optionnel : sans GroupId = facturation sur le solde (pay-as-you-go) ; avec GroupId = crédits abonnement Audio du groupe (doc officielle n'utilise pas GroupId pour le WebSocket T2A).
     const rawTextBeforeNormalization = (text || "").trim();
     // #region agent log - AVANT NORMALISATION
