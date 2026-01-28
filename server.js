@@ -375,6 +375,7 @@ wss.on("connection", (ws, req) => {
     provider: PREMIUM_TTS_PROVIDER,
     hasMinimaxKey: !!MINIMAX_API_KEY,
     hasMinimaxGroup: !!MINIMAX_GROUP_ID,
+    minimaxBilling: MINIMAX_GROUP_ID ? "abonnement (GroupId)" : "solde pay-as-you-go",
     minimaxDefaultVoice: MINIMAX_VOICE_ID_DEFAULT ? "set" : "missing",
   });
   const MAX_TTS_CHARS = Number(process.env.MAX_TTS_CHARS ?? "520");
@@ -1232,12 +1233,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       assistantVoice === "male"
         ? (MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT)
         : (MINIMAX_VOICE_ID_FEMALE || MINIMAX_VOICE_ID_DEFAULT);
-    if (!MINIMAX_API_KEY || !MINIMAX_GROUP_ID || !selectedVoiceId) {
-      console.error("❌ PREMIUM_TTS activé mais MINIMAX_API_KEY/MINIMAX_GROUP_ID/MINIMAX_VOICE_ID manquants.");
+    if (!MINIMAX_API_KEY || !selectedVoiceId) {
+      console.error("❌ PREMIUM_TTS activé mais MINIMAX_API_KEY ou MINIMAX_VOICE_ID manquants.");
       premiumTtsLastError = "Configuration Minimax incomplète";
       premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
       return;
     }
+    // MINIMAX_GROUP_ID optionnel : sans GroupId = facturation sur le solde (pay-as-you-go) ; avec GroupId = crédits abonnement Audio du groupe (doc officielle n'utilise pas GroupId pour le WebSocket T2A).
     const rawTextBeforeNormalization = (text || "").trim();
     // #region agent log - AVANT NORMALISATION
     if (rawTextBeforeNormalization.includes('euros') || rawTextBeforeNormalization.includes('€') || rawTextBeforeNormalization.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/) || rawTextBeforeNormalization.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i)) {
@@ -1299,11 +1301,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
     let minimaxWs = null;
     try {
-      // API Minimax TTS WebSocket selon la documentation: https://platform.minimax.io/docs/guides/speech-t2a-websocket
-      // Ajouter GroupId dans l'URL si disponible
+      // API Minimax TTS WebSocket : https://platform.minimax.io/docs/guides/speech-t2a-websocket
+      // Sans GroupId = facturation sur le solde du compte (pay-as-you-go). Avec GroupId = crédits de l'abonnement Audio du groupe.
       let wsUrl = "wss://api.minimax.io/ws/v1/t2a_v2";
       if (MINIMAX_GROUP_ID) {
         wsUrl += `?GroupId=${encodeURIComponent(MINIMAX_GROUP_ID)}`;
+      } else {
+        console.log("🔊 Minimax: pas de GroupId → facturation sur le solde (pay-as-you-go).");
       }
       const apiKey = MINIMAX_API_KEY.startsWith("Bearer ") ? MINIMAX_API_KEY.substring(7) : MINIMAX_API_KEY;
       

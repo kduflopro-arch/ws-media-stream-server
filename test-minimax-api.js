@@ -1,24 +1,25 @@
 // Script de test pour l'API Minimax TTS
-// Usage: node test-minimax-api.js
+// Usage: MINIMAX_API_KEY=xxx MINIMAX_GROUP_ID=yyy node test-minimax-api.js
+// Clé provisoire : à révoquer après le test sur platform.minimax.io
 
-const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY || "sk-api-NCjZ4fIrTdtt89LRJU_A8GgYdnKp9oUizFriZeQy6nhEGKujfk3A8HH7k0F066vImomK_SKIrPIVpnVPPXBIeYsOBAJu_Zg_CqnHh5vZ1t3pEjdsku5Zt-g";
-const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID || "2011503273374126308";
+const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY;
+const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID;
 const MINIMAX_VOICE_ID = process.env.MINIMAX_VOICE_ID || "French_Female_News Anchor";
 
 async function testMinimaxAPI() {
   console.log("🧪 Test API Minimax TTS\n");
+
+  if (!MINIMAX_API_KEY || !MINIMAX_GROUP_ID) {
+    console.error("❌ Définissez MINIMAX_API_KEY et MINIMAX_GROUP_ID (clé provisoire, à révoquer après le test).");
+    console.error("   Exemple: MINIMAX_API_KEY=sk-... MINIMAX_GROUP_ID=... node test-minimax-api.js");
+    process.exit(1);
+  }
+
   console.log("Configuration:");
   console.log("  MINIMAX_API_KEY:", MINIMAX_API_KEY.substring(0, 20) + "...");
-  console.log("  MINIMAX_GROUP_ID:", MINIMAX_GROUP_ID || "(non défini)");
+  console.log("  MINIMAX_GROUP_ID:", MINIMAX_GROUP_ID);
   console.log("  MINIMAX_VOICE_ID:", MINIMAX_VOICE_ID);
   console.log("");
-
-  if (!MINIMAX_GROUP_ID) {
-    console.warn("⚠️ MINIMAX_GROUP_ID n'est pas défini !");
-    console.log("   Les tests vont quand même être effectués pour vérifier l'authentification.");
-    console.log("   Pour un test complet, définissez: export MINIMAX_GROUP_ID=votre_group_id");
-    console.log("");
-  }
 
   const testText = "Bonjour, ceci est un test de synthèse vocale.";
   

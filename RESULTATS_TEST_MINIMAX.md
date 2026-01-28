@@ -26,9 +26,11 @@
 
 ## Configuration à utiliser dans Render
 
+Définir les variables d'environnement (sans exposer la clé dans le repo) :
+
 ```bash
-MINIMAX_API_KEY=sk-api-NCjZ4fIrTdtt89LRJU_A8GgYdnKp9oUizFriZeQy6nhEGKujfk3A8HH7k0F066vImomK_SKIrPIVpnVPPXBIeYsOBAJu_Zg_CqnHh5vZ1t3pEjdsku5Zt-g
-MINIMAX_GROUP_ID=2011503273374126308
+MINIMAX_API_KEY=<votre_clé>
+MINIMAX_GROUP_ID=<votre_group_id>
 MINIMAX_VOICE_ID=French_Female_News Anchor
 ```
 

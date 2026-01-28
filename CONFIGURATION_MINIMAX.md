@@ -13,9 +13,9 @@ PREMIUM_TTS_ENABLED=true
 # Sélectionner Minimax comme fournisseur
 PREMIUM_TTS_PROVIDER=minimax
 
-# Clés API Minimax (obligatoires)
-MINIMAX_API_KEY=votre_clé_api_minimax
-MINIMAX_GROUP_ID=votre_group_id_minimax
+# Clés API Minimax
+MINIMAX_API_KEY=votre_clé_api_minimax   # Obligatoire
+MINIMAX_GROUP_ID=votre_group_id_minimax  # Optionnel : si défini = crédits abonnement Audio du groupe ; si non défini = facturation sur le solde du compte (pay-as-you-go). En cas d'erreur 2053 "insufficient credit" avec un abonnement, essayer sans MINIMAX_GROUP_ID pour utiliser le solde.
 
 # IDs de voix (au moins un requis)
 MINIMAX_VOICE_ID=votre_voice_id_par_défaut
@@ -75,7 +75,10 @@ Si Minimax échoue (erreur API, quota dépassé, etc.), le système bascule auto
 ## Dépannage
 
 ### Erreur "Configuration Minimax incomplète"
-- Vérifiez que `MINIMAX_API_KEY`, `MINIMAX_GROUP_ID` et au moins un `MINIMAX_VOICE_ID` sont définis
+- Vérifiez que `MINIMAX_API_KEY` et au moins un `MINIMAX_VOICE_ID` sont définis. `MINIMAX_GROUP_ID` est optionnel (voir ci-dessus).
+
+### Erreur 2053 "insufficient credit"
+- Si vous avez un abonnement Audio mais recevez 2053 : **retirez `MINIMAX_GROUP_ID`** des variables d'environnement (ou laissez-le vide) pour que la facturation utilise le **solde du compte** (pay-as-you-go) au lieu des crédits d'abonnement du groupe. Rechargez le solde sur https://platform.minimax.io/user-center/payment/balance si besoin.
 
 ### Pas d'audio généré
 - Vérifiez les logs pour les erreurs API Minimax
