@@ -1286,6 +1286,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       const apiKey = MINIMAX_API_KEY.startsWith("Bearer ") ? MINIMAX_API_KEY.substring(7) : MINIMAX_API_KEY;
       
+      console.log("🔊 Minimax: connecting WS...");
       if (LOG_MINIMAX_EVENTS) {
         console.log("🔌 Connexion Minimax WebSocket...", { url: wsUrl.replace(/GroupId=[^&]+/, "GroupId=***") });
       }
@@ -1318,6 +1319,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       });
 
       // Attendre la connexion
+      console.log("🔊 Minimax: waiting WS open (10s)...");
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error("Timeout connexion Minimax WebSocket (10s)"));
@@ -1333,6 +1335,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           reject(err);
         });
       });
+      console.log("🔊 Minimax: WS open, waiting connected_success (5s)...");
 
       // Attendre le message "connected_success"
       const waitForMessage = (eventName, timeoutMs = 5000) => {
@@ -1376,6 +1379,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       };
 
       const connectedMsg = await waitForMessage("connected_success");
+      console.log("🔊 Minimax: connected_success ok");
       if (LOG_MINIMAX_EVENTS) console.log("✅ Minimax WebSocket connecté:", connectedMsg);
 
       // Démarrer la tâche TTS
@@ -1408,7 +1412,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       minimaxWs.send(JSON.stringify(taskStartMsg));
 
       // Attendre "task_started"
+      console.log("🔊 Minimax: waiting task_started (5s)...");
       const taskStartedMsg = await waitForMessage("task_started");
+      console.log("🔊 Minimax: task_started ok, sending text...");
       if (LOG_MINIMAX_EVENTS) console.log("✅ Tâche Minimax démarrée:", taskStartedMsg);
 
       // Envoyer le texte à Minimax
@@ -1426,12 +1432,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         console.log("📤 Longueur:", clean.length, "caractères");
       }
       minimaxWs.send(JSON.stringify(continueMsg));
+      console.log("🔊 Minimax: text sent, waiting audio (while loop, 30s timeout/msg)...");
 
       // Collecter l'audio en streaming - écouter tous les messages
       let audioData = Buffer.alloc(0);
       let chunkCounter = 0;
       let isFinal = false;
       let lastMessageTime = nowMs();
+      let firstMsgInLoop = true;
 
       while (!isFinal && !premiumTtsAbort.signal.aborted) {
         const msg = await new Promise((resolve, reject) => {
@@ -1458,6 +1466,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           checkForMessage();
         });
 
+        if (firstMsgInLoop) {
+          console.log(`🔊 Minimax: first msg in loop event=${msg.event || "data"} is_final=${!!msg.is_final} hasAudio=${!!(msg.data && msg.data.audio)}`);
+          firstMsgInLoop = false;
+        }
         if (LOG_MINIMAX_EVENTS) {
           console.log("📨 Minimax réponse:", msg.event || "data", {
             hasData: !!(msg.data),
@@ -5875,8 +5887,7 @@ But: être naturel et mettre le client en confiance.`,
                         if (goodbyeDetected && txt && txt.trim().length >= 3) {
                           // CORRECTION: Ne pas annuler le hangup si c'est juste du bruit ou une transcription erronée
                           // Vérifier que c'est vraiment une parole utilisateur pertinente (pas juste "Merci d'avoir regardé cette vidéo")
-                          // Ignorer les transcriptions qui semblent être du bruit ou des erreurs de transcription
-                          const txtLower = txt.toLowerCase().trim();
+                          // Ignorer les transcriptions qui semblent être du bruit ou des erreurs de transcription (txtLower déjà défini plus haut)
                           const isNoiseOrError = /^(merci d'avoir regardé|thank you for watching|subscribe|like|comment|vidéo|video|youtube|channel)/i.test(txtLower) ||
                                                  txtLower.includes("ontario") || txtLower.includes("partenariat") || 
                                                  txtLower.includes("réalisée") || txtLower.includes("réalisé");
