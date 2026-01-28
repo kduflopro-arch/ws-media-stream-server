@@ -366,6 +366,17 @@ wss.on("connection", (ws, req) => {
   let premiumTtsLastText = ""; // Dernier texte effectivement envoyé au TTS (pour éviter les répétitions exactes)
   let spokenResponseIds = new Map(); // responseId -> timestamp (anti-répétitions par réponse)
   let recentAssistantTexts = []; // Array<{ text: string, ts: number }>
+
+  // Log de configuration TTS au démarrage pour diagnostiquer les problèmes de voix sur Render
+  console.log("🔧 PREMIUM TTS config au démarrage:", {
+    envEnabled: process.env.PREMIUM_TTS_ENABLED,
+    computedEnabled: PREMIUM_TTS_ENABLED,
+    envProvider: process.env.PREMIUM_TTS_PROVIDER,
+    provider: PREMIUM_TTS_PROVIDER,
+    hasMinimaxKey: !!MINIMAX_API_KEY,
+    hasMinimaxGroup: !!MINIMAX_GROUP_ID,
+    minimaxDefaultVoice: MINIMAX_VOICE_ID_DEFAULT ? "set" : "missing",
+  });
   const MAX_TTS_CHARS = Number(process.env.MAX_TTS_CHARS ?? "520");
 
   // AutoGuru ingest (pour remplir "détails d'appel" même en mode Realtime)
@@ -1176,6 +1187,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   async function speakWithMinimaxNow(text, { interrupt = true } = {}) {
     const rawText = String(text || "").substring(0, 200);
     console.log(`🔊 Minimax TTS entry: "${rawText.substring(0, 80)}${rawText.length > 80 ? "…" : ""}"`);
+    // #region agent log - MINIMAX_GUARD_CHECK
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1178',message:'MINIMAX_GUARD_CHECK',data:{enabled:PREMIUM_TTS_ENABLED,provider:PREMIUM_TTS_PROVIDER,bypassUntil:premiumTtsBypassUntilMs,now:Date.now(),hasMinimaxKey:!!MINIMAX_API_KEY,hasMinimaxGroup:!!MINIMAX_GROUP_ID},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'MINIMAX_GUARD'})}).catch(()=>{});
+    // #endregion
+    console.log("🔊 [Minimax] guards:", {
+      enabled: PREMIUM_TTS_ENABLED,
+      provider: PREMIUM_TTS_PROVIDER,
+      bypassUntil: premiumTtsBypassUntilMs,
+      hasMinimaxKey: !!MINIMAX_API_KEY,
+      hasMinimaxGroup: !!MINIMAX_GROUP_ID,
+    });
     const lastTextPreview = premiumTtsLastText ? premiumTtsLastText.substring(0, 50) : "null";
     if (LOG_TTS) {
       console.log(`[TTS-MINIMAX] ENTRÉE [interrupt=${interrupt}] [inFlight=${premiumTtsInFlight}] [lastText=${lastTextPreview}]`);
