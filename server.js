@@ -1643,6 +1643,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       console.error("❌ Erreur Minimax TTS WebSocket:", errorMsg);
       premiumTtsLastError = errorMsg;
+      // Message explicite si Minimax retourne "insufficient credit" (2053)
+      if (errorMsg.includes("insufficient credit") || errorMsg.includes("2053")) {
+        console.error("💳 Minimax TTS: crédit insuffisant (status 2053). Vérifier: 1) Connexion à platform.minimax.io avec le MÊME compte que MINIMAX_API_KEY/GroupId. 2) Solde pour le produit TTS/Speech. 3) Les variables d'environnement sur Render pointent vers le bon compte.");
+      }
       // En cas d'erreur rate limit, attendre 60 secondes avant de réessayer
       if (errorMsg.includes("rate limit") || errorMsg.includes("1002")) {
         premiumTtsBypassUntilMs = nowMs() + 60 * 1000; // 1 min pour rate limit
