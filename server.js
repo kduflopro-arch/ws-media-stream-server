@@ -355,7 +355,7 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_VOICE_ID_MALE = process.env.MINIMAX_VOICE_ID_MALE ?? "";
   const MINIMAX_VOICE_ID_FEMALE = process.env.MINIMAX_VOICE_ID_FEMALE ?? "";
   const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-01"; // speech-01, speech-02, etc.
-  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1.05"); // 0.5 à 2.0 (1.05 = cadence légèrement plus rapide)
+  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1"); // 0.5 à 2.0
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0"); // 0.0 à 1.0
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0"); // -12 à 12
   let premiumTtsAbort = null;
@@ -3775,8 +3775,7 @@ ${garageClosed
             type: "realtime",
             instructions: `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}`,
             output_modalities: ["text"],
-            // temperature plus élevée = réponses plus naturelles, moins rigides (0.75)
-            ...(typeof LLM_TEMPERATURE === "number" && !Number.isNaN(LLM_TEMPERATURE) ? { temperature: LLM_TEMPERATURE } : {}),
+            // Pas de temperature ici: l'API Realtime peut renvoyer error "unknown_parameter"
           },
         };
         if (REALTIME_INPUT_TRANSCRIPTION_ENABLED) {
@@ -5205,7 +5204,8 @@ But: être naturel et mettre le client en confiance.`,
           }
           
           if (msg.type === "error") {
-            console.error("❌ Erreur OpenAI:", msg.error);
+            const err = msg.error || {};
+            console.error("❌ Erreur OpenAI:", err.code || "?", err.message || err, err.param ? `(param: ${err.param})` : "");
             // Auto-fix: si un param de session n'est pas supporté, on renvoie une session.update minimale
             // pour éviter un comportement "bizarre" (instructions partiellement appliquées).
             const errParam = String(msg?.error?.param ?? "");
