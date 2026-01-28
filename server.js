@@ -350,11 +350,12 @@ wss.on("connection", (ws, req) => {
   // Configuration Minimax TTS
   const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY ?? "";
   const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID ?? "";
+  const MINIMAX_USE_BALANCE = (process.env.MINIMAX_USE_BALANCE ?? "true").toLowerCase() === "true"; // true = facturation sur le solde (pas de GroupId), false = utiliser MINIMAX_GROUP_ID si défini
   const MINIMAX_VOICE_ID_DEFAULT = process.env.MINIMAX_VOICE_ID ?? "";
   const MINIMAX_VOICE_ID_MALE = process.env.MINIMAX_VOICE_ID_MALE ?? "";
   const MINIMAX_VOICE_ID_FEMALE = process.env.MINIMAX_VOICE_ID_FEMALE ?? "";
   const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-01"; // speech-01, speech-02, etc.
-  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "0.9"); // 0.5 à 2.0
+  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1.05"); // 0.5 à 2.0 (1.05 = cadence légèrement plus rapide)
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0"); // 0.0 à 1.0
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0"); // -12 à 12
   let premiumTtsAbort = null;
@@ -368,6 +369,7 @@ wss.on("connection", (ws, req) => {
   let recentAssistantTexts = []; // Array<{ text: string, ts: number }>
 
   // Log de configuration TTS au démarrage pour diagnostiquer les problèmes de voix sur Render
+  const minimaxBillingMode = MINIMAX_USE_BALANCE ? "solde (pay-as-you-go)" : (MINIMAX_GROUP_ID ? "abonnement (GroupId)" : "solde (défaut)");
   console.log("🔧 PREMIUM TTS config au démarrage:", {
     envEnabled: process.env.PREMIUM_TTS_ENABLED,
     computedEnabled: PREMIUM_TTS_ENABLED,
@@ -375,7 +377,8 @@ wss.on("connection", (ws, req) => {
     provider: PREMIUM_TTS_PROVIDER,
     hasMinimaxKey: !!MINIMAX_API_KEY,
     hasMinimaxGroup: !!MINIMAX_GROUP_ID,
-    minimaxBilling: MINIMAX_GROUP_ID ? "abonnement (GroupId)" : "solde pay-as-you-go",
+    minimaxUseBalance: MINIMAX_USE_BALANCE,
+    minimaxBilling: minimaxBillingMode,
     minimaxDefaultVoice: MINIMAX_VOICE_ID_DEFAULT ? "set" : "missing",
   });
   const MAX_TTS_CHARS = Number(process.env.MAX_TTS_CHARS ?? "520");
@@ -854,7 +857,7 @@ wss.on("connection", (ws, req) => {
   const LLM_MODEL = process.env.LLM_MODEL ?? "gpt-4o";
   // Réglages "fast-by-default" pour réduire la latence perçue
   // CORRECTION: Augmenter légèrement la température pour améliorer la compréhension des phrases
-  const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0.5");
+  const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? "0.75"); // 0.75 = plus naturel, moins rigide
   const LLM_MAX_TOKENS = Number(process.env.LLM_MAX_TOKENS ?? "160");
   // Valeurs par défaut plus tolérantes (meilleure compréhension si voix faible)
   const STT_SPEECH_THRESHOLD = Number(process.env.STT_SPEECH_THRESHOLD ?? "1500");
@@ -876,7 +879,7 @@ wss.on("connection", (ws, req) => {
   let llmInFlight = false;
   // Realtime latency tuning
   const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "400");
-  const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "250");
+  const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "120"); // plus court = reprise plus rapide après que le client parle (évite de répéter 2x)
   let sttSpeechFrames = 0;
   let sttSilenceFrames = 0;
   let sttActive = false;
@@ -1308,12 +1311,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     let minimaxWs = null;
     try {
       // API Minimax TTS WebSocket : https://platform.minimax.io/docs/guides/speech-t2a-websocket
-      // Sans GroupId = facturation sur le solde du compte (pay-as-you-go). Avec GroupId = crédits de l'abonnement Audio du groupe.
+      // MINIMAX_USE_BALANCE=true (défaut) = pas de GroupId → facturation sur le solde (pay-as-you-go). Sinon GroupId = crédits abonnement Audio.
       let wsUrl = "wss://api.minimax.io/ws/v1/t2a_v2";
-      if (MINIMAX_GROUP_ID) {
+      const useBalanceForThisCall = MINIMAX_USE_BALANCE || !MINIMAX_GROUP_ID;
+      if (!useBalanceForThisCall && MINIMAX_GROUP_ID) {
         wsUrl += `?GroupId=${encodeURIComponent(MINIMAX_GROUP_ID)}`;
       } else {
-        console.log("🔊 Minimax: pas de GroupId → facturation sur le solde (pay-as-you-go).");
+        console.log("🔊 Minimax: facturation sur le solde (pas de GroupId).");
       }
       const apiKey = MINIMAX_API_KEY.startsWith("Bearer ") ? MINIMAX_API_KEY.substring(7) : MINIMAX_API_KEY;
       
@@ -1655,7 +1659,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       premiumTtsLastError = errorMsg;
       // Message explicite si Minimax retourne "insufficient credit" (2053)
       if (errorMsg.includes("insufficient credit") || errorMsg.includes("2053")) {
-        console.error("💳 Minimax TTS: crédit insuffisant (status 2053). Vérifier: 1) Connexion à platform.minimax.io avec le MÊME compte que MINIMAX_API_KEY/GroupId. 2) Solde pour le produit TTS/Speech. 3) Les variables d'environnement sur Render pointent vers le bon compte.");
+        console.error("💳 Minimax TTS: crédit insuffisant (2053). Vous utilisez la facturation solde (pas de GroupId). Rechargez le solde sur https://platform.minimax.io/user-center/payment/balance puis réessayez.");
       }
       // En cas d'erreur rate limit, attendre 60 secondes avant de réessayer
       if (errorMsg.includes("rate limit") || errorMsg.includes("1002")) {
@@ -3770,10 +3774,9 @@ ${garageClosed
           session: {
             type: "realtime",
             instructions: `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}`,
-            // Utiliser "text" au lieu de "audio" car on utilise Minimax/ElevenLabs pour le TTS
-            // Cela permet d'obtenir directement le texte pour le passer au TTS premium
             output_modalities: ["text"],
-            // Les formats audio sont configurés dans l'URL WebSocket (input_audio_format et output_audio_format)
+            // temperature plus élevée = réponses plus naturelles, moins rigides (0.75)
+            ...(typeof LLM_TEMPERATURE === "number" && !Number.isNaN(LLM_TEMPERATURE) ? { temperature: LLM_TEMPERATURE } : {}),
           },
         };
         if (REALTIME_INPUT_TRANSCRIPTION_ENABLED) {
@@ -4312,15 +4315,16 @@ But: être naturel et mettre le client en confiance.`,
                     const rateLimitMsg = respStatusDetails?.error?.message || '';
                     const retryAfterMatch = rateLimitMsg.match(/try again in ([\d.]+)s/);
                     const retryAfterSeconds = retryAfterMatch ? parseFloat(retryAfterMatch[1]) : null;
-                    console.error("❌ RATE LIMIT DÉTECTÉ - Réponse bloquée:", { rid, retryAfterSeconds, rateLimitMsg: rateLimitMsg.substring(0, 200) });
+                    const retryBufferSec = Number(process.env.OPENAI_RATE_LIMIT_RETRY_BUFFER_SECONDS ?? "3");
+                    const delaySeconds = Math.ceil((retryAfterSeconds || 2)) + retryBufferSec;
+                    const delayMs = delaySeconds * 1000;
+                    console.error("❌ RATE LIMIT OpenAI (TPM) - Réponse en attente. Retry automatique dans", delaySeconds, "s. Pour augmenter les limites: https://platform.openai.com/account/rate-limits", { rid, retryAfterSeconds, bufferSec: retryBufferSec });
                     // #region agent log - RATE LIMIT
-                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4241',message:'RATE LIMIT - Réponse bloquée',data:{rid,status:respStatus,retryAfterSeconds,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4241',message:'RATE LIMIT - Réponse bloquée',data:{rid,status:respStatus,retryAfterSeconds,delaySeconds,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
                     // #endregion
-                    // Retry: relancer response.create après le délai indiqué par OpenAI pour éviter "je dois répéter"
-                    const delayMs = Math.ceil((retryAfterSeconds || 2) * 1000);
-                    console.log("🔄 Retry response.create dans", delayMs, "ms (rate limit)");
                     setTimeout(() => {
                       if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+                        console.log("🔄 Retry response.create après rate limit (rate_limit_retry)");
                         requestResponseCreate("rate_limit_retry");
                       }
                     }, delayMs);
@@ -5556,17 +5560,15 @@ But: être naturel et mettre le client en confiance.`,
                     }
                     // CORRECTION: Toujours dire bonjour et se présenter
                     const baseHello = salutationName 
-                      ? `Bonjour ${salutationName} ! Ici ${assistantName}, l'assistante du ${label}.`
-                      : `Bonjour ! Ici ${assistantName}, l'assistante du ${label}.`;
-                    const quietPlaceRequest = "Pour une meilleure qualité d'appel, veuillez vous placer dans un endroit calme.";
-                    const naturalSpeechNote = "Vous pouvez me parler normalement, je comprendrai.";
+                      ? `Bonjour ${salutationName}, ici ${assistantName}, du ${label}.`
+                      : `Bonjour, ici ${assistantName}, du ${label}.`;
                     const consentText = consentRequired && !consentGiven
-                      ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
+                      ? "Appel enregistré pour votre prise en charge. Vous pouvez raccrocher si vous refusez."
                       : "";
                     const question = consentRequired && !consentGiven
-                      ? "Est-ce que cela vous convient ?"
-                      : "Dites-moi, quel est le souci avec votre véhicule ?";
-                    const greeting = [baseHello, quietPlaceRequest, naturalSpeechNote, consentText, question].filter(Boolean).join(" ");
+                      ? "Ça vous convient ?"
+                      : "Quel est le souci avec votre véhicule ?";
+                    const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4288',message:'GREETING CONSTRUIT (avec nom client)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
                     // #endregion
@@ -5626,16 +5628,14 @@ But: être naturel et mettre le client en confiance.`,
             const rawName = String(garageName || "AutoGuru").trim();
             const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
             // CORRECTION: Toujours dire bonjour et se présenter
-            const baseHello = `Bonjour ! Ici ${assistantName}, l'assistante du ${label}.`;
-            const quietPlaceRequest = "Pour une meilleure qualité d'appel, veuillez vous placer dans un endroit calme.";
-            const naturalSpeechNote = "Vous pouvez me parler normalement, je comprendrai.";
+            const baseHello = `Bonjour, ici ${assistantName}, du ${label}.`;
             const consentText = consentRequired && !consentGiven
-              ? "Cet appel est enregistré pour organiser au mieux votre prise en charge. Si vous refusez, vous pouvez raccrocher."
+              ? "Appel enregistré pour votre prise en charge. Vous pouvez raccrocher si vous refusez."
               : "";
             const question = consentRequired && !consentGiven
-              ? "Est-ce que cela vous convient ?"
-              : "Dites-moi, quel est le souci avec votre véhicule ?";
-            const greeting = [baseHello, quietPlaceRequest, naturalSpeechNote, consentText, question].filter(Boolean).join(" ");
+              ? "Ça vous convient ?"
+              : "Quel est le souci avec votre véhicule ?";
+            const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
             // #region agent log
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4353',message:'GREETING CONSTRUIT (générique IMMÉDIAT)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
             // #endregion

@@ -15,7 +15,8 @@ PREMIUM_TTS_PROVIDER=minimax
 
 # Clés API Minimax
 MINIMAX_API_KEY=votre_clé_api_minimax   # Obligatoire
-MINIMAX_GROUP_ID=votre_group_id_minimax  # Optionnel : si défini = crédits abonnement Audio du groupe ; si non défini = facturation sur le solde du compte (pay-as-you-go). En cas d'erreur 2053 "insufficient credit" avec un abonnement, essayer sans MINIMAX_GROUP_ID pour utiliser le solde.
+MINIMAX_USE_BALANCE=true                # true (défaut) = voix facturée sur le solde (pay-as-you-go). Ne pas mettre de GroupId. Recharger le solde sur https://platform.minimax.io/user-center/payment/balance
+MINIMAX_GROUP_ID=                       # Laisser vide ou ne pas définir pour utiliser le solde. Définir seulement si vous voulez utiliser les crédits d'un abonnement Audio.
 
 # IDs de voix (au moins un requis)
 MINIMAX_VOICE_ID=votre_voice_id_par_défaut
