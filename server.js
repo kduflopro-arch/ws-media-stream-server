@@ -5534,7 +5534,7 @@ But: être naturel et mettre le client en confiance.`,
                   }
                   if (!hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
                     const rawName = String(garageName || "AutoGuru").trim();
-                    const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
+                    const garageNom = /^garage\s+/i.test(rawName) ? rawName.replace(/^garage\s+/i, "").trim() : rawName;
                     // Utiliser uniquement le nom de famille (last_name), pas le nom complet
                     let lastName = clientInfo.last_name ? String(clientInfo.last_name).trim() : null;
                     // Si pas de last_name, extraire le dernier mot du nom complet comme fallback
@@ -5553,15 +5553,15 @@ But: être naturel et mettre le client en confiance.`,
                     } else if (clientInfo.name) {
                       salutationName = title ? `${title} ${clientInfo.name}` : clientInfo.name;
                     }
-                    // CORRECTION: Toujours dire bonjour et se présenter
-                    const baseHello = salutationName 
-                      ? `Bonjour ${salutationName}. Ici ${assistantName}, garage ${label}.`
-                      : `Bonjour. Ici ${assistantName}, garage ${label}.`;
+                    // Phrase d'accueil : "Bonjour ici (nom) du garage (nom)" — un seul "garage"
+                    const baseHello = salutationName
+                      ? `Bonjour ${salutationName}. Ici ${assistantName} du garage ${garageNom}.`
+                      : `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
                     const consentText = consentRequired && !consentGiven
-                      ? "L'appel est enregistré. Si vous refusez, raccrochez."
+                      ? "Cet appel est enregistré pour faciliter votre arrivée au garage. Si vous refusez vous pouvez raccrocher."
                       : "";
                     const question = consentRequired && !consentGiven
-                      ? "Vous acceptez l'enregistrement ?"
+                      ? "Est-ce que cela vous convient ? Si oui, continuez l'appel. Si non, raccrochez."
                       : "Quel est le problème avec votre véhicule ?";
                     const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
                     // #region agent log
@@ -5621,14 +5621,14 @@ But: être naturel et mettre le client en confiance.`,
             // CORRECTION: Jouer le greeting IMMÉDIATEMENT (pas de délai de 500ms)
             // Si les infos client arrivent après, on pourra jouer un greeting personnalisé
             const rawName = String(garageName || "AutoGuru").trim();
-            const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
-            // CORRECTION: Toujours dire bonjour et se présenter
-            const baseHello = `Bonjour. Ici ${assistantName}, garage ${label}.`;
+            const garageNom = /^garage\s+/i.test(rawName) ? rawName.replace(/^garage\s+/i, "").trim() : rawName;
+            // Phrase d'accueil : "Bonjour ici (nom) du garage (nom)" — un seul "garage"
+            const baseHello = `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
             const consentText = consentRequired && !consentGiven
-              ? "L'appel est enregistré. Si vous refusez, raccrochez."
+              ? "Cet appel est enregistré pour faciliter votre arrivée au garage. Si vous refusez vous pouvez raccrocher."
               : "";
             const question = consentRequired && !consentGiven
-              ? "Vous acceptez l'enregistrement ?"
+              ? "Est-ce que cela vous convient ? Si oui, continuez l'appel. Si non, raccrochez."
               : "Quel est le problème avec votre véhicule ?";
             const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
             // #region agent log
