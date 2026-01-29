@@ -625,7 +625,7 @@ wss.on("connection", (ws, req) => {
           );
           return { sent: false, reason: "no_sms_sid" };
         }
-        console.log("📩 SMS plaque demandé à AutoGuru.", { 
+        console.log("📩 Demande d'envoi du SMS (plaque) envoyée à l'API AutoGuru (SMS au client).", { 
           trigger, 
           smsSid,
           callSid,
@@ -713,46 +713,37 @@ wss.on("connection", (ws, req) => {
     return /\b(non|pas du tout|nan|nann|nope|laisse tomber)\b/.test(t);
   }
 
-  // Fonction utilitaire pour détecter si un texte est un vrai goodbye (pas juste "bonne journée" dans une phrase normale)
+  // Fonction utilitaire pour détecter si un texte est un vrai goodbye (pas juste "bonne journée" en milieu de phrase)
+  // CORRECTION: exiger que la formule d'au revoir soit en FIN de message pour éviter raccrochage en cours d'échange
   function isRealGoodbye(text) {
     const fullText = String(text || "").trim().toLowerCase();
     if (!fullText) return false;
     
-    // Patterns stricts pour les vrais goodbyes
-    const goodbyePatterns = [
-      "au revoir", "aurevoir", 
+    const lastPart = fullText.slice(-100); // Derniers 100 caractères = vraie conclusion
+    // Patterns stricts : doivent apparaître dans la fin du message (pas en milieu de phrase)
+    const goodbyePatternsEnd = [
+      "au revoir", "aurevoir",
       "merci et au revoir", "merci et bonne journée", "merci et bonne journee",
       "à très bientôt", "a tres bientot", "à plus tard", "a plus tard",
       "je vous souhaite une bonne journée", "je vous souhaite une bonne journee",
       "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
-      // "bonne journée" seul n'est PAS un goodbye - seulement si précédé de "au revoir" ou "merci"
       "au revoir et bonne journée", "aurevoir et bonne journee", "au revoir, bonne journée", "aurevoir, bonne journee"
     ];
-    
-    // Patterns pour détecter "bonne journée" seul (ne PAS considérer comme goodbye dans une phrase normale)
     const standaloneGoodbyePatterns = [
       "bonne journée", "bonne journee", "bonne journée à vous", "bonne journee a vous", "bonne journée à vous !", "bonne journee a vous !"
     ];
-    
-    // Exclure si le texte contient des questions ou des phrases incomplètes
     const hasQuestion = fullText.includes("?") || fullText.includes("comment") || fullText.includes("quel") || fullText.includes("pourquoi") || fullText.includes("quand") || fullText.includes("où");
     const isIncomplete = fullText.trim().endsWith(",") || fullText.trim().endsWith(":") || fullText.trim().endsWith("...");
-    
-    // Vérifier les patterns stricts
-    const hasStrictGoodbye = goodbyePatterns.some(pattern => fullText.includes(pattern));
-    
-    // Vérifier "bonne journée" seul (seulement si vraiment à la fin et pas dans une phrase normale)
+    // Formule d'au revoir doit être dans la fin du message (évite "Je confirme votre rdv. Je vous souhaite une bonne journée pour votre entretien.")
+    const hasStrictGoodbye = goodbyePatternsEnd.some(pattern => lastPart.includes(pattern));
     const isStandaloneGoodbye = standaloneGoodbyePatterns.some(pattern => {
       const patternIndex = fullText.indexOf(pattern);
       if (patternIndex === -1) return false;
-      // Vérifier que "bonne journée" est à la fin du texte (derniers 50 caractères)
       const textAfterPattern = fullText.substring(patternIndex + pattern.length);
       const isAtEnd = textAfterPattern.length < 50;
-      // Ne pas détecter si c'est dans une phrase normale de conclusion (ex: "Je vais transmettre... Bonne journée")
       const isNormalConclusion = fullText.includes("transmettre") || fullText.includes("rappelleront") || fullText.includes("confirmer") || fullText.includes("demande");
       return isAtEnd && !isNormalConclusion;
     });
-    
     return (hasStrictGoodbye || isStandaloneGoodbye) && !hasQuestion && !isIncomplete;
   }
 
@@ -4594,11 +4585,9 @@ But: être naturel et mettre le client en confiance.`,
                 let checkCount = 0;
                 const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
-                  // CORRECTION: Vérifier si l'IA a déjà dit "au revoir" dans sa dernière réponse
-                  // Si ce n'est pas le cas, on doit faire dire "au revoir" à l'IA avant de raccrocher
+                  // Utiliser isRealGoodbye pour éviter raccrochage en cours d'échange (formule en fin de message uniquement)
                   const lastText = premiumTtsLastText || doneText || "";
-                  const lastTextLower = lastText.toLowerCase();
-                  const hasSaidGoodbye = /au\s+revoir|aurevoir|bonne\s+journée|bonne\s+journee/i.test(lastTextLower);
+                  const hasSaidGoodbye = isRealGoodbye(lastText);
                   
                   if (!hasSaidGoodbye && checkCount === 0) {
                     // L'IA n'a pas encore dit "au revoir", on doit le faire dire avant de raccrocher
@@ -4827,6 +4816,21 @@ But: être naturel et mettre le client en confiance.`,
                       consentGiven = true;
                     }
                   }
+                  // Détection confirmation plaque depuis conversation.item.done (user) — désactiver SMS si client a confirmé la plaque annoncée
+                  if (userText && userText.trim()) {
+                    const confirmsPlatePatternsConv = [
+                      /\b(oui|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui voilà|oui c'est bon|voilà c'est ça|correct|exact|oui c'est bien|oui c'est la même|oui c'est celle-là)\b/i,
+                      /\b(c'est bien ça|c'est exact|tout à fait|parfait)\b/i
+                    ];
+                    const otherVehicleConv = userText.match(/\b(non|ce n'est pas|autre voiture|autre véhicule)\b/i);
+                    const confirmsPlateConv = confirmsPlatePatternsConv.some(p => p.test(userText)) && !otherVehicleConv;
+                    if (confirmsPlateConv) {
+                      console.log("✅ Client confirme la plaque (conversation.item.done user), SMS non envoyé:", { userText: userText.substring(0, 80) });
+                      plateSmsSendOnFinalize = false;
+                      plateSmsAlreadyMentioned = true;
+                      plateConfirmedByClient = true;
+                    }
+                  }
                 } catch (e) {
                   console.error("❌ Erreur extraction texte user depuis conversation.item.done:", e);
                 }
@@ -5022,11 +5026,9 @@ But: être naturel et mettre le client en confiance.`,
                 let checkCount = 0;
                 const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
-                  // CORRECTION: Vérifier si l'IA a déjà dit "au revoir" dans sa dernière réponse
-                  // Si ce n'est pas le cas, on doit faire dire "au revoir" à l'IA avant de raccrocher
+                  // Utiliser isRealGoodbye pour éviter raccrochage en cours d'échange (formule en fin de message uniquement)
                   const lastText = premiumTtsLastText || doneText || "";
-                  const lastTextLower = lastText.toLowerCase();
-                  const hasSaidGoodbye = /au\s+revoir|aurevoir|bonne\s+journée|bonne\s+journee/i.test(lastTextLower);
+                  const hasSaidGoodbye = isRealGoodbye(lastText);
                   
                   if (!hasSaidGoodbye && checkCount === 0) {
                     // L'IA n'a pas encore dit "au revoir", on doit le faire dire avant de raccrocher
@@ -5357,10 +5359,11 @@ But: être naturel et mettre le client en confiance.`,
             // Détecter si le client confirme la plaque existante ou demande un autre véhicule
             // Si le client confirme la plaque (ex: "oui", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne")
             // CORRECTION: Améliorer la détection de confirmation de plaque
-            // Patterns plus spécifiques pour éviter les faux positifs
+            // Patterns pour confirmation de la plaque annoncée par l'IA (éviter SMS inutile si client a déjà confirmé)
             const confirmsPlatePatterns = [
-              /\b(oui|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui c'est pour cette voiture|correct|exact|oui c'est bien|oui c'est la même|oui c'est celle-là)\b/i,
-              /\b(oui|exactement|précisément)\s+(c'est|c'est bien|c'est correct|c'est la bonne|c'est pour cette voiture)\b/i
+              /\b(oui|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui c'est pour cette voiture|correct|exact|oui c'est bien|oui c'est la même|oui c'est celle-là|oui voilà|oui c'est bon|voilà c'est ça)\b/i,
+              /\b(oui|exactement|précisément)\s+(c'est|c'est bien|c'est correct|c'est la bonne|c'est pour cette voiture)\b/i,
+              /\b(c'est bien ça|c'est exact|tout à fait|parfait)\b/i
             ];
             const confirmsPlate = confirmsPlatePatterns.some(pattern => pattern.test(userText));
             // Si le client dit que c'est pour un autre véhicule (ex: "non", "ce n'est pas la bonne", "autre voiture", "autre véhicule")
@@ -6358,7 +6361,7 @@ But: être naturel et mettre le client en confiance.`,
         if (plateSmsSendOnFinalize) {
           const shouldSend = plateSmsSendOnFinalize;
           plateSmsSendOnFinalize = false;
-          console.log("📩 Envoi SMS plaque demandé à la fin de l'appel (stop event), plateSmsSendOnFinalize:", shouldSend);
+          console.log("📩 Demande d'envoi du SMS (plaque) à la fin de l'appel → API AutoGuru enverra le SMS au client. plateSmsSendOnFinalize:", shouldSend);
           requestPlateSmsIfNeeded("send_plate_sms_on_finalize", shouldSend)
             .then((res) => {
               console.log("📩 Résultat envoi SMS plaque (stop):", res);
@@ -6424,7 +6427,7 @@ But: être naturel et mettre le client en confiance.`,
     if (plateSmsSendOnFinalize) {
       const shouldSend = plateSmsSendOnFinalize;
       plateSmsSendOnFinalize = false;
-      console.log("📩 Envoi SMS plaque demandé à la fermeture du WebSocket, plateSmsSendOnFinalize:", shouldSend);
+        console.log("📩 Demande d'envoi du SMS (plaque) à la fermeture du WebSocket → API AutoGuru enverra le SMS au client. plateSmsSendOnFinalize:", shouldSend);
       requestPlateSmsIfNeeded("send_plate_sms_on_finalize_ws_close", shouldSend)
         .then((res) => {
           console.log("📩 Résultat envoi SMS plaque (ws close):", res);
