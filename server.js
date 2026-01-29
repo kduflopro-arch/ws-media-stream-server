@@ -3070,7 +3070,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // On force PCM16 pour éviter tout mismatch de format en sortie (sinon Twilio joue du bruit).
       // IMPORTANT: Utiliser le modèle configuré dans LLM_MODEL, mais pour Realtime API, on doit utiliser gpt-4o-realtime-preview
       // car GPT-5 n'a pas encore de Realtime API
-      const realtimeModel = "gpt-4o-realtime-preview-2024-12-17"; // Realtime API utilise toujours ce modèle
+      const realtimeModel = "gpt-4o-realtime-preview"; // Alias = dernière version (défigé, plus de snapshot 2024-12-17)
       const openaiUrl =
         `wss://api.openai.com/v1/realtime?model=${realtimeModel}&input_audio_format=pcm16&output_audio_format=pcm16`;
       console.log("🔌 URL OpenAI:", openaiUrl.replace(/Bearer\s+\S+/, "Bearer ***"));
