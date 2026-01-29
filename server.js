@@ -5,8 +5,27 @@
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { Readable } from "stream";
- 
- // Empêche les "bonjour" répétés en cas de reconnexion du stream Twilio pendant le même appel.
+
+// RENDER: écouter le port dès le démarrage pour que le health check réponde avant le chargement du reste (~6k lignes)
+const PORT = process.env.PORT || 8080;
+const HOST = process.env.HOST || "0.0.0.0";
+const server = http.createServer((req, res) => {
+  const pathname = (req.url || "/").split("?")[0].trim().toLowerCase();
+  if (pathname === "/health" || pathname === "/health/") {
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("ok");
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+  res.end("ws server");
+});
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 70_000;
+server.listen(PORT, HOST, () => {
+  console.log(`WS Media Stream server listening on ${HOST}:${PORT}`);
+});
+
+// Empêche les "bonjour" répétés en cas de reconnexion du stream Twilio pendant le même appel.
  // Map<callSid, expiresAtMs>
  const greetedCallSidCache = new Map();
  function hasGreetedRecently(callSid) {
@@ -168,7 +187,6 @@ function convertPcm16kBlockToMulaw(pcm16kBlockBuf) {
   return Buffer.from(mulaw);
 }
 
-const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 // Format audio Realtime côté OpenAI.
 // IMPORTANT: en pratique, OpenAI Realtime renvoie très souvent du PCM16 même si on demande g711_ulaw,
@@ -190,31 +208,7 @@ const PIPELINE_MODE =
       ? "realtime"
       : "realtime";
 
-// Serveur HTTP explicite (meilleur contrôle + endpoint /health pour garder Render "chaud")
-const server = http.createServer((req, res) => {
-  const pathname = (req.url || "/").split("?")[0].trim().toLowerCase();
-  // Render health check: accepter /health avec ou sans query/slash pour éviter timeout deploy
-  if (pathname === "/health" || pathname === "/health/") {
-    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("ok");
-    return;
-  }
-  console.log("📥 HTTP Request:", req.method, req.url, "from", req.headers["user-agent"] || "unknown");
-  res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-  res.end("ws server");
-});
-
-server.keepAliveTimeout = 65_000;
-server.headersTimeout = 70_000;
-
-// Render: écouter IMMÉDIATEMENT pour que le health check réponde avant toute autre initialisation
-const HOST = process.env.HOST || "0.0.0.0";
-server.listen(PORT, HOST, () => {
-  console.log(`WS Media Stream server listening on ${HOST}:${PORT}`);
-  console.log(`🌐 Server ready for WebSocket connections on port ${PORT}`);
-  console.log(`🔗 WebSocket URL: wss://users-kendrikduflo-documents-autoguru-ws.onrender.com/stream`);
-});
-
+// Serveur et listen déjà faits en tête de fichier pour Render
 const wss = new WebSocketServer({
   server,
   // IMPORTANT: désactiver la compression WS pour maximiser la compatibilité et accélérer le handshake
