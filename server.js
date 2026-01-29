@@ -3215,7 +3215,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           appointmentMode === "none"
             ? "Mode rendez-vous: aucun (tu ne proposes pas de RDV, tu prends un message)."
             : appointmentMode === "internal"
-              ? `Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes UNIQUEMENT après validation explicite du client. RÈGLE ABSOLUE: Tu proposes un rendez-vous, tu demandes confirmation (ex: "Quel jour vous conviendrait le mieux ?"), et tu attends la réponse du client. Tu ne confirmes le rendez-vous QUE si le client donne son consentement explicite (ex: "oui", "d'accord", "c'est parfait", "mercredi me convient"). CRITIQUE: Si le client décrit un problème, tu DOIS D'ABORD poser des questions pour mieux comprendre le problème (depuis quand, autres symptômes, contexte) AVANT de proposer un rendez-vous. Ne confirme JAMAIS un rendez-vous sans avoir posé des questions et obtenu une validation explicite du client).${garageClosed ? " IMPORTANT: Si le garage est fermé (selon les horaires d'ouverture), tu NE peux PAS prendre de rendez-vous. Tu dis que le garage est actuellement fermé et que quelqu'un rappellera pour proposer un créneau quand le garage sera ouvert." : ""}`
+              ? `Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes UNIQUEMENT après validation explicite du client). RÈGLE ABSOLUE - HORAIRES/INFO UNIQUEMENT: Si le client demande UNIQUEMENT les horaires d'ouverture, les tarifs ou une simple information (sans avoir dit qu'il veut un rendez-vous), tu réponds à sa question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Tu NE dis JAMAIS "Quel jour vous conviendrait le mieux ?" dans ce cas — c'est INTERDIT. "Quel jour vous conviendrait le mieux ?" se dit UNIQUEMENT quand le client vient de répondre OUI à "Vous voulez prendre rendez-vous ?". EXEMPLE INTERDIT: Client "Quels sont les horaires ?" → tu DONNES les horaires puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Tu ne confirmes le rendez-vous QUE si le client donne son consentement explicite. CRITIQUE: Si le client décrit un problème, tu DOIS D'ABORD poser des questions (depuis quand, autres symptômes) AVANT de proposer un diagnostic et de demander "Vous voulez prendre rendez-vous ?".${garageClosed ? " IMPORTANT: Si le garage est fermé, tu NE peux PAS prendre de rendez-vous. Tu dis que le garage est fermé et que quelqu'un rappellera." : ""}`
               : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande et le garage rappelle pour confirmer).";
 
         const consentLine =
@@ -3262,8 +3262,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const hoursReminderLine =
           appointmentMode !== "none"
             ? (hoursInfoLine
-              ? `AVANT de demander les préférences de rendez-vous, tu DOIS annoncer EXACTEMENT les horaires ci-dessous, sans en inventer d'autres: "${hoursInfoLine}".${closedDaysText ? ` Puis ajoute: "${closedDaysText}".` : ""} Ensuite, demande UNIQUEMENT le jour qui convient le mieux.`
-              : `AVANT de demander les préférences de rendez-vous, tu dis: "Je n'ai pas les horaires exacts dans nos réglages." Puis tu demandes le jour qui convient le mieux.`)
+              ? `Cette règle s'applique UNIQUEMENT quand le client a DÉJÀ répondu OUI à "Vous voulez prendre rendez-vous ?". Dans ce cas seulement: AVANT de demander le jour, annonce EXACTEMENT les horaires: "${hoursInfoLine}".${closedDaysText ? ` Puis: "${closedDaysText}".` : ""} Ensuite demande le jour qui convient le mieux. Si le client n'a PAS dit qu'il veut un rendez-vous (ex: il a juste demandé les horaires), ne demande PAS le jour — demande "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?".`
+              : `Quand le client a DÉJÀ répondu OUI à "Vous voulez prendre rendez-vous ?": tu dis "Je n'ai pas les horaires exacts dans nos réglages." Puis tu demandes le jour qui convient le mieux. Si le client n'a pas dit qu'il veut un RDV, ne demande pas le jour.`)
             : "";
         const pricingLine = pricingSummary
           ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}
@@ -3500,6 +3500,7 @@ DIAGNOSTIC GUIDÉ (si le client ne sait pas exactement):
 INTENTION RDV (TRÈS IMPORTANT):
 - Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
 - Tu déclenches le mode RDV UNIQUEMENT si le client dit explicitement qu'il veut un rendez-vous ou un créneau.
+- DEMANDE D'HORAIRES/TARIFS SEULEMENT: Si le client demande UNIQUEMENT "Quels sont les horaires ?", "Vous êtes ouverts quand ?", "C'est quoi le tarif ?", etc. (sans dire qu'il veut un RDV), tu réponds à la question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". INTERDIT dans ce cas: "Quel jour vous conviendrait le mieux ?", "Quel jour vous arrange ?", ou toute question de créneau — le client n'a pas dit oui au rendez-vous.
 - ⚠️ "Ok" / "d'accord" après une explication (ex: "ça peut venir de l'alternateur") = acquiescement à l'explication, PAS demande de rendez-vous. Demande alors: "Souhaitez-vous que je vous prenne un rendez-vous pour ce diagnostic ?" et n'enchaîne sur la prise de RDV QUE si le client répond clairement oui (ex: "oui", "oui je veux bien", "oui prenez-moi un rendez-vous").
 - ⚠️ CRITIQUE - APRÈS LE CONSENTEMENT: Après que le client donne son consentement (dit "oui", "d'accord", "ok" au sujet de l'enregistrement), tu DOIS TOUJOURS demander "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?" ou "Dites-moi, quel est le souci avec votre véhicule ?". NE PROPOSE JAMAIS de rendez-vous juste après le consentement. Le consentement est UNIQUEMENT une autorisation d'enregistrement, PAS une demande de rendez-vous.
 - Si le client donne son consentement mais ne mentionne pas de rendez-vous, tu demandes simplement "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?"
@@ -3815,12 +3816,13 @@ PLAQUE D'IMMATRICULATION (RÈGLE ABSOLUE):
 4) Attends un OUI clair avant d'envoyer le message.
 
 PROCÉDURE RDV (OBLIGATOIRE ET DANS CET ORDRE):
-1) Annonce les horaires d'ouverture (et jours de fermeture si disponibles).
-2) Demande le JOUR qui convient le mieux.
-3) APRÈS la réponse, demande: "plutôt le matin ou l'après-midi ?"
+1) Si le client demande UNIQUEMENT les horaires (ou tarifs, adresse, etc.): donne l'info puis demande "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". NE DIS PAS "Quel jour vous conviendrait le mieux ?" dans ce cas.
+2) Pour un RDV: d'abord demande "Je vous propose de venir faire un diagnostic. Vous voulez prendre rendez-vous ?" (ATTENDS OUI/NON).
+3) SEULEMENT si le client a répondu OUI à "Vous voulez prendre rendez-vous ?": alors demande "Quel jour vous conviendrait le mieux ?" puis "Plutôt le matin ou l'après-midi ?".
+- INTERDICTION: Ne dis JAMAIS "Quel jour vous conviendrait le mieux ?" ou "Quel créneau ?" si le client n'a pas d'abord dit explicitement qu'il veut prendre rendez-vous (oui, oui je veux, oui s'il vous plaît, etc.). Une simple demande d'horaires n'est PAS une demande de RDV.
 
 RÈGLES RDV:
-- Ne lance JAMAIS une demande de rendez-vous si le client n'en a pas demandé.
+- Ne lance JAMAIS une demande de rendez-vous (et ne dis JAMAIS "Quel jour ?") si le client n'a pas explicitement accepté (répondu oui à "Vous voulez prendre rendez-vous ?").
 - Si mode rendez-vous = demande: tu notes la demande, tu ne confirmes jamais.
 - Si mode rendez-vous = aucun: tu prends un message, tu ne proposes pas de RDV.
 - Si mode rendez-vous = interne et garage fermé: tu dis qu'une personne rappellera, sans proposer de créneau.
@@ -3939,6 +3941,7 @@ RENSEIGNEMENTS SUR LES PRESTATIONS (IMPORTANT):
 INTENTION RDV (TRÈS IMPORTANT):
 - Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
 - Tu déclenches le mode RDV UNIQUEMENT si le client dit explicitement qu'il veut un rendez-vous ou un créneau.
+- DEMANDE D'HORAIRES/TARIFS SEULEMENT: Si le client demande UNIQUEMENT "Quels sont les horaires ?", "Vous êtes ouverts quand ?", "C'est quoi le tarif ?", etc. (sans dire qu'il veut un RDV), tu réponds à la question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". INTERDIT dans ce cas: "Quel jour vous conviendrait le mieux ?", "Quel jour vous arrange ?", ou toute question de créneau — le client n'a pas dit oui au rendez-vous.
 - ⚠️ "Ok" / "d'accord" après une explication (ex: "ça peut venir de l'alternateur") = acquiescement à l'explication, PAS demande de rendez-vous. Demande alors: "Souhaitez-vous que je vous prenne un rendez-vous pour ce diagnostic ?" et n'enchaîne sur la prise de RDV QUE si le client répond clairement oui (ex: "oui", "oui je veux bien", "oui prenez-moi un rendez-vous").
 - ⚠️ CRITIQUE - APRÈS LE CONSENTEMENT: Après que le client donne son consentement (dit "oui", "d'accord", "ok" au sujet de l'enregistrement), tu DOIS TOUJOURS demander "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?" ou "Dites-moi, quel est le souci avec votre véhicule ?". NE PROPOSE JAMAIS de rendez-vous juste après le consentement. Le consentement est UNIQUEMENT une autorisation d'enregistrement, PAS une demande de rendez-vous.
 - Si le client donne son consentement mais ne mentionne pas de rendez-vous, tu demandes simplement "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?"
