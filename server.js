@@ -1840,12 +1840,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Détecter une explication (causes possibles) sans question : ajouter une question de suivi
     const hasCausePhrase = /\b(peut|pourrait)\s+(indiquer|venir|être|provenir)\b/i.test(s) ||
       lower.includes("alternateur") || lower.includes("système de charge") || lower.includes("système d'charge") ||
-      (lower.includes("batterie") && (lower.includes("problème") || lower.includes("peut") || lower.includes("voyant")));
+      (lower.includes("batterie") && (lower.includes("problème") || lower.includes("souci") || lower.includes("peut") || lower.includes("voyant")));
     const lastPart = s.slice(-100);
     const lastPartLower = lastPart.toLowerCase();
     const endsWithCauseWord = /(alternateur|charge|batterie|système)\s*\.?\s*$/.test(lastPartLower) ||
       (lastPartLower.includes("peut indiquer") || lastPartLower.includes("peut venir") || lastPartLower.includes("pourrait venir"));
-    const looksLikeExplanation = hasCausePhrase || (endsWithCauseWord && (lower.includes("voyant") || lower.includes("problème")));
+    const looksLikeExplanation = hasCausePhrase || (endsWithCauseWord && (lower.includes("voyant") || lower.includes("problème") || lower.includes("souci")));
     if (!looksLikeExplanation) return s;
     return s + " Depuis quand avez-vous remarqué ce problème ?";
   }
@@ -4373,20 +4373,9 @@ But: être naturel et mettre le client en confiance.`,
                     }
                     if (REALTIME_ELEVEN_CHUNKING_ENABLED) {
                       flushRealtimeElevenChunks(rid, true);
-                    } else if (!spokenSet.has(rid)) {
+                    } else if (!spokenSet.has(rid) && !REALTIME_USE_ELEVEN) {
                       spokenSet.add(rid);
-                      // CORRECTION: L'IA doit toujours commencer en premier (consentement initial)
                       const isInitialConsent = !userHasSpoken;
-                      // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3604',message:'response.done calling enqueuePremiumTts',data:{userHasSpoken,isInitialConsent,text:extractedText.substring(0,150),responseId:rid,spokenSetSize:spokenSet.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-                      // #endregion
-                      // CORRECTION: allowWithoutUser doit être true UNIQUEMENT si c'est le consentement initial
-                      // Après le consentement, l'IA ne doit répondre QUE si l'utilisateur a vraiment parlé
-                      // (vérifié via lastCommittedAt dans enqueuePremiumTts)
-                      // IMPORTANT: Ne pas utiliser consentGiven ici car cela permettrait à l'IA de répondre sans que l'utilisateur ait parlé
-                      // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4157',message:'response.done - enqueuePremiumTts APRÈS CONSENT',data:{consentGiven,isInitialConsent,text:extractedText.substring(0,200),hasRdvMention:extractedText.toLowerCase().includes('rendez-vous')||extractedText.toLowerCase().includes('rdv'),responseId:rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-                      // #endregion
                       if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
                         console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
@@ -4842,6 +4831,7 @@ But: être naturel et mettre le client en confiance.`,
                         playConsentRefusalAndHangup();
                       } else {
                         enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: isInitialConsent });
+                        if (rid && spokenSet) spokenSet.add(rid);
                       }
                     }
                   }
@@ -5039,29 +5029,19 @@ But: être naturel et mettre le client en confiance.`,
                 });
               }
               // Lancer la voix premium.
-              // En Realtime+ElevenLabs, on évite les doublons (delta/done multiples).
+              // CORRECTION: Ne PAS enqueue TTS depuis response.output_text.done car le transcript (transcriptMap)
+              // peut être incomplet (ordre des events API). On utilise UNIQUEMENT conversation.item.done pour le TTS,
+              // qui contient le texte complet de l'assistant → évite que la question en fin de phrase soit coupée.
               if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
-                // Si chunking actif, on flush le reste et on termine SANS couper l'audio déjà en cours.
                 transcriptMap.set(rid, doneText);
                 flushRealtimeElevenChunks(rid, true);
-              } else if (!rid || !spokenSet.has(rid)) {
-                if (rid) spokenSet.add(rid);
-                // Ici (sans chunking), on démarre la synthèse en une fois.
-                // Ne pas interrompre si on a déjà commencé à parler (évite les coupures)
-                const alreadySpeaking = rid && spokenSet.has(rid);
-                // #region agent log
-                const nowForLog = nowMs();
-                const timeSinceCommit = lastCommittedAt > 0 ? nowForLog - lastCommittedAt : -1;
-                const hasRecentSpeech = lastCommittedAt > 0 && timeSinceCommit <= ASSISTANT_RESPONSE_WINDOW_MS;
-                fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4797',message:'calling enqueuePremiumTts from response.output_text.done',data:{text:doneText.substring(0,200),responseId:rid,alreadySpeaking,lastCommittedAt,timeSinceCommit,hasRecentSpeech,responseWindow:ASSISTANT_RESPONSE_WINDOW_MS,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-                // #endregion
-                if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(doneText)) {
-                  console.log("🛑 Réponse IA (response.output_text.done) = refus enregistrement, remplacement par message fixe.");
-                  playConsentRefusalAndHangup();
-                } else {
-                  enqueuePremiumTts(doneText, { interrupt: !alreadySpeaking, source: "response.output_text.done", responseId: rid });
-                }
               }
+              // Refus consentement: remplacement par message fixe (si pas déjà fait plus haut)
+              if (!REALTIME_ELEVEN_CHUNKING_ENABLED && consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(doneText)) {
+                console.log("🛑 Réponse IA (response.output_text.done) = refus enregistrement, remplacement par message fixe.");
+                playConsentRefusalAndHangup();
+              }
+              // TTS: fait uniquement depuis conversation.item.done (texte complet garanti)
               }
             }
           }
@@ -5225,10 +5205,11 @@ But: être naturel et mettre le client en confiance.`,
                     playConsentRefusalAndHangup();
                   } else if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
                     flushRealtimeElevenChunks(rid, msg.type === "response.output_item.done");
-                  } else if (!rid || !spokenSet.has(rid)) {
+                  } else if ((!rid || !spokenSet.has(rid)) && !REALTIME_USE_ELEVEN) {
                     if (rid) spokenSet.add(rid);
                     enqueuePremiumTts(extractedText, { interrupt: msg.type === "response.output_item.done", source: msg.type, responseId: rid });
                   }
+                  // En REALTIME_USE_ELEVEN le TTS est fait uniquement depuis conversation.item.done (texte complet)
                 }
               }
             }
