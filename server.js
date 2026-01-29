@@ -1838,8 +1838,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (lower.includes("au revoir") || lower.includes("bonne journée") || lower.includes("à bientôt")) return s;
     if (s.length < 40) return s;
     // Détecter une explication (causes possibles) sans question : ajouter une question de suivi
-    const looksLikeExplanation = /\b(peut|pourrait)\s+(indiquer|venir|être|provenir)\b/i.test(s) ||
-      (lower.includes("alternateur") || lower.includes("système de charge") || lower.includes("batterie")) && (lower.includes("problème") || lower.includes("peut"));
+    const hasCausePhrase = /\b(peut|pourrait)\s+(indiquer|venir|être|provenir)\b/i.test(s) ||
+      lower.includes("alternateur") || lower.includes("système de charge") || lower.includes("système d'charge") ||
+      (lower.includes("batterie") && (lower.includes("problème") || lower.includes("peut") || lower.includes("voyant")));
+    const lastPart = s.slice(-100);
+    const lastPartLower = lastPart.toLowerCase();
+    const endsWithCauseWord = /(alternateur|charge|batterie|système)\s*\.?\s*$/.test(lastPartLower) ||
+      (lastPartLower.includes("peut indiquer") || lastPartLower.includes("peut venir") || lastPartLower.includes("pourrait venir"));
+    const looksLikeExplanation = hasCausePhrase || (endsWithCauseWord && (lower.includes("voyant") || lower.includes("problème")));
     if (!looksLikeExplanation) return s;
     return s + " Depuis quand avez-vous remarqué ce problème ?";
   }
@@ -3376,9 +3382,9 @@ Tu dois DÉTECTER automatiquement si le client mentionne "modifier", "changer", 
         const clientInfoLine = buildClientInfoLine();
 
         const baseInstructions = `⚠️⚠️⚠️ RÔLE - C'EST TOI QUI ACCOMPAGNES LE CLIENT ⚠️⚠️⚠️
-- Tu ACCOMPAGNES le client: tu poses les questions, le client RÉPOND. Le client ne fait que répondre à tes questions.
-- Chaque fois que tu parles (sauf au revoir / confirmation finale), ta réponse DOIT se terminer par UNE question claire (phrase qui se termine par ?).
-- Tu ne t'arrêtes JAMAIS en attendant que le client parle sans lui avoir posé une question. Si tu viens d'expliquer quelque chose (ex: causes possibles), tu enchaînes TOUJOURS par une question dans la même réplique.
+- Tu ACCOMPAGNES le client: tu poses les questions, le client RÉPOND. Le client ne fait que répondre à tes questions. C'EST TOI QUI GUIDES, PAS LE CLIENT.
+- RÈGLE ABSOLUE: Chaque fois que tu parles (sauf au revoir / confirmation finale), ta réponse DOIT se terminer par UNE question claire (phrase qui se termine par ?). Tu ne t'arrêtes JAMAIS sur une affirmation sans question.
+- Si tu viens d'expliquer des causes possibles (ex: "ça peut venir de la batterie ou de l'alternateur"), tu DOIS enchaîner IMMÉDIATEMENT dans la MÊME réplique par une question (ex: "Depuis quand est-il allumé ?", "D'autres symptômes ?"). Une réplique qui explique sans question = INTERDIT.
 - Scénario type: tu dis "D'accord, un voyant batterie peut indiquer un problème batterie ou alternateur. Depuis quand est-il allumé ?" → tu ATTENDS la réponse → le client dit "depuis une semaine" → tu enchaînes "D'autres symptômes, comme des difficultés au démarrage ?" → tu ATTENDS → etc.
 ⚠️⚠️⚠️ FIN RÔLE ⚠️⚠️⚠️
 
@@ -3389,6 +3395,8 @@ QUAND TU EXPLIQUES UN PROBLÈME OU DES CAUSES POSSIBLES, TU DOIS TOUJOURS ENCHA�
 - Préfère des questions courtes à la fin pour que la phrase soit toujours complète et audible: "Depuis quand ?", "D'autres symptômes ?", "Le voyant clignote ?", "C'est récent ?"
 EXEMPLE INTERDIT: "Un problème de charge pourrait venir de la batterie ou du système de charge." ❌
 EXEMPLE INTERDIT: "D'accord, un voyant de batterie qui reste allumé peut indiquer un problème avec la batterie elle-même ou avec le système de charge, comme l'alternateur." (sans question après = le client attend sans savoir quoi répondre) ❌
+EXEMPLE INTERDIT: "D'accord, un voyant batterie allumé en continu peut indiquer un problème de batterie ou du système de charge, comme l'alternateur." (sans question = INTERDIT) ❌
+EXEMPLE CORRECT: "D'accord, un voyant batterie allumé en continu peut indiquer un problème batterie ou alternateur. Depuis quand avez-vous ce voyant ?" ✅
 EXEMPLE CORRECT: "D'accord, un voyant de batterie qui reste allumé peut indiquer un problème batterie ou alternateur. Depuis quand est-il allumé ?" ✅
 EXEMPLE CORRECT: "Ça peut venir de la batterie ou de l'alternateur. Depuis quand le voyant est-il allumé ?" ✅
 EXEMPLE CORRECT: "Le problème peut venir de la batterie. D'autres symptômes ?" ✅
