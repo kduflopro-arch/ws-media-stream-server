@@ -1842,10 +1842,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       source: "consent_refusal",
       allowWithoutUser: true,
       onComplete: () => {
-        setTimeout(() => {
-          finalizeCallToAutoGuru("consent_refused");
-          triggerHangup("consent_refused");
-        }, 3000);
+        // Attendre que l'audio soit vraiment fini (file outbound vide) puis 3s avant de raccrocher
+        const waitForOutboundDrain = () => {
+          if (outboundQueuedBytes === 0 && outboundQueue.length === 0) {
+            console.log("🛑 Consent refusé: phrase terminée, raccrochage dans 3s.");
+            setTimeout(() => {
+              finalizeCallToAutoGuru("consent_refused");
+              triggerHangup("consent_refused");
+            }, 3000);
+            return;
+          }
+          setTimeout(waitForOutboundDrain, 200);
+        };
+        waitForOutboundDrain();
       },
     });
   }
@@ -4815,6 +4824,11 @@ But: être naturel et mettre le client en confiance.`,
             // Récupérer le texte depuis le transcript (accumulé via delta) ou directement depuis msg.text
             const doneText = (rid ? (transcriptMap.get(rid) || "") : "") || (typeof msg.text === "string" ? msg.text : "");
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
+              // Refus consentement: remplacer toute réponse type "en quoi puis-je" AVANT chunking/enqueue
+              if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(doneText)) {
+                console.log("🛑 Réponse IA (response.output_text.done) = refus enregistrement, remplacement par message fixe.");
+                playConsentRefusalAndHangup();
+              } else {
               console.log("📝 Réponse texte IA reçue (GPT-5):", doneText.substring(0, 100));
               // #region agent log - RAW TEXT FROM GPT-5
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3501',message:'RAW TEXT FROM GPT-5 response.output_text.done',data:{rawText:doneText,containsEuros:doneText.includes('euros')||doneText.includes('€'),contains12:doneText.match(/\b12\b|\b1\s+2\b|\bdouze\b/i)?.[0],containsHour:doneText.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/i)?.[0],containsPlate:doneText.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i)?.[0]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
@@ -4986,6 +5000,7 @@ But: être naturel et mettre le client en confiance.`,
                 } else {
                   enqueuePremiumTts(doneText, { interrupt: !alreadySpeaking, source: "response.output_text.done", responseId: rid });
                 }
+              }
               }
             }
           }
