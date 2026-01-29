@@ -1829,9 +1829,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
   function looksLikeAssistantResponseToRefusal(text) {
     const t = String(text || "").toLowerCase();
+    // Réponse explicite au refus d'enregistrement
     if (t.includes("pas enregistré") || t.includes("ne sera pas enregistré")) return true;
-    if (t.includes("en quoi puis-je") && t.length < 500) return true;
-    // Réponse courtoise au refus sans mentionner l'enregistrement (ex: "D'accord, pas de souci. Nous sommes là si vous avez besoin d'aide. Au revoir et bonne journée.")
+    // NE PAS considérer "En quoi puis-je vous aider ?" / "Quel est le souci avec votre véhicule ?" comme refus :
+    // c'est la question normale après consentement. On ne déclenche que sur des réponses courtoises de clôture.
+    // Réponse courtoise au refus (ex: "D'accord, pas de souci. Au revoir et bonne journée.")
     if (t.length < 400 && t.includes("pas de souci") && (t.includes("au revoir") || t.includes("bonne journée") || t.includes("nous sommes là") || t.includes("besoin d'aide"))) return true;
     return false;
   }
@@ -4359,7 +4361,7 @@ But: être naturel et mettre le client en confiance.`,
                     const rateLimitMsg = respStatusDetails?.error?.message || '';
                     const retryAfterMatch = rateLimitMsg.match(/try again in ([\d.]+)s/);
                     const retryAfterSeconds = retryAfterMatch ? parseFloat(retryAfterMatch[1]) : null;
-                    const retryBufferSec = Number(process.env.OPENAI_RATE_LIMIT_RETRY_BUFFER_SECONDS ?? "3");
+                    const retryBufferSec = Number(process.env.OPENAI_RATE_LIMIT_RETRY_BUFFER_SECONDS ?? "5");
                     const delaySeconds = Math.ceil((retryAfterSeconds || 2)) + retryBufferSec;
                     const delayMs = delaySeconds * 1000;
                     console.error("❌ RATE LIMIT OpenAI (TPM) - Réponse en attente. Retry automatique dans", delaySeconds, "s. Pour augmenter les limites: https://platform.openai.com/account/rate-limits", { rid, retryAfterSeconds, bufferSec: retryBufferSec });
@@ -4712,7 +4714,7 @@ But: être naturel et mettre le client en confiance.`,
                   // Détection consentement depuis conversation.item.done (quand input_audio_transcription est désactivé)
                   if (userText && userText.trim() && consentRequired && !consentGiven) {
                     const ut = String(userText).toLowerCase().trim();
-                    const acceptsConsent = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement)\b/i.test(ut);
+                    const acceptsConsent = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient)\b/i.test(ut);
                     const refusesConsent = /\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(ut);
                     if (refusesConsent) {
                       console.log("🛑 Client refuse l'enregistrement (depuis conversation.item.done), message de refus puis raccrochage dans 3s.", { userText: ut.substring(0, 80) });
@@ -5227,7 +5229,7 @@ But: être naturel et mettre le client en confiance.`,
             
             // Détecter si le client accepte ou refuse le consentement
             const userText = String(transcript || "").toLowerCase().trim();
-            const acceptsConsent = userText.match(/\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement)\b/i);
+            const acceptsConsent = userText.match(/\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient)\b/i);
             const refusesConsent = userText.match(/\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i);
             // #region agent log
             if (acceptsConsent && consentRequired && !consentGiven) {
