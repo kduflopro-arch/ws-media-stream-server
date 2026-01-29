@@ -3299,19 +3299,14 @@ Tu dois DÉTECTER automatiquement si le client mentionne "modifier", "changer", 
         const clientInfoLine = buildClientInfoLine();
 
         const baseInstructions = `⚠️⚠️⚠️ RÈGLE CRITIQUE - À RESPECTER EN PRIORITÉ ABSOLUE ⚠️⚠️⚠️
-QUAND LE CLIENT DÉCRIT UN PROBLÈME, TU DOIS TOUJOURS TERMINER TA RÉPONSE PAR UNE QUESTION.
-NE JAMAIS TERMINER PAR "ça peut venir de X ou Y" SANS POSER IMMÉDIATEMENT UNE QUESTION.
-NE JAMAIS TERMINER PAR "le problème pourrait venir de X" SANS POSER IMMÉDIATEMENT UNE QUESTION.
-NE JAMAIS TERMINER PAR "cela peut être dû à X" SANS POSER IMMÉDIATEMENT UNE QUESTION.
-NE JAMAIS TERMINER PAR "cela pourrait être causé par X" SANS POSER IMMÉDIATEMENT UNE QUESTION.
+QUAND TU EXPLIQUES UN PROBLÈME OU DES CAUSES POSSIBLES, TU DOIS TOUJOURS ENCHAÎNER AVEC UNE QUESTION COURTE DANS LA MÊME RÉPONSE.
+- Pose la question JUSTE APRÈS l'explication, en une phrase courte (ex: "Depuis quand ?", "D'autres symptômes ?", "Le voyant clignote ?").
+- NE JAMAIS terminer une explication sans question. Si tu dis "ça peut venir de X", ajoute immédiatement par exemple: "Depuis quand ?" ou "Vous avez d'autres symptômes ?"
+- Préfère des questions courtes pour éviter que ta réponse soit coupée: "Depuis quand ?", "D'accord ?", "Le voyant clignote ?", "C'est récent ?"
 EXEMPLE INTERDIT: "Un problème de charge pourrait venir de la batterie ou du système de charge." ❌
-EXEMPLE INTERDIT: "Le problème pourrait venir de la batterie." ❌
-EXEMPLE INTERDIT: "Cela peut être dû à un problème de batterie." ❌
-EXEMPLE CORRECT: "Un problème de charge pourrait venir de la batterie ou du système de charge. Depuis quand avez-vous remarqué ce problème ?" ✅
-EXEMPLE CORRECT: "Le problème pourrait venir de la batterie. Depuis quand avez-vous remarqué ce voyant ?" ✅
-EXEMPLE CORRECT: "Cela peut être dû à un problème de batterie. Avez-vous remarqué d'autres symptômes ?" ✅
-CHAQUE RÉPONSE QUI MENTIONNE DES CAUSES POSSIBLES DOIT SE TERMINER PAR UN POINT D'INTERROGATION.
-SI TU MENTIONNES "pourrait venir", "peut être", "peut être dû", "pourrait être causé", "peut venir", TU DOIS IMMÉDIATEMENT AJOUTER UNE QUESTION.
+EXEMPLE CORRECT: "Ça peut venir de la batterie ou de l'alternateur. Depuis quand le voyant est-il allumé ?" ✅
+EXEMPLE CORRECT: "Le problème peut venir de la batterie. D'autres symptômes ?" ✅
+CHAQUE RÉPONSE QUI MENTIONNE DES CAUSES POSSIBLES DOIT SE TERMINER PAR UNE QUESTION (point d'interrogation).
 ⚠️⚠️⚠️ FIN DE LA RÈGLE CRITIQUE ⚠️⚠️⚠️
 
 Tu es ${assistantName}, l'assistant(e) téléphonique de ${garageLabel}.
@@ -5560,14 +5555,14 @@ But: être naturel et mettre le client en confiance.`,
                     }
                     // CORRECTION: Toujours dire bonjour et se présenter
                     const baseHello = salutationName 
-                      ? `Bonjour ${salutationName}, ici ${assistantName}, du ${label}.`
-                      : `Bonjour, ici ${assistantName}, du ${label}.`;
+                      ? `Bonjour ${salutationName}. Ici ${assistantName}, garage ${label}.`
+                      : `Bonjour. Ici ${assistantName}, garage ${label}.`;
                     const consentText = consentRequired && !consentGiven
-                      ? "Appel enregistré pour votre prise en charge. Vous pouvez raccrocher si vous refusez."
+                      ? "L'appel est enregistré. Si vous refusez, raccrochez."
                       : "";
                     const question = consentRequired && !consentGiven
-                      ? "Ça vous convient ?"
-                      : "Quel est le souci avec votre véhicule ?";
+                      ? "Vous acceptez l'enregistrement ?"
+                      : "Quel est le problème avec votre véhicule ?";
                     const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4288',message:'GREETING CONSTRUIT (avec nom client)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
@@ -5628,13 +5623,13 @@ But: être naturel et mettre le client en confiance.`,
             const rawName = String(garageName || "AutoGuru").trim();
             const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
             // CORRECTION: Toujours dire bonjour et se présenter
-            const baseHello = `Bonjour, ici ${assistantName}, du ${label}.`;
+            const baseHello = `Bonjour. Ici ${assistantName}, garage ${label}.`;
             const consentText = consentRequired && !consentGiven
-              ? "Appel enregistré pour votre prise en charge. Vous pouvez raccrocher si vous refusez."
+              ? "L'appel est enregistré. Si vous refusez, raccrochez."
               : "";
             const question = consentRequired && !consentGiven
-              ? "Ça vous convient ?"
-              : "Quel est le souci avec votre véhicule ?";
+              ? "Vous acceptez l'enregistrement ?"
+              : "Quel est le problème avec votre véhicule ?";
             const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
             // #region agent log
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4353',message:'GREETING CONSTRUIT (générique IMMÉDIAT)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
