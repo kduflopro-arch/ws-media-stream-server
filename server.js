@@ -5817,12 +5817,14 @@ But: être naturel et mettre le client en confiance.`,
           if (!audioBase64) return;
           const mulawBuffer = Buffer.from(audioBase64, "base64");
 
-          // Ne pas capturer pendant que l'assistant parle (anti-écho/TV)
-          // Même logique que pour realtime : ne bloquer que si vraiment nécessaire
+          // Micro coupé pendant que l'IA parle (même règle que realtime)
           const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
-          const assistantIsReallyTalking = 
-            responseInProgress || 
-            (assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES && premiumTtsInFlight);
+          const assistantIsReallyTalking =
+            responseInProgress ||
+            premiumTtsInFlight ||
+            outboundQueuedBytes > 0 ||
+            outboundQueue.length > 0 ||
+            assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
           if (INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking) return;
 
           const avg = avgAbsMulaw(mulawBuffer);
@@ -6096,34 +6098,25 @@ But: être naturel et mettre le client en confiance.`,
                 twilioSpeechFrames = 0;
               }
 
-              // Anti-écho / anti-TV:
-              // Si l'IA parle (ou qu'il reste du backlog sortant à jouer), ne pas forward l'audio entrant à OpenAI.
-              // Sinon OpenAI détecte speech_started (écho/TV) et les réponses deviennent tronquées / "pas naturelles".
-              // IMPORTANT: Si le barge-in est désactivé, on est beaucoup plus permissif pour permettre à l'IA de comprendre l'utilisateur.
+              // Micro client coupé pendant que l'IA parle (Minimax/ TTS en lecture).
+              // Règle: Texte en cours de lecture → micro coupé. Fin de lecture → micro ouvert.
+              // But: éviter bruits ambiants et "compréhensions en avance" pendant que Minimax lit.
               const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
-              
-              // IMPORTANT: Bloquer l'input tant que l'IA n'a pas fini de parler
-              // On bloque si :
-              // 1. Une réponse est en cours (responseInProgress)
-              // 2. OU ElevenLabs est en train de synthétiser (premiumTtsInFlight)
-              // 3. OU il reste du backlog audio à jouer (même petit)
-              // Cela garantit que l'IA finit sa phrase avant d'écouter le client
-              const assistantIsReallyTalking = 
-                responseInProgress || 
+              const assistantIsReallyTalking =
+                responseInProgress ||
                 premiumTtsInFlight ||
+                outboundQueuedBytes > 0 ||
+                outboundQueue.length > 0 ||
                 assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
-              
+
               const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking;
               if (suppressInputNow) {
-                // Si barge-in désactivé, on bloque complètement tant que l'IA parle
-                // (pas de seuil d'override pour permettre la parole claire)
-                if (!BARGE_IN_ENABLED) {
-                  // Blocage total : l'IA doit finir avant d'écouter
-                  return;
-                } else {
-                  // Barge-in activé : seuil normal pour permettre l'interruption
-                  if (avg < INPUT_SUPPRESS_OVERRIDE_THRESHOLD) return;
-                }
+                // Toujours bloquer: pas d'override (barge-in) pendant la lecture TTS.
+                // Réinitialiser le VAD entrant pour repartir propre à la fin de lecture.
+                inputActive = false;
+                inputSpeechFrames = 0;
+                inputSilenceFrames = 0;
+                return;
               }
               
               if (mediaCount <= 3) {
