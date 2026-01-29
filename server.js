@@ -1263,6 +1263,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     // #endregion
     if (!clean) return;
+    // Sanitisation pour Minimax (évite erreurs 1000 / 1042 : caractères invisibles, contrôle, longueur)
+    const textToSend = sanitizeTextForMinimax(clean);
+    if (!textToSend) return;
 
     // Éviter de rejouer exactement la même phrase (même si elle arrive via différents événements)
     const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
@@ -1461,11 +1464,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // #endregion
       const continueMsg = {
         event: "task_continue",
-        text: clean,
+        text: textToSend,
       };
       if (LOG_MINIMAX_EVENTS || LOG_TTS) {
-        console.log("📤 Texte envoyé à Minimax TTS:", clean);
-        console.log("📤 Longueur:", clean.length, "caractères");
+        console.log("📤 Texte envoyé à Minimax TTS:", textToSend.substring(0, 200) + (textToSend.length > 200 ? "…" : ""));
+        console.log("📤 Longueur:", textToSend.length, "caractères");
       }
       minimaxWs.send(JSON.stringify(continueMsg));
       console.log("🔊 Minimax: text sent, waiting audio (while loop, 30s timeout/msg)...");
@@ -2250,8 +2253,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           }
         } catch (drainErr) {
           const drainMsg = drainErr?.message || String(drainErr);
-          console.error("❌ Erreur TTS dans la file (on continue la suite):", drainMsg);
-          // Ne pas bloquer la file : on passe au message suivant pour que l'IA continue de parler
+          const isMinimax1000 = /status_code[\"']?\s*:\s*1000|1000.*unknown error/i.test(drainMsg);
+          if (isMinimax1000 && PREMIUM_TTS_PROVIDER === "minimax" && !job._minimaxRetried) {
+            job._minimaxRetried = true;
+            premiumTtsQueue.unshift(job);
+            console.log("🔄 Minimax 1000 (retry later) : ré-enqueue pour une seule retentative");
+          } else {
+            console.error("❌ Erreur TTS dans la file (on continue la suite):", drainMsg);
+          }
         }
         if (typeof job.onComplete === "function") {
           try { job.onComplete(); } catch (e) { console.error("TTS onComplete error:", e); }
@@ -2354,6 +2363,28 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // Variante "TTS-friendly": évite les tirets dans les nombres (certains TTS FR prononcent mal les mots hyphenés)
   function numberToFrenchWordsTts(n) {
     return numberToFrenchWords(n).replace(/-/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  /** Sanitise le texte envoyé à Minimax TTS pour éviter erreurs 1000/1042 (invisible chars, control chars, longueur). */
+  function sanitizeTextForMinimax(text) {
+    if (text == null || typeof text !== "string") return "";
+    let s = text;
+    // Supprimer BOM et caractères de contrôle (0x00-0x1F sauf espace)
+    s = s.replace(/\uFEFF/g, "").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+    // Supprimer caractères zero-width et autres invisibles (doc Minimax: 1042 = invisible character ratio limit)
+    s = s.replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, "");
+    // Normaliser retours à la ligne et tabulations en espace, puis espaces multiples en un seul
+    s = s.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+    if (!s) return "";
+    // Limite Minimax WebSocket ~10k ; on tronque à 8000 et on coupe au dernier espace pour éviter de couper un mot
+    const MAX_MINIMAX_CHARS = 8000;
+    if (s.length > MAX_MINIMAX_CHARS) {
+      const cut = s.slice(0, MAX_MINIMAX_CHARS);
+      const lastSpace = cut.lastIndexOf(" ");
+      s = lastSpace > 100 ? cut.slice(0, lastSpace) : cut;
+      if (LOG_TTS) console.log("[TTS-MINIMAX] Texte tronqué pour Minimax:", text.length, "->", s.length, "caractères");
+    }
+    return s;
   }
 
   // Pré-traitement TTS (améliore articulation/intonation en téléphonie)
