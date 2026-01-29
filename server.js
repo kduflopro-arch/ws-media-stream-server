@@ -1984,15 +1984,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       .trim();
     const now = nowMs();
 
-    // Garder la parole uniquement si une prise de parole utilisateur est récente
+    // Garder la parole uniquement si une prise de parole utilisateur est récente (ou aucune parole valide encore)
     // CORRECTION: Pour le greeting initial, on doit permettre sans user (allowWithoutUser=true)
-    // Mais pour les réponses normales, on doit attendre que l'utilisateur ait parlé
+    // Si lastCommittedAt === 0 : aucun transcript valide encore (bruit ignoré) → autoriser le TTS (ex: "Dites-moi, quel est votre besoin ?")
+    // Si lastCommittedAt > 0 : on n'autorise que si la parole utilisateur est récente (fenêtre ASSISTANT_RESPONSE_WINDOW_MS)
     if (!allowWithoutUser) {
       const hasRecentUserSpeech = lastCommittedAt > 0 && (now - lastCommittedAt) <= ASSISTANT_RESPONSE_WINDOW_MS;
+      const noValidUserYet = lastCommittedAt === 0; // aucun transcript valide → première réponse après accueil, on autorise
+      const allowTts = hasRecentUserSpeech || noValidUserYet;
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1663',message:'check allowWithoutUser',data:{allowWithoutUser,hasRecentUserSpeech,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?now-lastCommittedAt:0,responseWindow:ASSISTANT_RESPONSE_WINDOW_MS,source},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1663',message:'check allowWithoutUser',data:{allowWithoutUser,hasRecentUserSpeech,noValidUserYet,allowTts,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?now-lastCommittedAt:0,responseWindow:ASSISTANT_RESPONSE_WINDOW_MS,source},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
       // #endregion
-      if (!hasRecentUserSpeech) {
+      if (!allowTts) {
         if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: pas de parole utilisateur récente (lastCommittedAt=${lastCommittedAt}, timeSince=${lastCommittedAt > 0 ? now - lastCommittedAt : 'N/A'})`);
         // #region agent log
         const timeSinceCommit = lastCommittedAt > 0 ? now - lastCommittedAt : -1;
@@ -4433,11 +4436,13 @@ But: être naturel et mettre le client en confiance.`,
                     } else if (!spokenSet.has(rid) && !REALTIME_USE_ELEVEN) {
                       spokenSet.add(rid);
                       const isInitialConsent = !userHasSpoken;
+                      const noValidUserYet = lastCommittedAt === 0;
+                      const allowTtsWithoutUser = isInitialConsent || noValidUserYet;
                       if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
                         console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
                       } else {
-                        enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: isInitialConsent });
+                        enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
                       }
                     } else {
                       // #region agent log
@@ -4874,20 +4879,19 @@ But: être naturel et mettre le client en confiance.`,
                       // #region agent log
                       fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3868',message:'conversation.item.done consentement check',data:{userHasSpoken,isInitialConsent,text:clean.substring(0,100),responseId:rid,hasResponseId:!!rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
                       // #endregion
-                      // CORRECTION: allowWithoutUser doit être true UNIQUEMENT si c'est le consentement initial
-                      // Après le consentement, l'IA ne doit répondre QUE si l'utilisateur a vraiment parlé
-                      // (vérifié via lastCommittedAt dans enqueuePremiumTts)
-                      // IMPORTANT: Ne pas utiliser consentGiven ici car cela permettrait à l'IA de répondre sans que l'utilisateur ait parlé
-                      // CORRECTION: Si responseId est null, utiliser un identifiant basé sur le texte pour éviter les doublons
-                      // Le texte sera vérifié dans enqueuePremiumTts par recentAssistantTexts même si responseId est null
+                      // CORRECTION: allowWithoutUser = true si consentement initial OU aucune parole utilisateur valide encore (lastCommittedAt === 0).
+                      // Ainsi la première question après l'accueil ("Dites-moi, quel est votre besoin ?") est toujours jouée même si
+                      // userHasSpoken a été mis à true par un bruit (speech_started) sans transcript valide.
+                      const noValidUserYet = lastCommittedAt === 0;
+                      const allowTtsWithoutUser = isInitialConsent || noValidUserYet;
                       // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4525',message:'conversation.item.done - enqueuePremiumTts APRÈS CONSENT',data:{consentGiven,isInitialConsent,text:clean.substring(0,200),hasRdvMention:clean.toLowerCase().includes('rendez-vous')||clean.toLowerCase().includes('rdv'),responseId:rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4525',message:'conversation.item.done - enqueuePremiumTts APRÈS CONSENT',data:{consentGiven,isInitialConsent,noValidUserYet,allowTtsWithoutUser,lastCommittedAt,text:clean.substring(0,200),hasRdvMention:clean.toLowerCase().includes('rendez-vous')||clean.toLowerCase().includes('rdv'),responseId:rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
                       // #endregion
                       if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(clean)) {
                         console.log("🛑 Réponse IA (conversation.item.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
                       } else {
-                        enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: isInitialConsent });
+                        enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
                         if (rid && spokenSet) spokenSet.add(rid);
                       }
                     }
