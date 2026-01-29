@@ -1825,7 +1825,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
   }
 
-  function enqueuePremiumTts(text, { interrupt = true, source = "unknown", responseId = null, allowWithoutUser = false } = {}) {
+  const CONSENT_REFUSAL_MESSAGE = "J'ai bien pris en compte votre refus de consentement à l'enregistrement et vous souhaite une bonne journée.";
+
+  function enqueuePremiumTts(text, { interrupt = true, source = "unknown", responseId = null, allowWithoutUser = false, onComplete = null } = {}) {
+    if (ws.__consentRefused && source !== "consent_refusal") {
+      if (LOG_TTS) console.log("[TTS] Ignoré (consentement refusé, seul le message de refus est joué).");
+      return;
+    }
     // #region agent log - ENTRY avec plus de détails pour diagnostiquer répétitions
     const rawTextStr = String(text || "");
     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1609',message:'enqueuePremiumTts ENTRY',data:{source,responseId,rawText:rawTextStr.substring(0,150),textLength:rawTextStr.length,queueLen:premiumTtsQueue.length,inFlight:premiumTtsInFlight,recentTextsCount:recentAssistantTexts.length,lastText:premiumTtsLastText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
@@ -2070,8 +2076,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
 
     // Si interrupt: on coupe net et on repart avec la nouvelle phrase
-    // MAIS SEULEMENT si aucune synthèse n'est déjà en cours pour éviter les coupures
-    if (interrupt && !premiumTtsInFlight) {
+    // Pour consent_refusal on force le clear même si TTS en cours
+    if (interrupt && (!premiumTtsInFlight || source === "consent_refusal")) {
       premiumTtsQueue = [];
       try { premiumTtsAbort?.abort?.(); } catch { /* ignore */ }
       premiumTtsAbort = new AbortController();
@@ -2106,7 +2112,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // IMPORTANT: Ce log est généré APRÈS toutes les vérifications anti-répétition pour éviter les doublons dans les logs
     console.log(`[AI-SAYS] ${clean}`);
     
-    premiumTtsQueue.push({ text: clean, interrupt });
+    premiumTtsQueue.push({ text: clean, interrupt, onComplete: onComplete || null });
     premiumTtsLastText = clean;
     lastAssistantSpokenAt = now;
     lastAssistantSpokenResponseId = responseId ?? lastAssistantSpokenResponseId;
@@ -2173,6 +2179,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           await speakWithMinimaxNow(job.text, { interrupt: false });
         } else if (PREMIUM_TTS_PROVIDER === "elevenlabs") {
           await speakWithElevenLabsNow(job.text, { interrupt: false });
+        }
+        if (typeof job.onComplete === "function") {
+          try { job.onComplete(); } catch (e) { console.error("TTS onComplete error:", e); }
         }
       }
     } finally {
@@ -4665,9 +4674,22 @@ But: être naturel et mettre le client en confiance.`,
                     const acceptsConsent = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement)\b/i.test(ut);
                     const refusesConsent = /\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(ut);
                     if (refusesConsent) {
-                      console.log("🛑 Client refuse l'enregistrement (depuis conversation.item.done), raccrochage.", { userText: ut.substring(0, 80) });
-                      finalizeCallToAutoGuru("consent_refused");
-                      triggerHangup("consent_refused");
+                      console.log("🛑 Client refuse l'enregistrement (depuis conversation.item.done), message de refus puis raccrochage dans 3s.", { userText: ut.substring(0, 80) });
+                      ws.__consentRefused = true;
+                      premiumTtsQueue = [];
+                      try { premiumTtsAbort?.abort?.(); } catch (_) {}
+                      outboundQueue = []; outboundQueuedBytes = 0;
+                      enqueuePremiumTts(CONSENT_REFUSAL_MESSAGE, {
+                        interrupt: true,
+                        source: "consent_refusal",
+                        allowWithoutUser: true,
+                        onComplete: () => {
+                          setTimeout(() => {
+                            finalizeCallToAutoGuru("consent_refused");
+                            triggerHangup("consent_refused");
+                          }, 3000);
+                        },
+                      });
                     } else if (acceptsConsent) {
                       console.log("✅ Client accepte le consentement (depuis conversation.item.done).", { userText: ut.substring(0, 80) });
                       consentGiven = true;
@@ -5167,9 +5189,22 @@ But: être naturel et mettre le client en confiance.`,
             }
             // #endregion
             if (refusesConsent && consentRequired && !consentGiven) {
-              console.log("🛑 Client refuse l'enregistrement, raccrochage automatique.", { userText });
-              finalizeCallToAutoGuru("consent_refused");
-              triggerHangup("consent_refused");
+              console.log("🛑 Client refuse l'enregistrement, message de refus puis raccrochage dans 3s.", { userText });
+              ws.__consentRefused = true;
+              premiumTtsQueue = [];
+              try { premiumTtsAbort?.abort?.(); } catch (_) {}
+              outboundQueue = []; outboundQueuedBytes = 0;
+              enqueuePremiumTts(CONSENT_REFUSAL_MESSAGE, {
+                interrupt: true,
+                source: "consent_refusal",
+                allowWithoutUser: true,
+                onComplete: () => {
+                  setTimeout(() => {
+                    finalizeCallToAutoGuru("consent_refused");
+                    triggerHangup("consent_refused");
+                  }, 3000);
+                },
+              });
             } else if (acceptsConsent && consentRequired && !consentGiven) {
               console.log("✅ Client accepte le consentement, ne plus redemander:", { userText });
               consentGiven = true;
