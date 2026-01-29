@@ -192,8 +192,9 @@ const PIPELINE_MODE =
 
 // Serveur HTTP explicite (meilleur contrôle + endpoint /health pour garder Render "chaud")
 const server = http.createServer((req, res) => {
-  const url = req.url || "/";
-  if (url === "/health") {
+  const pathname = (req.url || "/").split("?")[0].trim().toLowerCase();
+  // Render health check: accepter /health avec ou sans query/slash pour éviter timeout deploy
+  if (pathname === "/health" || pathname === "/health/") {
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("ok");
     return;
@@ -206,18 +207,18 @@ const server = http.createServer((req, res) => {
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
 
-const wss = new WebSocketServer({
-  server,
-  // IMPORTANT: désactiver la compression WS pour maximiser la compatibilité et accélérer le handshake
-  perMessageDeflate: false,
-});
-
-// Render: doit écouter sur 0.0.0.0 pour que le health check détecte le port (évite "Deploy Timed Out")
+// Render: écouter IMMÉDIATEMENT pour que le health check réponde avant toute autre initialisation
 const HOST = process.env.HOST || "0.0.0.0";
 server.listen(PORT, HOST, () => {
   console.log(`WS Media Stream server listening on ${HOST}:${PORT}`);
   console.log(`🌐 Server ready for WebSocket connections on port ${PORT}`);
   console.log(`🔗 WebSocket URL: wss://users-kendrikduflo-documents-autoguru-ws.onrender.com/stream`);
+});
+
+const wss = new WebSocketServer({
+  server,
+  // IMPORTANT: désactiver la compression WS pour maximiser la compatibilité et accélérer le handshake
+  perMessageDeflate: false,
 });
 
 wss.on("connection", (ws, req) => {
