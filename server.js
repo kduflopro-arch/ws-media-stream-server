@@ -1827,6 +1827,22 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
   const CONSENT_REFUSAL_MESSAGE = "Votre refus a été pris en compte. Bonne journée.";
 
+  /** Garantit qu'une réponse d'explication de l'assistant se termine par une question (guidage client). */
+  function ensureAssistantReplyEndsWithQuestion(text) {
+    const s = String(text || "").trim();
+    if (!s) return s;
+    if (s.slice(-1) === "?") return s;
+    const lower = s.toLowerCase();
+    // Ne pas modifier les formules de clôture
+    if (lower.includes("au revoir") || lower.includes("bonne journée") || lower.includes("à bientôt")) return s;
+    if (s.length < 40) return s;
+    // Détecter une explication (causes possibles) sans question : ajouter une question de suivi
+    const looksLikeExplanation = /\b(peut|pourrait)\s+(indiquer|venir|être|provenir)\b/i.test(s) ||
+      (lower.includes("alternateur") || lower.includes("système de charge") || lower.includes("batterie")) && (lower.includes("problème") || lower.includes("peut"));
+    if (!looksLikeExplanation) return s;
+    return s + " Depuis quand avez-vous remarqué ce problème ?";
+  }
+
   function looksLikeAssistantResponseToRefusal(text) {
     const t = String(text || "").toLowerCase();
     // Réponse explicite au refus d'enregistrement
@@ -1921,9 +1937,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return;
     }
 
+    // Garantir que les réponses d'explication de l'assistant se terminent par une question (guidage client)
+    const assistantReplySources = ["conversation.item.done", "response.output_text.done", "response.done", "response.output_item.done"];
+    const textToSpeak = assistantReplySources.includes(source) ? ensureAssistantReplyEndsWithQuestion(clean) : clean;
+    if (textToSpeak !== clean && LOG_TTS) console.log("[TTS-ENQUEUE] Ajout question de suivi (réponse sans ?):", textToSpeak.substring(clean.length).trim());
+
     // Normalisation agressive pour la comparaison (ignore ponctuation et casse)
     // CORRECTION: Normaliser aussi les apostrophes et espaces multiples pour mieux détecter les répétitions
-    const normalizedForCompare = clean.toLowerCase()
+    const normalizedForCompare = textToSpeak.toLowerCase()
       .replace(/['']/g, "'") // Normaliser les apostrophes
       .replace(/\s+/g, " ") // Normaliser les espaces multiples
       .replace(/[.,!?;:]/g, "") // Supprimer la ponctuation
@@ -1943,7 +1964,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         // #region agent log
         const timeSinceCommit = lastCommittedAt > 0 ? now - lastCommittedAt : -1;
         const expired = lastCommittedAt > 0 && timeSinceCommit > ASSISTANT_RESPONSE_WINDOW_MS;
-        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1840',message:'BLOQUÉ pas de parole utilisateur récente',data:{allowWithoutUser,lastCommittedAt,timeSinceCommit,expired,responseWindow:ASSISTANT_RESPONSE_WINDOW_MS,source,text:clean.substring(0,100),userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1840',message:'BLOQUÉ pas de parole utilisateur récente',data:{allowWithoutUser,lastCommittedAt,timeSinceCommit,expired,responseWindow:ASSISTANT_RESPONSE_WINDOW_MS,source,text:textToSpeak.substring(0,100),userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
         // #endregion
         return;
       }
@@ -1970,12 +1991,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (responseId) {
       const prev = spokenResponseIds.get(responseId);
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1688',message:'check responseId anti-repeat',data:{responseId,hasPrev:!!prev,normalizedText:normalizedForCompare.substring(0,100),source,textPreview:clean.substring(0,80)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1688',message:'check responseId anti-repeat',data:{responseId,hasPrev:!!prev,normalizedText:normalizedForCompare.substring(0,100),source,textPreview:textToSpeak.substring(0,80)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
       // #endregion
       if (prev) {
         if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: responseId déjà parlé`, { responseId, source });
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1694',message:'BLOQUÉ responseId déjà parlé',data:{responseId,source,normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),prevTimestamp:prev},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1694',message:'BLOQUÉ responseId déjà parlé',data:{responseId,source,normalizedText:normalizedForCompare.substring(0,100),textPreview:textToSpeak.substring(0,80),prevTimestamp:prev},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
         // #endregion
         return;
       }
@@ -1992,11 +2013,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Vérifier d'abord dans le Set des textes en cours de traitement (évite les race conditions)
     if (ws.__processingTexts.has(normalizedForCompare)) {
       if (LOG_TTS) {
-        console.log(`[TTS-ENQUEUE] BLOQUÉ: texte en cours de traitement (race condition évitée)`, clean.substring(0, 120));
-        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (en cours de traitement) [source: ${source}]:`, clean.substring(0, 120));
+        console.log(`[TTS-ENQUEUE] BLOQUÉ: texte en cours de traitement (race condition évitée)`, textToSpeak.substring(0, 120));
+        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (en cours de traitement) [source: ${source}]:`, textToSpeak.substring(0, 120));
       }
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1725',message:'BLOQUÉ texte en cours de traitement',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,processingSetSize:ws.__processingTexts.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1725',message:'BLOQUÉ texte en cours de traitement',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:textToSpeak.substring(0,80),source,processingSetSize:ws.__processingTexts.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
       // #endregion
       return;
     }
@@ -2016,15 +2037,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     });
     const foundInRecent = foundInRecentExact || foundInRecentSimilar;
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1734',message:'check recent texts anti-repeat',data:{normalizedText:normalizedForCompare.substring(0,100),foundInRecent,foundInRecentExact,foundInRecentSimilar,recentCount:recentAssistantTexts.length,source,textPreview:clean.substring(0,80)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1734',message:'check recent texts anti-repeat',data:{normalizedText:normalizedForCompare.substring(0,100),foundInRecent,foundInRecentExact,foundInRecentSimilar,recentCount:recentAssistantTexts.length,source,textPreview:textToSpeak.substring(0,80)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
     if (foundInRecent) {
       if (LOG_TTS) {
-        console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment (exact=${foundInRecentExact}, similar=${foundInRecentSimilar})`, clean.substring(0, 120));
-        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà prononcé récemment) [source: ${source}]:`, clean.substring(0, 120));
+        console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment (exact=${foundInRecentExact}, similar=${foundInRecentSimilar})`, textToSpeak.substring(0, 120));
+        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà prononcé récemment) [source: ${source}]:`, textToSpeak.substring(0, 120));
       }
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1738',message:'BLOQUÉ texte déjà prononcé récemment',data:{foundInRecent,foundInRecentExact,foundInRecentSimilar,normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1738',message:'BLOQUÉ texte déjà prononcé récemment',data:{foundInRecent,foundInRecentExact,foundInRecentSimilar,normalizedText:normalizedForCompare.substring(0,100),textPreview:textToSpeak.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
       return;
     }
@@ -2034,7 +2055,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Cela garantit qu'un texte ne peut être ajouté qu'une seule fois, même en cas de race condition
     recentAssistantTexts.push({ text: normalizedForCompare, ts: now });
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1747',message:'added to recentAssistantTexts IMMEDIATELY after check',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1747',message:'added to recentAssistantTexts IMMEDIATELY after check',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:textToSpeak.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
 
     // Éviter de rejouer en boucle exactement la même phrase (ex: greeting)
@@ -2051,13 +2072,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // Vérifier l'égalité exacte
       const isExactMatch = lastNormalized === normalizedForCompare;
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1683',message:'check lastText anti-repeat',data:{isExactMatch,lastText:premiumTtsLastText.substring(0,100),currentText:clean.substring(0,100),lastNormalized:lastNormalized.substring(0,100),currentNormalized:normalizedForCompare.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1683',message:'check lastText anti-repeat',data:{isExactMatch,lastText:premiumTtsLastText.substring(0,100),currentText:textToSpeak.substring(0,100),lastNormalized:lastNormalized.substring(0,100),currentNormalized:normalizedForCompare.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
       if (isExactMatch) {
         if (LOG_TTS) {
-          console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (identique au précédent) [source: ${source}]:`, clean.substring(0, 120));
+          console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (identique au précédent) [source: ${source}]:`, textToSpeak.substring(0, 120));
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
-          console.log(`🚨🚨🚨 REPETITION BLOQUÉE (texte identique au précédent) [source: ${source}]:`, clean.substring(0, 120));
+          console.log(`🚨🚨🚨 REPETITION BLOQUÉE (texte identique au précédent) [source: ${source}]:`, textToSpeak.substring(0, 120));
           console.log(`🚨🚨🚨 REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
         }
         return;
@@ -2069,13 +2090,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // CORRECTION: Réduire le seuil à 60% pour les textes courts (moins de 30 caractères) pour mieux détecter les répétitions
       const threshold = normalizedForCompare.length < 30 ? 0.6 : 0.7;
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1733',message:'check similarity with lastText',data:{similarity:Math.round(similarity*100),lastText:premiumTtsLastText.substring(0,100),currentText:clean.substring(0,100),normalizedLength:normalizedForCompare.length,threshold:Math.round(threshold*100),source},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1733',message:'check similarity with lastText',data:{similarity:Math.round(similarity*100),lastText:premiumTtsLastText.substring(0,100),currentText:textToSpeak.substring(0,100),normalizedLength:normalizedForCompare.length,threshold:Math.round(threshold*100),source},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
       if (similarity > threshold) { // SUPPRESSION: && normalizedForCompare.length > 10
         if (LOG_TTS) {
-          console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (similaire à ${Math.round(similarity * 100)}%) [source: ${source}]:`, clean.substring(0, 120));
+          console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (similaire à ${Math.round(similarity * 100)}%) [source: ${source}]:`, textToSpeak.substring(0, 120));
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
-          console.log(`🚨🚨🚨 REPETITION BLOQUÉE (similaire à ${Math.round(similarity * 100)}%) [source: ${source}]:`, clean.substring(0, 120));
+          console.log(`🚨🚨🚨 REPETITION BLOQUÉE (similaire à ${Math.round(similarity * 100)}%) [source: ${source}]:`, textToSpeak.substring(0, 120));
         }
         return;
       }
@@ -2097,12 +2118,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const threshold = normalizedForCompare.length < 30 ? 0.6 : 0.7;
     const foundInQueue = queueCheck.some(q => q.isExact || q.similarity > threshold); // SUPPRESSION: && normalizedForCompare.length > 10
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1706',message:'check queue anti-repeat',data:{foundInQueue,queueLen:premiumTtsQueue.length,currentText:clean.substring(0,100),queueChecks:queueCheck},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1706',message:'check queue anti-repeat',data:{foundInQueue,queueLen:premiumTtsQueue.length,currentText:textToSpeak.substring(0,100),queueChecks:queueCheck},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
     // #endregion
     if (foundInQueue) {
       if (LOG_TTS) {
-        console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
-        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, clean.substring(0, 120));
+        console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, textToSpeak.substring(0, 120));
+        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, textToSpeak.substring(0, 120));
       }
       return;
     }
@@ -2110,7 +2131,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Si le client parle, on retarde la réponse (sinon ça parle par-dessus).
     if (OUTPUT_WAIT_FOR_USER_SILENCE && outUserSpeaking) {
       if (interrupt) pendingSpeakQueue = [];
-      pendingSpeakQueue.push(clean);
+      pendingSpeakQueue.push(textToSpeak);
       return;
     }
 
@@ -2133,9 +2154,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return jobNormalized === normalizedForCompare;
     });
     if (alreadyInQueue) {
-      if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà dans la queue (vérification finale)`, clean.substring(0, 120));
+      if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà dans la queue (vérification finale)`, textToSpeak.substring(0, 120));
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1775',message:'BLOQUÉ déjà dans queue (vérification finale)',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,queueLen:premiumTtsQueue.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1775',message:'BLOQUÉ déjà dans queue (vérification finale)',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:textToSpeak.substring(0,80),source,queueLen:premiumTtsQueue.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
       // #endregion
       return;
     }
@@ -2149,14 +2170,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     
     // Log explicite du texte qui va être prononcé (l'utilisateur pourra le copier facilement)
     // IMPORTANT: Ce log est généré APRÈS toutes les vérifications anti-répétition pour éviter les doublons dans les logs
-    console.log(`[AI-SAYS] ${clean}`);
+    console.log(`[AI-SAYS] ${textToSpeak}`);
     
-    premiumTtsQueue.push({ text: clean, interrupt, onComplete: onComplete || null });
-    premiumTtsLastText = clean;
+    premiumTtsQueue.push({ text: textToSpeak, interrupt, onComplete: onComplete || null });
+    premiumTtsLastText = textToSpeak;
     lastAssistantSpokenAt = now;
     lastAssistantSpokenResponseId = responseId ?? lastAssistantSpokenResponseId;
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1785',message:'TEXT ENQUEUED (après toutes vérifications)',data:{source,responseId,text:clean.substring(0,200),queueLen:premiumTtsQueue.length,normalizedText:normalizedForCompare.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1785',message:'TEXT ENQUEUED (après toutes vérifications)',data:{source,responseId,text:textToSpeak.substring(0,200),queueLen:premiumTtsQueue.length,normalizedText:normalizedForCompare.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
     if (responseId) {
       spokenResponseIds.set(responseId, now);
@@ -2173,12 +2194,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // pour éviter que le texte soit ajouté avant d'être vérifié
     recentAssistantTexts.push({ text: normalizedForCompare, ts: now });
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1806',message:'added to recentAssistantTexts',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:clean.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1806',message:'added to recentAssistantTexts',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:textToSpeak.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
     if (LOG_TTS) {
       console.log(`[TTS-ENQUEUE] ENQUEUED (ajouté à la queue) [source: ${source}] [queueLen=${premiumTtsQueue.length}] [interrupt=${interrupt}]`);
-      console.log(`[TTS-ENQUEUE] TEXTE ENQUEUED:`, clean.substring(0, 200));
-      console.log(`🚨🚨🚨 TTS ENQUEUED (ajouté à la queue) [source: ${source}]:`, clean.substring(0, 200));
+      console.log(`[TTS-ENQUEUE] TEXTE ENQUEUED:`, textToSpeak.substring(0, 200));
+      console.log(`🚨🚨🚨 TTS ENQUEUED (ajouté à la queue) [source: ${source}]:`, textToSpeak.substring(0, 200));
       console.log(`🚨🚨🚨 TTS ENQUEUED (queueLen=${premiumTtsQueue.length}, interrupt=${interrupt})`);
     }
     void drainPremiumTtsQueue();
@@ -3347,12 +3368,21 @@ Tu dois DÉTECTER automatiquement si le client mentionne "modifier", "changer", 
         
         const clientInfoLine = buildClientInfoLine();
 
-        const baseInstructions = `⚠️⚠️⚠️ RÈGLE CRITIQUE - À RESPECTER EN PRIORITÉ ABSOLUE ⚠️⚠️⚠️
+        const baseInstructions = `⚠️⚠️⚠️ RÔLE - C'EST TOI QUI ACCOMPAGNES LE CLIENT ⚠️⚠️⚠️
+- Tu ACCOMPAGNES le client: tu poses les questions, le client RÉPOND. Le client ne fait que répondre à tes questions.
+- Chaque fois que tu parles (sauf au revoir / confirmation finale), ta réponse DOIT se terminer par UNE question claire (phrase qui se termine par ?).
+- Tu ne t'arrêtes JAMAIS en attendant que le client parle sans lui avoir posé une question. Si tu viens d'expliquer quelque chose (ex: causes possibles), tu enchaînes TOUJOURS par une question dans la même réplique.
+- Scénario type: tu dis "D'accord, un voyant batterie peut indiquer un problème batterie ou alternateur. Depuis quand est-il allumé ?" → tu ATTENDS la réponse → le client dit "depuis une semaine" → tu enchaînes "D'autres symptômes, comme des difficultés au démarrage ?" → tu ATTENDS → etc.
+⚠️⚠️⚠️ FIN RÔLE ⚠️⚠️⚠️
+
+⚠️⚠️⚠️ RÈGLE CRITIQUE - À RESPECTER EN PRIORITÉ ABSOLUE ⚠️⚠️⚠️
 QUAND TU EXPLIQUES UN PROBLÈME OU DES CAUSES POSSIBLES, TU DOIS TOUJOURS ENCHAÎNER AVEC UNE QUESTION COURTE DANS LA MÊME RÉPONSE.
 - Pose la question JUSTE APRÈS l'explication, en une phrase courte (ex: "Depuis quand ?", "D'autres symptômes ?", "Le voyant clignote ?").
 - NE JAMAIS terminer une explication sans question. Si tu dis "ça peut venir de X", ajoute immédiatement par exemple: "Depuis quand ?" ou "Vous avez d'autres symptômes ?"
-- Préfère des questions courtes pour éviter que ta réponse soit coupée: "Depuis quand ?", "D'accord ?", "Le voyant clignote ?", "C'est récent ?"
+- Préfère des questions courtes à la fin pour que la phrase soit toujours complète et audible: "Depuis quand ?", "D'autres symptômes ?", "Le voyant clignote ?", "C'est récent ?"
 EXEMPLE INTERDIT: "Un problème de charge pourrait venir de la batterie ou du système de charge." ❌
+EXEMPLE INTERDIT: "D'accord, un voyant de batterie qui reste allumé peut indiquer un problème avec la batterie elle-même ou avec le système de charge, comme l'alternateur." (sans question après = le client attend sans savoir quoi répondre) ❌
+EXEMPLE CORRECT: "D'accord, un voyant de batterie qui reste allumé peut indiquer un problème batterie ou alternateur. Depuis quand est-il allumé ?" ✅
 EXEMPLE CORRECT: "Ça peut venir de la batterie ou de l'alternateur. Depuis quand le voyant est-il allumé ?" ✅
 EXEMPLE CORRECT: "Le problème peut venir de la batterie. D'autres symptômes ?" ✅
 CHAQUE RÉPONSE QUI MENTIONNE DES CAUSES POSSIBLES DOIT SE TERMINER PAR UNE QUESTION (point d'interrogation).
