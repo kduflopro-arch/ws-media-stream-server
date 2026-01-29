@@ -1829,7 +1829,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
   function looksLikeAssistantResponseToRefusal(text) {
     const t = String(text || "").toLowerCase();
-    return (t.includes("pas enregistré") || t.includes("ne sera pas enregistré") || (t.includes("en quoi puis-je") && t.length < 500));
+    if (t.includes("pas enregistré") || t.includes("ne sera pas enregistré")) return true;
+    if (t.includes("en quoi puis-je") && t.length < 500) return true;
+    // Réponse courtoise au refus sans mentionner l'enregistrement (ex: "D'accord, pas de souci. Nous sommes là si vous avez besoin d'aide. Au revoir et bonne journée.")
+    if (t.length < 400 && t.includes("pas de souci") && (t.includes("au revoir") || t.includes("bonne journée") || t.includes("nous sommes là") || t.includes("besoin d'aide"))) return true;
+    return false;
   }
 
   function playConsentRefusalAndHangup() {
