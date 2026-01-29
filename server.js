@@ -5143,15 +5143,20 @@ But: être naturel et mettre le client en confiance.`,
               // #endregion
             }
             
-            // Détecter si le client accepte le consentement
+            // Détecter si le client accepte ou refuse le consentement
             const userText = String(transcript || "").toLowerCase().trim();
             const acceptsConsent = userText.match(/\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement)\b/i);
+            const refusesConsent = userText.match(/\b(non|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|non ça ne va pas)\b/i);
             // #region agent log
             if (acceptsConsent && consentRequired && !consentGiven) {
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3912',message:'CONSENT ACCEPTÉ',data:{userText,transcript,consentRequired,consentGiven},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
             }
             // #endregion
-            if (acceptsConsent && consentRequired && !consentGiven) {
+            if (refusesConsent && consentRequired && !consentGiven) {
+              console.log("🛑 Client refuse l'enregistrement, raccrochage automatique.", { userText });
+              finalizeCallToAutoGuru("consent_refused");
+              triggerHangup("consent_refused");
+            } else if (acceptsConsent && consentRequired && !consentGiven) {
               console.log("✅ Client accepte le consentement, ne plus redemander:", { userText });
               consentGiven = true;
               // CORRECTION: NE PAS mettre à jour lastCommittedAt lors du consentement
@@ -5561,7 +5566,7 @@ But: être naturel et mettre le client en confiance.`,
                       ? "Cet appel est enregistré pour faciliter votre arrivée au garage. Si vous refusez vous pouvez raccrocher."
                       : "";
                     const question = consentRequired && !consentGiven
-                      ? "Est-ce que cela vous convient ? Si oui, continuez l'appel. Si non, raccrochez."
+                      ? "Est-ce que cela vous convient ?"
                       : "Quel est le problème avec votre véhicule ?";
                     const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
                     // #region agent log
@@ -5628,7 +5633,7 @@ But: être naturel et mettre le client en confiance.`,
               ? "Cet appel est enregistré pour faciliter votre arrivée au garage. Si vous refusez vous pouvez raccrocher."
               : "";
             const question = consentRequired && !consentGiven
-              ? "Est-ce que cela vous convient ? Si oui, continuez l'appel. Si non, raccrochez."
+              ? "Est-ce que cela vous convient ?"
               : "Quel est le problème avec votre véhicule ?";
             const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
             // #region agent log
