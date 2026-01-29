@@ -3338,18 +3338,18 @@ IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - Tu DOIS D'ABORD comprendre le besoin du client (diagnostic, problème, rendez-vous, etc.) AVANT de parler de plaque.
 - AVANT de proposer un message pour la plaque, tu DOIS TOUJOURS vérifier la section "DÉTECTION CLIENT" ci-dessus.
 - IMPORTANT: L'envoi du message pour la plaque se fait AUTOMATIQUEMENT à la fin de l'appel, SANS besoin de consentement du client. Tu dois simplement informer le client que tu vas lui envoyer un message.
-- ⚠️⚠️⚠️ RÈGLE CRITIQUE - PLAQUE LORS DE LA PRISE DE RENDEZ-VOUS ⚠️⚠️⚠️:
+- ⚠️⚠️⚠️ RÈGLE CRITIQUE - ORDRE LORS DE LA PRISE DE RENDEZ-VOUS ⚠️⚠️⚠️:
+- ORDRE OBLIGATOIRE: (1) D'abord demander le JOUR puis l'HEURE (matin/après-midi), (2) ENSUITE seulement demander la confirmation de la plaque. Ne demande JAMAIS la plaque avant d'avoir le jour et la préférence matin/après-midi.
 - Si le client a déjà une plaque enregistrée (voir "Plaque d'immatriculation enregistrée" ci-dessus):
-  * Lors de la prise de rendez-vous, tu DOIS TOUJOURS lire la plaque principale pour confirmation AVANT de finaliser le rendez-vous.
-  * Tu DOIS dire EXACTEMENT: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?"
-  * ⚠️ CRITIQUE: Tu DOIS annoncer la plaque à l'oral AVANT de prendre le rendez-vous. Ne prends JAMAIS un rendez-vous sans avoir d'abord annoncé la plaque et demandé confirmation.
+  * Lors de la prise de rendez-vous: d'abord "Quel jour vous conviendrait le mieux ?" puis "Plutôt le matin ou l'après-midi ?". Une fois le jour et le créneau obtenus, tu dis: "Pour confirmer, votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?"
+  * Tu DOIS dire EXACTEMENT pour la plaque: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?" — mais UNIQUEMENT après avoir demandé le jour et le matin ou l'après-midi.
   * Si le client confirme que c'est la bonne plaque (ex: "oui", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne", "oui c'est pour cette voiture"), utilise cette plaque pour le rendez-vous. NE PROPOSE PAS d'envoyer un message dans ce cas.
-  * Si le client dit que ce n'est PAS la bonne plaque OU que c'est pour un autre véhicule (ex: "non", "ce n'est pas la bonne", "j'ai changé de voiture", "c'est une autre voiture", "c'est pour un autre véhicule", "non c'est pour une autre voiture"), alors tu dis simplement: "D'accord, je vais vous envoyer un message pour que vous puissiez m'indiquer la plaque d'immatriculation de ce véhicule." (Le message sera envoyé automatiquement à la fin de l'appel, et la nouvelle plaque sera automatiquement enregistrée comme plaque secondaire dans le dossier client).
-- Si le client a plusieurs plaques enregistrées (plaque principale et plaque secondaire), lors de la prise de rendez-vous, tu lis d'abord la plaque principale et demandes confirmation. Si le client dit que ce n'est pas la bonne, tu dis que tu vas lui envoyer un message pour qu'il indique quelle plaque utiliser.
-- Si le client n'a PAS de plaque enregistrée (voir "Aucune plaque d'immatriculation enregistrée" ci-dessus), tu dis que tu vas lui envoyer un message pour qu'il envoie sa plaque UNIQUEMENT si le client demande un rendez-vous (NE PAS demander la plaque à l'oral, NE PAS proposer de message avant de comprendre le besoin).
-- RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque si le client a déjà une plaque enregistrée SANS avoir d'abord lu la plaque et demandé confirmation. Annonce directement la plaque enregistrée et demande confirmation.
+  * Si le client dit que ce n'est PAS la bonne plaque OU que c'est pour un autre véhicule (ex: "non", "ce n'est pas la bonne", "j'ai changé de voiture", "c'est une autre voiture"), alors tu dis: "D'accord, je vais vous envoyer un message pour que vous puissiez m'indiquer la plaque de ce véhicule." (Le message sera envoyé automatiquement à la fin de l'appel).
+- Si le client a plusieurs plaques enregistrées: même ordre — d'abord jour et créneau (matin/après-midi), puis tu lis la plaque principale et demandes confirmation.
+- Si le client n'a PAS de plaque enregistrée: d'abord jour et créneau (matin/après-midi), puis tu dis que tu vas lui envoyer un message pour qu'il envoie sa plaque (NE PAS demander la plaque à l'oral).
+- RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque si le client a déjà une plaque enregistrée SANS avoir d'abord lu la plaque et demandé confirmation (après avoir le jour et l'heure).
 - RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque avant d'avoir compris ce que le client veut. Attends que le client mentionne un besoin concret (rendez-vous, diagnostic, etc.).
-- RÈGLE ABSOLUE: Si le client confirme que la plaque annoncée est correcte et veut prendre rendez-vous pour cette plaque, NE PROPOSE PAS d'envoyer un message. Utilise directement la plaque enregistrée.
+- RÈGLE ABSOLUE: Si le client confirme que la plaque annoncée est correcte pour le rendez-vous, NE PROPOSE PAS d'envoyer un message. Utilise directement la plaque enregistrée.
 
 IMPORTANT - GESTION DES RENDEZ-VOUS:
 - RÈGLE ABSOLUE - CONSENTEMENT OBLIGATOIRE: Tu NE DOIS JAMAIS prendre un rendez-vous sans le consentement explicite du client. Tu proposes un rendez-vous, tu demandes confirmation, et tu attends la réponse du client avant de confirmer.
@@ -3359,7 +3359,7 @@ IMPORTANT - GESTION DES RENDEZ-VOUS:
 - SÉQUENCE OBLIGATOIRE POUR PROPOSER UN DIAGNOSTIC:
   1. Après avoir recueilli les informations sur le problème, dis EXACTEMENT: "Je vous propose de venir faire un diagnostic au garage pour ce problème. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" (ATTENDS LA RÉPONSE)
      - IMPORTANT: Remplace [TARIF] par le tarif réel du diagnostic depuis la section "Tarifs du garage" ci-dessus. Si le tarif n'est pas renseigné, dis "Le tarif sera établi lors du diagnostic" ou "Le tarif est sur devis".
-  2. Si le client répond positivement à "Vous voulez prendre rendez-vous ?" (oui, oui je veux, oui s'il vous plaît, oui prenez-moi un rendez-vous, d'accord pour le rendez-vous, c'est bon, etc.): Prends sa demande de rendez-vous et demande ses préférences (jour, heure).
+  2. Si le client répond positivement à "Vous voulez prendre rendez-vous ?" (oui, oui je veux, oui s'il vous plaît, etc.): Prends sa demande en demandant D'ABORD "Quel jour vous conviendrait le mieux ?", puis "Plutôt le matin ou l'après-midi ?". ENSUITE seulement demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?"). Ordre obligatoire: jour → créneau (matin/après-midi) → plaque.
      - ⚠️ "Ok" ou "d'accord" seuls après ton explication = acquiescement à l'explication, PAS acceptation de RDV. Demande alors: "Souhaitez-vous que je vous prenne un rendez-vous ?" et attends une réponse claire.
   3. Si le client refuse (non, pas maintenant, non merci, etc.): Demande "Avez-vous besoin d'autre chose ?" (ATTENDS LA RÉPONSE)
      - Si oui: Continue à l'aider
@@ -3438,8 +3438,8 @@ ${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${cl
   1. Après avoir recueilli les informations, dis EXACTEMENT: "Je vous propose de venir faire un diagnostic au garage pour ce problème. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" (ATTENDS LA RÉPONSE - NE CONTINUE PAS AVANT D'AVOIR REÇU UNE RÉPONSE)
      - IMPORTANT: Remplace [TARIF] par le tarif réel du diagnostic depuis la section "Tarifs du garage" ci-dessus. Si le tarif n'est pas renseigné, dis "Le tarif sera établi lors du diagnostic" ou "Le tarif est sur devis".
      - CRITIQUE: Après avoir posé cette question, tu DOIS ATTENDRE la réponse du client. Ne propose PAS de créneau, ne demande PAS de préférences, ne continue PAS. Attends UNIQUEMENT la réponse (oui/non).
-  2. Si le client répond positivement à "Vous voulez prendre rendez-vous ?" (oui, oui je veux, oui s'il vous plaît, oui prenez-moi un rendez-vous, d'accord pour le rendez-vous, c'est bon, etc.): Alors tu peux prendre sa demande de rendez-vous et demander ses préférences (jour, heure).
-     - ⚠️ CRITIQUE: "Ok" ou "d'accord" SEULS après une explication technique (ex: "ça peut venir de l'alternateur") = le client acquiesce à l'explication, PAS une acceptation de rendez-vous. Dans ce cas, demande explicitement: "Souhaitez-vous que je vous prenne un rendez-vous pour ce diagnostic ?" et attends une réponse claire (oui/non). Ne lance PAS la prise de rendez-vous sur un simple "ok" après ton explication.
+  2. Si le client répond positivement à "Vous voulez prendre rendez-vous ?" (oui, oui je veux, oui s'il vous plaît, etc.): Prends sa demande en demandant D'ABORD "Quel jour vous conviendrait le mieux ?", puis "Plutôt le matin ou l'après-midi ?". ENSUITE seulement demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?"). Ordre obligatoire: jour → créneau (matin/après-midi) → plaque.
+     - ⚠️ CRITIQUE: "Ok" ou "d'accord" SEULS après une explication technique = acquiescement à l'explication, PAS acceptation de rendez-vous. Demande alors: "Souhaitez-vous que je vous prenne un rendez-vous pour ce diagnostic ?" et attends une réponse claire. Ne lance PAS la prise de rendez-vous sur un simple "ok".
   3. Si le client refuse (non, pas maintenant, non merci, etc.): Demande "Avez-vous besoin d'autre chose ?" (ATTENDS LA RÉPONSE)
      - Si oui: Continue à l'aider
      - Si non: Dis "D'accord, nous sommes disponibles si vous avez besoin. Au revoir et bonne journée !"
@@ -3488,7 +3488,7 @@ DIAGNOSTIC GUIDÉ (si le client ne sait pas exactement):
 - SÉQUENCE OBLIGATOIRE POUR PROPOSER UN DIAGNOSTIC:
   1. Après avoir recueilli les informations nécessaires, dis EXACTEMENT: "Je vous propose de venir faire un diagnostic au garage pour ce problème. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" (ATTENDS LA RÉPONSE)
      - IMPORTANT: Remplace [TARIF] par le tarif réel du diagnostic depuis la section "Tarifs du garage" ci-dessus. Si le tarif n'est pas renseigné, dis "Le tarif sera établi lors du diagnostic" ou "Le tarif est sur devis".
-  2. Si le client répond positivement à "Vous voulez prendre rendez-vous ?" (oui, oui je veux, oui s'il vous plaît, oui prenez-moi un rendez-vous, d'accord pour le rendez-vous, c'est bon, etc.): Prends sa demande de rendez-vous et demande ses préférences (jour, heure).
+  2. Si le client répond positivement à "Vous voulez prendre rendez-vous ?" (oui, oui je veux, oui s'il vous plaît, etc.): Prends sa demande en demandant D'ABORD "Quel jour vous conviendrait le mieux ?", puis "Plutôt le matin ou l'après-midi ?". ENSUITE seulement demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?"). Ordre obligatoire: jour → créneau (matin/après-midi) → plaque.
      - ⚠️ "Ok" ou "d'accord" seuls après ton explication = acquiescement, PAS accord pour le RDV. Demande: "Souhaitez-vous que je vous prenne un rendez-vous ?" et attends une réponse claire.
   3. Si le client refuse (non, pas maintenant, non merci, etc.): Demande "Avez-vous besoin d'autre chose ?" (ATTENDS LA RÉPONSE)
      - Si oui: Continue à l'aider
@@ -3818,8 +3818,8 @@ PLAQUE D'IMMATRICULATION (RÈGLE ABSOLUE):
 PROCÉDURE RDV (OBLIGATOIRE ET DANS CET ORDRE):
 1) Si le client demande UNIQUEMENT les horaires (ou tarifs, adresse, etc.): donne l'info puis demande "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". NE DIS PAS "Quel jour vous conviendrait le mieux ?" dans ce cas.
 2) Pour un RDV: d'abord demande "Je vous propose de venir faire un diagnostic. Vous voulez prendre rendez-vous ?" (ATTENDS OUI/NON).
-3) SEULEMENT si le client a répondu OUI à "Vous voulez prendre rendez-vous ?": alors demande "Quel jour vous conviendrait le mieux ?" puis "Plutôt le matin ou l'après-midi ?".
-- INTERDICTION: Ne dis JAMAIS "Quel jour vous conviendrait le mieux ?" ou "Quel créneau ?" si le client n'a pas d'abord dit explicitement qu'il veut prendre rendez-vous (oui, oui je veux, oui s'il vous plaît, etc.). Une simple demande d'horaires n'est PAS une demande de RDV.
+3) SEULEMENT si le client a répondu OUI: alors DANS CET ORDRE (ne pas inverser): (a) "Quel jour vous conviendrait le mieux ?" → attends la réponse ; (b) "Plutôt le matin ou l'après-midi ?" → attends la réponse ; (c) ENSUITE demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?" ou envoi de message si pas de plaque). Ne demande JAMAIS la plaque avant le jour et le créneau matin/après-midi.
+- INTERDICTION: Ne dis JAMAIS "Quel jour vous conviendrait le mieux ?" ou "Quel créneau ?" si le client n'a pas d'abord dit explicitement qu'il veut prendre rendez-vous. Une simple demande d'horaires n'est PAS une demande de RDV.
 
 RÈGLES RDV:
 - Ne lance JAMAIS une demande de rendez-vous (et ne dis JAMAIS "Quel jour ?") si le client n'a pas explicitement accepté (répondu oui à "Vous voulez prendre rendez-vous ?").
@@ -4530,9 +4530,9 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
-                // Attendre que l'audio soit terminé avant de raccrocher (max 5 secondes)
+                // Attendre que l'audio soit terminé avant de raccrocher (laisser Minimax finir sa phrase)
                 let checkCount = 0;
-                const MAX_CHECK_COUNT = 10; // 10 x 500ms = 5 secondes max
+                const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
                   // CORRECTION: Vérifier si l'IA a déjà dit "au revoir" dans sa dernière réponse
                   // Si ce n'est pas le cas, on doit faire dire "au revoir" à l'IA avant de raccrocher
@@ -4642,7 +4642,7 @@ But: être naturel et mettre le client en confiance.`,
                     // On va attendre un peu pour que l'IA réponde, puis vérifier l'audio
                     setTimeout(() => {
                       let checkCount = 0;
-                      const MAX_CHECK_COUNT = 15; // 15 x 500ms = 7.5 secondes max pour laisser le temps à l'IA de dire au revoir
+                      const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 secondes max pour que le TTS (Minimax) finisse la phrase au revoir
                       const checkAudioAndHangupAfterGoodbye = () => {
                         const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
                         // #region agent log
@@ -4959,9 +4959,9 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
-                // Attendre que l'audio soit terminé avant de raccrocher (max 5 secondes)
+                // Attendre que l'audio soit terminé avant de raccrocher (laisser Minimax finir sa phrase)
                 let checkCount = 0;
-                const MAX_CHECK_COUNT = 10; // 10 x 500ms = 5 secondes max
+                const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
                   // CORRECTION: Vérifier si l'IA a déjà dit "au revoir" dans sa dernière réponse
                   // Si ce n'est pas le cas, on doit faire dire "au revoir" à l'IA avant de raccrocher
