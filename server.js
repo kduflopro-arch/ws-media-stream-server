@@ -753,41 +753,62 @@ wss.on("connection", (ws, req) => {
     return (hasStrictGoodbye || isStandaloneGoodbye) && !hasQuestion && !isIncomplete;
   }
 
+  // Mode strict anti-bruit : exige une phrase plus longue / plus de mots. Défaut: activé. NOISE_FILTER_STRICT=0 pour désactiver.
+  const NOISE_FILTER_STRICT = (process.env.NOISE_FILTER_STRICT ?? "1").toLowerCase() === "1" || (process.env.NOISE_FILTER_STRICT ?? "1") === "true";
+
+  /** Détection solide du bruit ambiant / non-parole : ne pas prendre comme réponse client. */
   function isJunkTranscript(text) {
-    const t = String(text || "").toLowerCase().trim();
+    const t = String(text || "").trim();
+    const lower = t.toLowerCase();
     if (!t) return true;
-    // TV / sous-titres / disclaimers
-    if (t.includes("amara.org") || t.includes("sous-titres") || t.includes("sous titres")) return true;
-    if (t.includes("réalisés par la communauté")) return true;
-    // Vidéos / YouTube / TV
-    if (t.includes("vidéo") || t.includes("video") || t.includes("youtube") || t.includes("channel")) return true;
-    if (t.includes("ontario") || t.includes("partenariat") || t.includes("merci d'avoir regardé")) return true;
-    if (t.includes("subscribe") || t.includes("like") || t.includes("comment")) return true;
-    // Phrases incohérentes ou hors contexte (ex: "L'on est au bois", "je suis dans la forêt")
-    if (t.includes("au bois") || t.includes("dans la forêt") || t.includes("dans le bois") || 
-        t.includes("je suis dans") || t.includes("nous sommes dans") || t.includes("on est dans")) return true;
-    // Bruit très court (moins de 3 caractères significatifs)
-    const stripped = t.replace(/[\s\p{P}\p{S}]/gu, "");
+
+    // --- Contenu média / sous-titres / hors contexte ---
+    if (lower.includes("amara.org") || lower.includes("sous-titres") || lower.includes("sous titres")) return true;
+    if (lower.includes("réalisés par la communauté") || lower.includes("vidéo") || lower.includes("video") || lower.includes("youtube") || lower.includes("channel")) return true;
+    if (lower.includes("ontario") || lower.includes("partenariat") || lower.includes("merci d'avoir regardé") || lower.includes("subscribe") || lower.includes("like") || lower.includes("comment")) return true;
+    if (lower.includes("au bois") || lower.includes("dans la forêt") || lower.includes("dans le bois") || lower.includes("je suis dans") || lower.includes("nous sommes dans") || lower.includes("on est dans")) return true;
+
+    // --- Longueur significative (sans ponctuation/espaces) ---
+    const stripped = lower.replace(/[\s\p{P}\p{S}]/gu, "");
     if (stripped.length < 3) return true;
-    // Sons isolés ou bruits (ex: "ah", "eh", "oh", "mm", "hmm", "euh")
-    const isolatedSounds = /^(ah|eh|oh|mm|hmm|euh|hum|huh|uh|mh|hm|a|e|i|o|u)$/i.test(t);
-    if (isolatedSounds) return true;
-    // Mots isolés très courts qui sont probablement du bruit
+    if (NOISE_FILTER_STRICT && stripped.length < 5) return true;
+
+    // --- Bruits / sons isolés / hésitations ---
+    const isolatedNoise = /^(ah|eh|oh|mm|hmm|euh|hum|huh|uh|mh|hm|hein|quoi|bah|ben|a|e|i|o|u|euh euh|ah ah|oh oh|mhm|mmm)$/i.test(lower);
+    if (isolatedNoise) return true;
+    // Répétitions de la même syllabe (bruit / toux)
+    if (/^(\S{1,3}\s+){2,}\1\s*$/i.test(lower) || /^(euh\s+)+euh\s*$/i.test(lower)) return true;
+
     const words = t.split(/\s+/).filter(w => w.length > 0);
-    if (words.length === 1 && words[0].length < 3) return true;
-    // Phrases incomplètes ou très courtes qui ressemblent à du bruit
-    if (words.length <= 2 && t.length < 10) {
-      // Vérifier si ce sont des mots français valides
-      const commonFrenchWords = ["oui", "non", "bonjour", "merci", "salut", "allo", "bonsoir"];
-      const isCommonWord = words.some(w => commonFrenchWords.includes(w));
-      if (!isCommonWord) return true;
+    if (words.length === 0) return true;
+
+    // --- Un seul mot très court (sauf oui/non/etc.) ---
+    const oneWordOk = ["oui", "non", "ok", "aller", "merci", "salut", "allo", "bonjour", "bonsoir", "d'accord", "dac"];
+    if (words.length === 1) {
+      if (words[0].length < 3) return true;
+      if (NOISE_FILTER_STRICT && words[0].length < 4 && !oneWordOk.includes(words[0].toLowerCase())) return true;
     }
-    // Phrases qui ne font pas sens dans le contexte d'un appel garage (ex: "je suis au parc", "on va à la plage")
+
+    // --- Deux mots très courts : accepter seulement combinaisons connues ---
+    if (words.length <= 2 && t.length < 12) {
+      const commonFrench = ["oui", "non", "oui oui", "non non", "oui merci", "non merci", "d'accord", "ok ok", "bonjour oui", "oui s'il vous plaît"];
+      const normalized = lower.replace(/\s+/g, " ").trim();
+      if (!commonFrench.some(phrase => normalized === phrase || normalized.startsWith(phrase + " ") || normalized.endsWith(" " + phrase))) {
+        if (words.some(w => w.length < 2)) return true;
+        if (NOISE_FILTER_STRICT && t.length < 8) return true;
+      }
+    }
+
+    // --- Gibberish : trop de caractères répétés ou non-lettres ---
+    const letterRatio = (lower.match(/[a-zàâäéèêëïîôùûüç]/g) || []).length / Math.max(1, stripped.length);
+    if (letterRatio < 0.5 && stripped.length > 4) return true;
+    if (/^(.)\1{4,}$/.test(stripped)) return true;
+
+    // --- Contexte garage : rejeter phrases hors-sujet type "parc/plage" sans mot lié ---
     const contextWords = ["parc", "plage", "mer", "montagne", "campagne", "ville", "rue", "avenue", "boulevard"];
-    if (contextWords.some(w => t.includes(w)) && !t.includes("voiture") && !t.includes("véhicule") && !t.includes("garage") && !t.includes("problème") && !t.includes("panne")) {
-      // Si la phrase contient un mot de contexte mais pas de mot lié au garage, c'est probablement du bruit
-      return true;
-    }
+    const garageRelated = ["voiture", "véhicule", "garage", "problème", "panne", "rendez-vous", "rdv", "diagnostic", "frein", "batterie", "moteur"];
+    if (contextWords.some(w => lower.includes(w)) && !garageRelated.some(w => lower.includes(w))) return true;
+
     return false;
   }
 
@@ -5261,15 +5282,16 @@ But: être naturel et mettre le client en confiance.`,
           
           if (msg.type === "conversation.item.input_audio_transcription.completed") {
             const transcript = msg.transcript;
-            console.log("🎤 Client dit:", transcript);
-            // #region agent log - TRANSCRIPTION CLIENT
-            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3987',message:'TRANSCRIPTION CLIENT',data:{transcript,transcriptLength:transcript?.length||0,isEmpty:!transcript||transcript.trim().length===0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-            // #endregion
-            enqueueIngest("user", transcript);
-            
-            // CORRECTION: Mettre à jour lastCommittedAt quand l'utilisateur parle vraiment
-            // Vérifier que la transcription n'est pas vide et n'est pas du bruit
             const isJunk = isJunkTranscript(transcript);
+            if (!isJunk) console.log("🎤 Client dit:", transcript?.substring(0, 80));
+            // Ne pas enregistrer le bruit comme parole utilisateur (ingest + lastCommittedAt)
+            if (!isJunk) enqueueIngest("user", transcript);
+            // #region agent log - TRANSCRIPTION CLIENT
+            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3987',message:'TRANSCRIPTION CLIENT',data:{transcript:transcript?.substring(0,100),transcriptLength:transcript?.length||0,isEmpty:!transcript||transcript.trim().length===0,isJunk},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+            // #endregion
+
+            // ANTI-BRUIT: lastCommittedAt uniquement si transcript valide (pas du bruit)
+            // Vérifier que la transcription n'est pas vide et n'est pas du bruit
             const transcriptTrimmed = transcript && transcript.trim();
             const shouldUpdate = transcriptTrimmed && !isJunk;
             // #region agent log - AVANT VÉRIFICATION
@@ -5421,25 +5443,19 @@ But: être naturel et mettre le client en confiance.`,
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4651',message:'input_audio_buffer.committed',data:{itemId:msg.item_id,previousItemId:msg.previous_item_id,speechActive,lastSpeechTs,timeSinceSpeech:nowMs()-lastSpeechTs,hasRealSpeech,bytesSinceSpeechStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
             // #endregion
             if (hasRealSpeech) {
-              const oldLastCommittedAt = lastCommittedAt;
-              lastCommittedAt = nowMs();
-              console.log("✅ OpenAI buffer committed (parole réelle détectée):", {
+              // ANTI-BRUIT: on ne met plus à jour lastCommittedAt ici. On le fait uniquement quand on a le transcript
+              // (input_audio_transcription.completed ou conversation.item.done user) et qu'il n'est pas du bruit (isJunkTranscript).
+              console.log("✅ OpenAI buffer committed (transcript à valider à la réception):", {
                 item_id: msg.item_id,
                 previous_item_id: msg.previous_item_id,
                 speechActive,
                 timeSinceSpeech: nowMs() - lastSpeechTs,
               });
-              // #region agent log - MISE À JOUR lastCommittedAt depuis committed
-              fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:5137',message:'MISE À JOUR lastCommittedAt depuis input_audio_buffer.committed',data:{itemId:msg.item_id,oldLastCommittedAt,lastCommittedAt,speechActive,timeSinceSpeech:nowMs()-lastSpeechTs},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-              // #endregion
-              // Ne pas forcer response.create tout de suite: OpenAI peut auto-démarrer une réponse.
-              // On met un watchdog: si aucune réponse ne démarre après le commit, on envoie response.create.
-              const canRequest = (lastCommittedAt - lastResponseAt) > 600;
+              const canRequest = (nowMs() - lastResponseAt) > 600;
               if (awaitingUserResponse && canRequest) {
-                lastResponseAt = lastCommittedAt;
+                lastResponseAt = nowMs();
                 awaitingUserResponse = false;
                 setTimeout(() => {
-                  // Si OpenAI n'a pas démarré de réponse depuis ce commit, on déclenche.
                   if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
                   if (responseInProgress) return;
                   if (lastResponseCreatedAt >= lastCommittedAt) return;
