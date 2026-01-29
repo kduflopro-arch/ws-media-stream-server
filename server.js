@@ -4659,6 +4659,20 @@ But: être naturel et mettre le client en confiance.`,
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4565',message:'TRANSCRIPTION USER IGNORÉE depuis conversation.item.done',data:{text:userText.substring(0,100),isJunk:true,lastCommittedAt},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
                     // #endregion
                   }
+                  // Détection consentement depuis conversation.item.done (quand input_audio_transcription est désactivé)
+                  if (userText && userText.trim() && consentRequired && !consentGiven) {
+                    const ut = String(userText).toLowerCase().trim();
+                    const acceptsConsent = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement)\b/i.test(ut);
+                    const refusesConsent = /\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(ut);
+                    if (refusesConsent) {
+                      console.log("🛑 Client refuse l'enregistrement (depuis conversation.item.done), raccrochage.", { userText: ut.substring(0, 80) });
+                      finalizeCallToAutoGuru("consent_refused");
+                      triggerHangup("consent_refused");
+                    } else if (acceptsConsent) {
+                      console.log("✅ Client accepte le consentement (depuis conversation.item.done).", { userText: ut.substring(0, 80) });
+                      consentGiven = true;
+                    }
+                  }
                 } catch (e) {
                   console.error("❌ Erreur extraction texte user depuis conversation.item.done:", e);
                 }
@@ -5146,7 +5160,7 @@ But: être naturel et mettre le client en confiance.`,
             // Détecter si le client accepte ou refuse le consentement
             const userText = String(transcript || "").toLowerCase().trim();
             const acceptsConsent = userText.match(/\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement)\b/i);
-            const refusesConsent = userText.match(/\b(non|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|non ça ne va pas)\b/i);
+            const refusesConsent = userText.match(/\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i);
             // #region agent log
             if (acceptsConsent && consentRequired && !consentGiven) {
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3912',message:'CONSENT ACCEPTÉ',data:{userText,transcript,consentRequired,consentGiven},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
