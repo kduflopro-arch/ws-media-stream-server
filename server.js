@@ -471,6 +471,7 @@ wss.on("connection", (ws, req) => {
           appointmentMode: appointmentMode || null,
           reason,
           plate_confirmed_by_client: plateConfirmedByClient,
+          ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
         }),
       }).catch((err) => {
         console.error("❌ Erreur lors de l'appel à realtime-finalize:", err);
@@ -2234,11 +2235,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
         lastProcessedText = job.text;
         const preview = job.text.substring(0, 70) + (job.text.length > 70 ? "…" : "");
-        if (PREMIUM_TTS_PROVIDER === "minimax") {
-          console.log(`🔊 drain calling speakWithMinimaxNow: "${preview}"`);
-          await speakWithMinimaxNow(job.text, { interrupt: false });
-        } else if (PREMIUM_TTS_PROVIDER === "elevenlabs") {
-          await speakWithElevenLabsNow(job.text, { interrupt: false });
+        try {
+          if (PREMIUM_TTS_PROVIDER === "minimax") {
+            console.log(`🔊 drain calling speakWithMinimaxNow: "${preview}"`);
+            await speakWithMinimaxNow(job.text, { interrupt: false });
+          } else if (PREMIUM_TTS_PROVIDER === "elevenlabs") {
+            await speakWithElevenLabsNow(job.text, { interrupt: false });
+          }
+        } catch (drainErr) {
+          const drainMsg = drainErr?.message || String(drainErr);
+          console.error("❌ Erreur TTS dans la file (on continue la suite):", drainMsg);
+          // Ne pas bloquer la file : on passe au message suivant pour que l'IA continue de parler
         }
         if (typeof job.onComplete === "function") {
           try { job.onComplete(); } catch (e) { console.error("TTS onComplete error:", e); }
