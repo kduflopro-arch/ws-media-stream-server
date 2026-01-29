@@ -212,8 +212,10 @@ const wss = new WebSocketServer({
   perMessageDeflate: false,
 });
 
-server.listen(PORT, () => {
-  console.log(`WS Media Stream server listening on :${PORT}`);
+// Render: doit écouter sur 0.0.0.0 pour que le health check détecte le port (évite "Deploy Timed Out")
+const HOST = process.env.HOST || "0.0.0.0";
+server.listen(PORT, HOST, () => {
+  console.log(`WS Media Stream server listening on ${HOST}:${PORT}`);
   console.log(`🌐 Server ready for WebSocket connections on port ${PORT}`);
   console.log(`🔗 WebSocket URL: wss://users-kendrikduflo-documents-autoguru-ws.onrender.com/stream`);
 });
