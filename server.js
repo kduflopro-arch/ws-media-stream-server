@@ -1825,15 +1825,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
   }
 
-  const CONSENT_REFUSAL_MESSAGE = "J'ai bien pris en compte votre refus de consentement à l'enregistrement et vous souhaite une bonne journée.";
+  const CONSENT_REFUSAL_MESSAGE = "Votre refus a été pris en compte. Bonne journée.";
 
   function looksLikeAssistantResponseToRefusal(text) {
     const t = String(text || "").toLowerCase();
     // Réponse explicite au refus d'enregistrement
     if (t.includes("pas enregistré") || t.includes("ne sera pas enregistré")) return true;
-    // NE PAS considérer "En quoi puis-je vous aider ?" / "Quel est le souci avec votre véhicule ?" comme refus :
-    // c'est la question normale après consentement. On ne déclenche que sur des réponses courtoises de clôture.
-    // Réponse courtoise au refus (ex: "D'accord, pas de souci. Au revoir et bonne journée.")
+    // IA dit que l'enregistrement est désactivé / pas de souci (contexte refus)
+    if (t.includes("enregistrement") && (t.includes("désactivé") || t.includes("pas enregistré"))) return true;
+    if (t.includes("pas de souci") && t.includes("enregistrement")) return true;
+    // Réponse courtoise de clôture (ex: "D'accord, pas de souci. Au revoir et bonne journée.")
     if (t.length < 400 && t.includes("pas de souci") && (t.includes("au revoir") || t.includes("bonne journée") || t.includes("nous sommes là") || t.includes("besoin d'aide"))) return true;
     return false;
   }
@@ -4830,8 +4831,12 @@ But: être naturel et mettre le client en confiance.`,
             // Récupérer le texte depuis le transcript (accumulé via delta) ou directement depuis msg.text
             const doneText = (rid ? (transcriptMap.get(rid) || "") : "") || (typeof msg.text === "string" ? msg.text : "");
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
-              // Refus consentement: remplacer toute réponse type "en quoi puis-je" AVANT chunking/enqueue
-              if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(doneText)) {
+              // Déjà en flux refus: ne rien faire d'autre (message fixe en cours, hangup programmé)
+              if (ws.__consentRefused) {
+                if (LOG_TTS) console.log("[TTS] Ignorer response.output_text.done (consentement refusé, message fixe en cours).");
+                // skip: pas d'enqueue, pas de goodbye
+              } else if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(doneText)) {
+                // Refus consentement: remplacer toute réponse IA par le message fixe
                 console.log("🛑 Réponse IA (response.output_text.done) = refus enregistrement, remplacement par message fixe.");
                 playConsentRefusalAndHangup();
               } else {
