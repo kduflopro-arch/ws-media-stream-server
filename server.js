@@ -3366,12 +3366,22 @@ IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu D
           }
           const salutationText = title && salutationName ? `${title} ${salutationName}` : salutationName || "";
           
+          const hasPlateInDossier = !!(clientPlate || clientPlate2);
+          const interdictionPlaque = hasPlateInDossier
+            ? `
+⚠️⚠️⚠️ INTERDICTION PLAQUE (À RESPECTER EN PRIORITÉ) ⚠️⚠️⚠️
+Le client a DÉJÀ une plaque enregistrée ci-dessus (${clientPlate || clientPlate2}). Tu NE DOIS JAMAIS dire "je vais vous envoyer un message pour que vous puissiez m'indiquer la plaque" dans ce cas. Tu DOIS d'abord dire: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate || clientPlate2}. Est-ce bien correct ?" — UNIQUEMENT après avoir le jour et le créneau (matin/après-midi). Proposer le message sans lire la plaque = INTERDIT.
+⚠️⚠️⚠️ FIN INTERDICTION PLAQUE ⚠️⚠️⚠️
+`
+            : "";
+
           return `DÉTECTION CLIENT:
 Le numéro qui appelle fait partie des dossiers clients du garage.
 Nom complet: ${clientInfo.name}
 ${nameDetails.length > 0 ? nameDetails.join(", ") + "\n" : ""}${plateInfo}
 Rendez-vous à venir:
 ${appointmentsText}
+${interdictionPlaque}
 
 IMPORTANT - SALUTATION:
 - Tu DOIS saluer le client avec respect en utilisant le titre approprié ET le NOM DE FAMILLE uniquement (pas le prénom ni le nom complet): "${salutationText}" (ex: "Bonjour ${title} ${salutationName}" ou "Bonjour ${salutationName}" si genre indéterminé).
@@ -3394,6 +3404,11 @@ IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque si le client a déjà une plaque enregistrée SANS avoir d'abord lu la plaque et demandé confirmation (après avoir le jour et l'heure).
 - RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque avant d'avoir compris ce que le client veut. Attends que le client mentionne un besoin concret (rendez-vous, diagnostic, etc.).
 - RÈGLE ABSOLUE: Si le client confirme que la plaque annoncée est correcte pour le rendez-vous, NE PROPOSE PAS d'envoyer un message. Utilise directement la plaque enregistrée.
+
+IMPORTANT - COMPRÉHENSION ET CONFIRMATION:
+- Heure et créneau: quand le client dit "10h", "dix heures", "le matin à 10h", "vers 10h", comprends 10h00. "Jeudi matin" + "10h" = jeudi matin à 10h.
+- Si tu n'es pas sûr d'avoir bien compris (jour, heure, créneau), reformule UNE FOIS pour confirmer: "Donc je note jeudi matin vers 10h, c'est bien ça ?" avant de passer à la plaque.
+- Si le client a dû répéter (ex. l'heure), considère que tu as compris et confirme: "Parfait, je note 10h." puis enchaîne (ex. confirmation de la plaque si applicable).
 
 IMPORTANT - GESTION DES RENDEZ-VOUS:
 - RÈGLE ABSOLUE - CONSENTEMENT OBLIGATOIRE: Tu NE DOIS JAMAIS prendre un rendez-vous sans le consentement explicite du client. Tu proposes un rendez-vous, tu demandes confirmation, et tu attends la réponse du client avant de confirmer.
