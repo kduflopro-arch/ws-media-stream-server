@@ -36,6 +36,14 @@ BACKCHANNEL_ENABLED=false
 # Anti-interruptions TV/bruit: barge-in OFF par défaut (tu peux le réactiver si tu veux)
 BARGE_IN_ENABLED=false
 
+# --- Détection de la parole client (si l'IA ne répond pas à chaque fois) ---
+# Si tu vois dans les logs "Ignoré speech_started (niveau audio trop faible: X < 1400)",
+# baisse le seuil pour que la parole soit reconnue (ex: 900 ou 1000).
+# 900 = plus sensible (recommandé si l'IA ne répond pas assez), 1400 = plus strict (moins de faux positifs).
+INPUT_SPEECH_THRESHOLD=900
+# Optionnel: désactiver le filtre (toute détection OpenAI = parole). Risque: IA peut répondre au bruit.
+# INPUT_GATE_ENABLED=false
+
 # Optionnel: greeting contrôlé côté serveur Realtime (si déjà en place)
 GREETING_DELAY_MS=150
 GREETING_ONCE_PER_CALL=true

@@ -4771,6 +4771,7 @@ But: être naturel et mettre le client en confiance.`,
                     userText = item.text;
                   }
                   if (userText && userText.trim() && !isJunkTranscript(userText)) {
+                    console.log(`[CLIENT-SAYS] ${userText}`);
                     // Mettre à jour lastCommittedAt si ce n'est pas déjà fait (évite les doublons)
                     const now = nowMs();
                     const timeSinceLastCommit = lastCommittedAt > 0 ? now - lastCommittedAt : Infinity;
