@@ -888,7 +888,8 @@ wss.on("connection", (ws, req) => {
   let lastBackchannelAt = 0;
   let llmInFlight = false;
   // Realtime latency tuning
-  const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "400");
+  // Debounce plus long (700ms) pour phrases courtes : évite un response.create par micro-phrase → moins de risque rate limit OpenAI
+  const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "700");
   const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "120"); // plus court = reprise plus rapide après que le client parle (évite de répéter 2x)
   let sttSpeechFrames = 0;
   let sttSilenceFrames = 0;
@@ -4310,9 +4311,12 @@ But: être naturel et mettre le client en confiance.`,
             }
           }
           
-          // Logger tous les types de messages pour debug
-          // (On loggue aussi certains "delta" pour diagnostiquer l'audio sans spammer)
-          if (msg.type) {
+          // Logger tous les types de messages pour debug (sauf types bruyants / non erreurs)
+          const skipLogTypes = [
+            "rate_limits.updated",           // info fréquent, pas une erreur → évite confusion "rate limit"
+            "input_audio_buffer.cleared",    // très fréquent
+          ];
+          if (msg.type && !skipLogTypes.includes(msg.type)) {
             const isDelta = msg.type.includes("delta");
             const shouldLogDelta = isDelta && Math.random() < 0.01; // ~1%
             if (!isDelta || shouldLogDelta) {
@@ -5301,8 +5305,9 @@ But: être naturel et mettre le client en confiance.`,
             }
           }
           
-          // Log tous les types de messages pour debug audio
-          if (msg.type && (msg.type.includes("audio") || msg.type.includes("output"))) {
+          // Log messages audio/output pour debug (exclure les deltas texte très fréquents → évite spam logs)
+          const isNoisyOutputDelta = msg.type === "response.output_text.delta" || msg.type === "response.audio_transcript.delta";
+          if (msg.type && (msg.type.includes("audio") || msg.type.includes("output")) && !isNoisyOutputDelta) {
             console.log("🔊 Message audio/output:", msg.type, {
               hasDelta: !!msg.delta,
               hasAudio: !!msg.audio,
