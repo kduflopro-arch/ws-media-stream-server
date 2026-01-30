@@ -21,6 +21,9 @@ const server = http.createServer((req, res) => {
 });
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
+// LOG_LEVEL=verbose pour tous les détails ; par défaut "minimal" (essentiel uniquement)
+const LOG_VERBOSE = (process.env.LOG_LEVEL || "minimal").toLowerCase() === "verbose";
+
 server.listen(PORT, HOST, () => {
   console.log(`WS Media Stream server listening on ${HOST}:${PORT}`);
 });
@@ -216,8 +219,12 @@ const wss = new WebSocketServer({
 });
 
 wss.on("connection", (ws, req) => {
-  console.log("📞 New Media Stream connection:", req.url);
-  console.log("📞 Headers:", JSON.stringify(req.headers, null, 2).substring(0, 500));
+  if (LOG_VERBOSE) {
+    console.log("📞 New Media Stream connection:", req.url);
+    console.log("📞 Headers:", JSON.stringify(req.headers, null, 2).substring(0, 500));
+  } else {
+    console.log("📞 Connection:", req.url?.split("?")[0] || "/");
+  }
   
   // Extraire les paramètres de l'URL
   let callSid = null;
@@ -226,24 +233,24 @@ wss.on("connection", (ws, req) => {
   let fromNumber = null;
   
   if (req.url) {
-    console.log("🔍 URL complète:", req.url);
+    if (LOG_VERBOSE) console.log("🔍 URL complète:", req.url);
     const urlMatch = req.url.match(/\?([^#]*)/);
     if (urlMatch) {
       const queryString = urlMatch[1];
-      console.log("🔍 Query string:", queryString);
+      if (LOG_VERBOSE) console.log("🔍 Query string:", queryString);
       const params = new URLSearchParams(queryString);
       callSid = params.get("callSid");
       garageId = params.get("garageId");
       garageName = params.get("garageName") || "AutoGuru";
       fromNumber = params.get("fromNumber");
     } else {
-      console.log("⚠️ Pas de query string dans l'URL");
+      if (LOG_VERBOSE) console.log("⚠️ Pas de query string dans l'URL");
     }
   } else {
-    console.log("⚠️ req.url est null");
+    if (LOG_VERBOSE) console.log("⚠️ req.url est null");
   }
   
-  console.log("📞 Paramètres extraits:", { callSid, garageId, garageName, fromNumber });
+  if (LOG_VERBOSE) console.log("📞 Paramètres extraits:", { callSid, garageId, garageName, fromNumber });
   
   // Variables pour le hangup automatique
   let goodbyeDetected = false;
@@ -365,19 +372,10 @@ wss.on("connection", (ws, req) => {
   let spokenResponseIds = new Map(); // responseId -> timestamp (anti-répétitions par réponse)
   let recentAssistantTexts = []; // Array<{ text: string, ts: number }>
 
-  // Log de configuration TTS au démarrage pour diagnostiquer les problèmes de voix sur Render
   const minimaxBillingMode = MINIMAX_USE_BALANCE ? "solde (pay-as-you-go)" : (MINIMAX_GROUP_ID ? "abonnement (GroupId)" : "solde (défaut)");
-  console.log("🔧 PREMIUM TTS config au démarrage:", {
-    envEnabled: process.env.PREMIUM_TTS_ENABLED,
-    computedEnabled: PREMIUM_TTS_ENABLED,
-    envProvider: process.env.PREMIUM_TTS_PROVIDER,
-    provider: PREMIUM_TTS_PROVIDER,
-    hasMinimaxKey: !!MINIMAX_API_KEY,
-    hasMinimaxGroup: !!MINIMAX_GROUP_ID,
-    minimaxUseBalance: MINIMAX_USE_BALANCE,
-    minimaxBilling: minimaxBillingMode,
-    minimaxDefaultVoice: MINIMAX_VOICE_ID_DEFAULT ? "set" : "missing",
-  });
+  if (LOG_VERBOSE) {
+    console.log("🔧 PREMIUM TTS config:", { provider: PREMIUM_TTS_PROVIDER, hasMinimaxKey: !!MINIMAX_API_KEY, minimaxBilling: minimaxBillingMode });
+  }
   const MAX_TTS_CHARS = Number(process.env.MAX_TTS_CHARS ?? "520");
 
   // AutoGuru ingest (pour remplir "détails d'appel" même en mode Realtime)
@@ -456,7 +454,7 @@ wss.on("connection", (ws, req) => {
       const finalizeUrl = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/realtime-finalize");
       await ingestChain.catch(() => {});
       
-      console.log("🧾 Envoi finalize à AutoGuru...", { finalizeUrl, callSid, reason });
+      console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason);
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -483,7 +481,7 @@ wss.on("connection", (ws, req) => {
           console.error("❌ realtime-finalize a retourné une erreur:", finalizeResponse.status, errObj.error || errorText, errObj.message || "");
         } else {
           const result = await finalizeResponse.json().catch(() => null);
-          console.log("✅ Finalize réussi:", result);
+          if (LOG_VERBOSE) console.log("✅ Finalize réussi:", result); else console.log("✅ Finalize ok");
         }
       } else {
         console.error("❌ Impossible d'appeler realtime-finalize (fetch a échoué)");
@@ -537,7 +535,7 @@ wss.on("connection", (ws, req) => {
 
       const url = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/plate-sms/request");
       const shouldForce = forceSend || plateSmsSendOnFinalize;
-      console.log("📩 requestPlateSmsIfNeeded appelé:", { trigger, forceSend, plateSmsSendOnFinalize, shouldForce });
+      if (LOG_VERBOSE) console.log("📩 requestPlateSmsIfNeeded:", { trigger, forceSend, plateSmsSendOnFinalize, shouldForce });
       const resp = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -619,7 +617,7 @@ wss.on("connection", (ws, req) => {
           );
           return { sent: false, reason: "no_sms_sid" };
         }
-        console.log("📩 Demande d'envoi du SMS (plaque) envoyée à l'API AutoGuru (SMS au client).", { 
+        if (LOG_VERBOSE) console.log("📩 Demande SMS plaque envoyée à l'API:", { 
           trigger, 
           smsSid,
           callSid,
@@ -1201,29 +1199,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
   async function speakWithMinimaxNow(text, { interrupt = true } = {}) {
     const rawText = String(text || "").substring(0, 200);
-    console.log(`🔊 Minimax TTS entry: "${rawText.substring(0, 80)}${rawText.length > 80 ? "…" : ""}"`);
+    if (LOG_VERBOSE) console.log(`🔊 Minimax TTS entry: "${rawText.substring(0, 80)}${rawText.length > 80 ? "…" : ""}"`);
     // #region agent log - MINIMAX_GUARD_CHECK
     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1178',message:'MINIMAX_GUARD_CHECK',data:{enabled:PREMIUM_TTS_ENABLED,provider:PREMIUM_TTS_PROVIDER,bypassUntil:premiumTtsBypassUntilMs,now:Date.now(),hasMinimaxKey:!!MINIMAX_API_KEY,hasMinimaxGroup:!!MINIMAX_GROUP_ID},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'MINIMAX_GUARD'})}).catch(()=>{});
     // #endregion
     const selectedVoiceIdPreview = assistantVoice === "male"
       ? (MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT)
       : (MINIMAX_VOICE_ID_FEMALE || MINIMAX_VOICE_ID_DEFAULT);
-    console.log("🔊 [Minimax] guards:", {
-      enabled: PREMIUM_TTS_ENABLED,
-      provider: PREMIUM_TTS_PROVIDER,
-      bypassUntil: premiumTtsBypassUntilMs,
-      now: nowMs(),
-      inBypass: nowMs() < premiumTtsBypassUntilMs,
-      hasMinimaxKey: !!MINIMAX_API_KEY,
-      hasMinimaxGroup: !!MINIMAX_GROUP_ID,
-      hasVoice: !!(selectedVoiceIdPreview && selectedVoiceIdPreview.trim()),
-      voicePreview: selectedVoiceIdPreview ? String(selectedVoiceIdPreview).substring(0, 30) + "…" : "MISSING",
-    });
+    if (LOG_VERBOSE) console.log("🔊 [Minimax] guards:", { enabled: PREMIUM_TTS_ENABLED, provider: PREMIUM_TTS_PROVIDER, hasMinimaxKey: !!MINIMAX_API_KEY, hasVoice: !!(selectedVoiceIdPreview && selectedVoiceIdPreview.trim()) });
     const lastTextPreview = premiumTtsLastText ? premiumTtsLastText.substring(0, 50) : "null";
     if (LOG_TTS) {
       console.log(`[TTS-MINIMAX] ENTRÉE [interrupt=${interrupt}] [inFlight=${premiumTtsInFlight}] [lastText=${lastTextPreview}]`);
       console.log(`[TTS-MINIMAX] TEXTE:`, rawText);
-      console.log(`🚨🚨🚨 speakWithMinimaxNow ENTRÉE (raw text):`, rawText);
+      if (LOG_VERBOSE) console.log(`🚨 speakWithMinimaxNow ENTRÉE:`, rawText?.substring(0, 80));
     }
     // #region agent log
     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1177',message:'TTS START - IA commence à parler',data:{interrupt,premiumTtsInFlight,outboundQueuedBytes,text:rawText.substring(0,150)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
@@ -1232,14 +1220,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!PREMIUM_TTS_ENABLED) {
       if (LOG_TTS) {
         console.log(`[TTS-MINIMAX] SORTIE: PREMIUM_TTS_ENABLED=false`);
-        console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_ENABLED=false`);
+        if (LOG_VERBOSE) console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_ENABLED=false`);
       }
       return;
     }
     if (PREMIUM_TTS_PROVIDER !== "minimax") {
       if (LOG_TTS) {
         console.log(`[TTS-MINIMAX] SORTIE: PREMIUM_TTS_PROVIDER=${PREMIUM_TTS_PROVIDER} !== minimax`);
-        console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_PROVIDER=${PREMIUM_TTS_PROVIDER} !== minimax`);
+        if (LOG_VERBOSE) console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_PROVIDER=${PREMIUM_TTS_PROVIDER} !== minimax`);
       }
       return;
     }
@@ -1258,7 +1246,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
       return;
     }
-    console.log("🔊 Minimax: bypass OK, voix OK → connexion WebSocket...");
+    if (LOG_VERBOSE) console.log("🔊 Minimax: bypass OK, voix OK → connexion WebSocket...");
     // MINIMAX_GROUP_ID optionnel : sans GroupId = facturation sur le solde (pay-as-you-go) ; avec GroupId = crédits abonnement Audio du groupe (doc officielle n'utilise pas GroupId pour le WebSocket T2A).
     const rawTextBeforeNormalization = (text || "").trim();
     // #region agent log - AVANT NORMALISATION
@@ -1330,12 +1318,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const useBalanceForThisCall = MINIMAX_USE_BALANCE || !MINIMAX_GROUP_ID;
       if (!useBalanceForThisCall && MINIMAX_GROUP_ID) {
         wsUrl += `?GroupId=${encodeURIComponent(MINIMAX_GROUP_ID)}`;
-      } else {
+      } else if (LOG_VERBOSE) {
         console.log("🔊 Minimax: facturation sur le solde (pas de GroupId).");
       }
       const apiKey = MINIMAX_API_KEY.startsWith("Bearer ") ? MINIMAX_API_KEY.substring(7) : MINIMAX_API_KEY;
       
-      console.log("🔊 Minimax: connecting WS...");
+      if (LOG_VERBOSE) console.log("🔊 Minimax: connecting WS...");
       if (LOG_MINIMAX_EVENTS) {
         console.log("🔌 Connexion Minimax WebSocket...", { url: wsUrl.replace(/GroupId=[^&]+/, "GroupId=***") });
       }
@@ -1367,8 +1355,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
       });
 
-      // Attendre la connexion
-      console.log("🔊 Minimax: waiting WS open (10s)...");
+      if (LOG_VERBOSE) console.log("🔊 Minimax: waiting WS open (10s)...");
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error("Timeout connexion Minimax WebSocket (10s)"));
@@ -1384,7 +1371,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           reject(err);
         });
       });
-      console.log("🔊 Minimax: WS open, waiting connected_success (5s)...");
+      if (LOG_VERBOSE) console.log("🔊 Minimax: WS open, waiting connected_success (5s)...");
 
       // Attendre le message "connected_success"
       const waitForMessage = (eventName, timeoutMs = 5000) => {
@@ -1428,7 +1415,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       };
 
       const connectedMsg = await waitForMessage("connected_success");
-      console.log("🔊 Minimax: connected_success ok");
+      if (LOG_VERBOSE) console.log("🔊 Minimax: connected_success ok");
       if (LOG_MINIMAX_EVENTS) console.log("✅ Minimax WebSocket connecté:", connectedMsg);
 
       // Démarrer la tâche TTS
@@ -1460,10 +1447,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (LOG_MINIMAX_EVENTS) console.log("📤 Envoi task_start:", JSON.stringify(taskStartMsg, null, 2));
       minimaxWs.send(JSON.stringify(taskStartMsg));
 
-      // Attendre "task_started"
-      console.log("🔊 Minimax: waiting task_started (5s)...");
+      if (LOG_VERBOSE) console.log("🔊 Minimax: waiting task_started (5s)...");
       const taskStartedMsg = await waitForMessage("task_started");
-      console.log("🔊 Minimax: task_started ok, sending text...");
+      if (LOG_VERBOSE) console.log("🔊 Minimax: task_started ok, sending text...");
       if (LOG_MINIMAX_EVENTS) console.log("✅ Tâche Minimax démarrée:", taskStartedMsg);
 
       // Envoyer le texte à Minimax
@@ -1481,7 +1467,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         console.log("📤 Longueur:", textToSend.length, "caractères");
       }
       minimaxWs.send(JSON.stringify(continueMsg));
-      console.log("🔊 Minimax: text sent, waiting audio (while loop, 30s timeout/msg)...");
+      if (LOG_VERBOSE) console.log("🔊 Minimax: text sent, waiting audio (while loop, 30s timeout/msg)...");
 
       // Collecter l'audio en streaming - écouter tous les messages
       let audioData = Buffer.alloc(0);
@@ -1516,7 +1502,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         });
 
         if (firstMsgInLoop) {
-          console.log(`🔊 Minimax: first msg in loop event=${msg.event || "data"} is_final=${!!msg.is_final} hasAudio=${!!(msg.data && msg.data.audio)}`);
+          if (LOG_VERBOSE) console.log(`🔊 Minimax: first msg in loop event=${msg.event || "data"} is_final=${!!msg.is_final} hasAudio=${!!(msg.data && msg.data.audio)}`);
           firstMsgInLoop = false;
         }
         if (LOG_MINIMAX_EVENTS) {
@@ -1550,7 +1536,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
         if (msg.is_final || msg.event === "task_finished") {
           isFinal = true;
-          console.log(`✅ Minimax TTS terminé: ${chunkCounter} chunks, ${audioData.length} bytes`);
+          if (LOG_VERBOSE) console.log(`✅ Minimax TTS terminé: ${chunkCounter} chunks, ${audioData.length} bytes`); else console.log(`TTS ok (${chunkCounter} chunks)`);
           // #region agent log
           fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1472',message:'TTS TERMINÉ - IA a fini de parler',data:{chunkCounter,audioDataLength:audioData.length,premiumTtsInFlight,outboundQueuedBytes,outboundQueueLen:outboundQueue.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
           // #endregion
@@ -1608,7 +1594,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                 }
               }
               
-              console.log(`🎙️ Minimax TTS audio envoyé: ${Math.ceil(mulaw.length / chunkSize)} chunks`);
+              if (LOG_VERBOSE) console.log(`🎙️ Minimax TTS audio envoyé: ${Math.ceil(mulaw.length / chunkSize)} chunks`);
             } catch (err) {
               console.error("❌ Erreur décodage PCM:", err);
               throw err;
@@ -1916,14 +1902,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (LOG_TTS) {
       console.log(`[TTS-ENQUEUE] ENTRÉE [source: ${source}] [interrupt=${interrupt}] [queueLen=${premiumTtsQueue.length}] [inFlight=${premiumTtsInFlight}]`);
       console.log(`[TTS-ENQUEUE] TEXTE:`, rawText);
-      console.log(`🚨🚨🚨 enqueuePremiumTts ENTRÉE [source: ${source}]:`, rawText);
-      console.log(`🚨🚨🚨 enqueuePremiumTts ENTRÉE (interrupt=${interrupt}, queueLen=${premiumTtsQueue.length}, inFlight=${premiumTtsInFlight})`);
+      if (LOG_VERBOSE) {
+        console.log(`🚨 enqueuePremiumTts [source: ${source}]:`, rawText?.substring(0, 80));
+        console.log(`🚨 enqueuePremiumTts (interrupt=${interrupt}, queueLen=${premiumTtsQueue.length})`);
+      }
     }
     
     if (!PREMIUM_TTS_ENABLED) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] SORTIE: PREMIUM_TTS_ENABLED=false`);
-        console.log(`🚨 enqueuePremiumTts SORTIE: PREMIUM_TTS_ENABLED=false`);
+        if (LOG_VERBOSE) console.log(`🚨 enqueuePremiumTts SORTIE: PREMIUM_TTS_ENABLED=false`);
       }
       return;
     }
@@ -1934,7 +1922,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!normalized) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] SORTIE: texte vide après normalisation`);
-        console.log(`🚨 enqueuePremiumTts SORTIE: texte vide après normalisation`);
+        if (LOG_VERBOSE) console.log(`🚨 enqueuePremiumTts SORTIE: texte vide`);
       }
       return;
     }
@@ -2037,7 +2025,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (ws.__processingTexts.has(normalizedForCompare)) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] BLOQUÉ: texte en cours de traitement (race condition évitée)`, textToSpeak.substring(0, 120));
-        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (en cours de traitement) [source: ${source}]:`, textToSpeak.substring(0, 120));
+        if (LOG_VERBOSE) console.log(`🚨 REPETITION BLOQUÉE (en cours) [source: ${source}]:`, textToSpeak.substring(0, 80));
       }
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1725',message:'BLOQUÉ texte en cours de traitement',data:{normalizedText:normalizedForCompare.substring(0,100),textPreview:textToSpeak.substring(0,80),source,processingSetSize:ws.__processingTexts.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
@@ -2065,7 +2053,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (foundInRecent) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment (exact=${foundInRecentExact}, similar=${foundInRecentSimilar})`, textToSpeak.substring(0, 120));
-        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà prononcé récemment) [source: ${source}]:`, textToSpeak.substring(0, 120));
+        if (LOG_VERBOSE) console.log(`🚨 REPETITION BLOQUÉE (déjà prononcé) [source: ${source}]:`, textToSpeak.substring(0, 80));
       }
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1738',message:'BLOQUÉ texte déjà prononcé récemment',data:{foundInRecent,foundInRecentExact,foundInRecentSimilar,normalizedText:normalizedForCompare.substring(0,100),textPreview:textToSpeak.substring(0,80),source,recentCount:recentAssistantTexts.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
@@ -2101,8 +2089,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         if (LOG_TTS) {
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (identique au précédent) [source: ${source}]:`, textToSpeak.substring(0, 120));
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
-          console.log(`🚨🚨🚨 REPETITION BLOQUÉE (texte identique au précédent) [source: ${source}]:`, textToSpeak.substring(0, 120));
-          console.log(`🚨🚨🚨 REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
+          if (LOG_VERBOSE) {
+            console.log(`🚨 REPETITION BLOQUÉE (identique) [source: ${source}]:`, textToSpeak.substring(0, 80));
+            console.log(`🚨 lastText:`, premiumTtsLastText.substring(0, 80));
+          }
         }
         return;
       }
@@ -2119,7 +2109,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         if (LOG_TTS) {
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (similaire à ${Math.round(similarity * 100)}%) [source: ${source}]:`, textToSpeak.substring(0, 120));
           console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (lastText):`, premiumTtsLastText.substring(0, 120));
-          console.log(`🚨🚨🚨 REPETITION BLOQUÉE (similaire à ${Math.round(similarity * 100)}%) [source: ${source}]:`, textToSpeak.substring(0, 120));
+          if (LOG_VERBOSE) console.log(`🚨 REPETITION BLOQUÉE (similaire ${Math.round(similarity * 100)}%) [source: ${source}]:`, textToSpeak.substring(0, 80));
         }
         return;
       }
@@ -2146,7 +2136,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (foundInQueue) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, textToSpeak.substring(0, 120));
-        console.log(`🚨🚨🚨 REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, textToSpeak.substring(0, 120));
+        if (LOG_VERBOSE) console.log(`🚨 REPETITION BLOQUÉE (déjà en queue) [source: ${source}]:`, textToSpeak.substring(0, 80));
       }
       return;
     }
@@ -2222,8 +2212,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (LOG_TTS) {
       console.log(`[TTS-ENQUEUE] ENQUEUED (ajouté à la queue) [source: ${source}] [queueLen=${premiumTtsQueue.length}] [interrupt=${interrupt}]`);
       console.log(`[TTS-ENQUEUE] TEXTE ENQUEUED:`, textToSpeak.substring(0, 200));
-      console.log(`🚨🚨🚨 TTS ENQUEUED (ajouté à la queue) [source: ${source}]:`, textToSpeak.substring(0, 200));
-      console.log(`🚨🚨🚨 TTS ENQUEUED (queueLen=${premiumTtsQueue.length}, interrupt=${interrupt})`);
+      if (LOG_VERBOSE) console.log(`🚨 TTS enqueued [source: ${source}] queueLen=${premiumTtsQueue.length}:`, textToSpeak.substring(0, 80));
     }
     void drainPremiumTtsQueue();
   }
@@ -2235,7 +2224,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
   async function drainPremiumTtsQueue() {
     if (premiumTtsDrainInFlight) {
-      console.log(`🔊 drain skipped (premiumTtsDrainInFlight=true, queueLen=${premiumTtsQueue.length})`);
+      if (LOG_VERBOSE) console.log(`🔊 drain skipped (premiumTtsDrainInFlight=true, queueLen=${premiumTtsQueue.length})`);
       return;
     }
     premiumTtsDrainInFlight = true;
@@ -2259,7 +2248,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const preview = job.text.substring(0, 70) + (job.text.length > 70 ? "…" : "");
         try {
           if (PREMIUM_TTS_PROVIDER === "minimax") {
-            console.log(`🔊 drain calling speakWithMinimaxNow: "${preview}"`);
+            if (LOG_VERBOSE) console.log(`🔊 drain calling speakWithMinimaxNow: "${preview}"`);
             await speakWithMinimaxNow(job.text, { interrupt: false });
           } else if (PREMIUM_TTS_PROVIDER === "elevenlabs") {
             await speakWithElevenLabsNow(job.text, { interrupt: false });
@@ -3018,8 +3007,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     PREMIUM_TTS_ENABLED &&
     (PREMIUM_TTS_PROVIDER === "elevenlabs" || PREMIUM_TTS_PROVIDER === "minimax");
 
-  // Realtime+ElevenLabs: "direct" (chunking) pour parler dès que le texte arrive
-  const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "true").toLowerCase() === "true";
+  // Realtime+Premium TTS: chunking désactivé par défaut pour éviter répétition (ex. tarif "83 euros" dit 2 fois).
+  // Mettre REALTIME_ELEVEN_CHUNKING_ENABLED=true pour réactivité maximale (ElevenLabs) au prix de possibles doublons.
+  const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "false").toLowerCase() === "true";
   // Valeurs par défaut plus "stables" (moins de requêtes ElevenLabs ⇒ moins de coupures).
   // On baisse le seuil min par défaut pour améliorer la réactivité (quand OpenAI envoie des deltas).
   const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
@@ -3074,12 +3064,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         outboundQueuedBytes -= head.length;
         droppedOutboundBytes += head.length;
       }
-      console.log("🗑️ Outbound audio drop (HARD backlog):", {
+      if (LOG_VERBOSE) console.log("🗑️ Outbound audio drop (HARD backlog):", {
         outboundQueuedBytes,
         droppedOutboundBytes,
       });
     } else if (outboundQueuedBytes > SOFT_MAX_BACKLOG_BYTES && Math.random() < 0.05) {
-      console.log("⏳ Outbound backlog (no drop):", {
+      if (LOG_VERBOSE) console.log("⏳ Outbound backlog (no drop):", {
         outboundQueuedBytes,
         approxSeconds: Math.round((outboundQueuedBytes / 160) * 0.02),
       });
@@ -4326,39 +4316,23 @@ But: être naturel et mettre le client en confiance.`,
             }
           }
           
-          // Logger tous les types de messages pour debug (sauf types bruyants / non erreurs)
-          const skipLogTypes = [
-            "rate_limits.updated",           // info fréquent, pas une erreur → évite confusion "rate limit"
-            "input_audio_buffer.cleared",    // très fréquent
-          ];
-          if (msg.type && !skipLogTypes.includes(msg.type)) {
-            const isDelta = msg.type.includes("delta");
-            const shouldLogDelta = isDelta && Math.random() < 0.01; // ~1%
-            if (!isDelta || shouldLogDelta) {
-              console.log(
-                "📨 OpenAI message:",
-                msg.type,
-                JSON.stringify({ keys: Object.keys(msg).slice(0, 15) }).substring(0, 200),
-              );
+          if (LOG_VERBOSE) {
+            const skipLogTypes = ["rate_limits.updated", "input_audio_buffer.cleared"];
+            if (msg.type && !skipLogTypes.includes(msg.type)) {
+              const isDelta = msg.type.includes("delta");
+              const shouldLogDelta = isDelta && Math.random() < 0.01;
+              if (!isDelta || shouldLogDelta) {
+                console.log("📨 OpenAI message:", msg.type, JSON.stringify({ keys: Object.keys(msg).slice(0, 15) }).substring(0, 200));
+              }
             }
+            if (msg.type === "response.audio_transcript.done") console.log("📝 Transcription IA:", msg.transcript);
           }
           
-          if (msg.type === "response.audio_transcript.done") {
-            console.log("📝 Transcription IA:", msg.transcript);
-          }
-          
-          // Transcripts de sortie (utile pour TTS premium) via events response.*
           if (msg.type === "response.created") {
             const rid = msg.response?.id ?? msg.response_id ?? null;
             const outputModalities = msg.response?.output_modalities || [];
             const hasAudioModality = Array.isArray(outputModalities) && outputModalities.includes("audio");
-            console.log("📨 response.created reçu:", {
-              rid,
-              outputModalities,
-              hasAudioModality,
-              responseKeys: msg.response ? Object.keys(msg.response) : [],
-              REALTIME_USE_ELEVEN,
-            });
+            if (LOG_VERBOSE) console.log("📨 response.created:", { rid, hasAudioModality, REALTIME_USE_ELEVEN });
             if (!hasAudioModality && !REALTIME_USE_ELEVEN) {
               console.warn("⚠️ ATTENTION: response.created sans modalité audio et REALTIME_USE_ELEVEN=false !");
             }
@@ -4372,42 +4346,23 @@ But: être naturel et mettre le client en confiance.`,
             const rid = msg.response_id ?? msg.response?.id ?? null;
             const outputModalities = msg.response?.output_modalities || [];
             const hasAudioModality = Array.isArray(outputModalities) && outputModalities.includes("audio");
-            console.log("✅ response.done reçu:", {
-              rid,
-              outputModalities,
-              hasAudioModality,
-              responseKeys: msg.response ? Object.keys(msg.response) : [],
-              hasOutputItems: !!msg.response?.output,
-              allKeys: Object.keys(msg).slice(0, 20),
-            });
-            // Log détaillé du status OpenAI pour comprendre les réponses vides
-            try {
+            if (LOG_VERBOSE) {
               const resp = msg.response || {};
+              console.log("✅ response.done:", { rid, status: resp.status, hasOutputItems: !!resp.output });
+              try {
+                const statusDetails = resp.status_details || resp.statusDetails || null;
+                const safeOutputPreview = Array.isArray(resp.output) ? resp.output.slice(0, 2) : resp.output;
+                console.log("🔎 Détails response.done:", { rid, status: resp.status, statusDetails, outputPreview: safeOutputPreview });
+              } catch (e) { /* ignore */ }
+            }
+            const resp = msg.response || {};
+            try {
               const status = resp.status;
               const statusDetails = resp.status_details || resp.statusDetails || null;
-              // #region agent log - RESPONSE.DONE STATUS
               const isFailed = status === 'failed';
               const isRateLimit = isFailed && statusDetails?.error?.code === 'rate_limit_exceeded';
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4168',message:'response.done STATUS',data:{rid,status,isFailed,isRateLimit,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken,hasOutputItems:!!resp.output},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-              // #endregion
-              const usage = resp.usage || null;
-              const meta = resp.metadata || null;
-              const safeOutputPreview = Array.isArray(resp.output)
-                ? resp.output.slice(0, 2) // au cas où, on limite à 2 items
-                : resp.output;
-
-              console.log("🔎 Détails response.done OpenAI:", {
-                rid,
-                status,
-                statusDetails,
-                usage,
-                metadataKeys: meta ? Object.keys(meta).slice(0, 10) : null,
-                outputPreviewType: Array.isArray(resp.output) ? `array(${resp.output.length})` : typeof resp.output,
-                outputPreview: safeOutputPreview,
-              });
-            } catch (e) {
-              console.error("❌ Erreur lors du log détaillé de response.done:", e);
-            }
+            } catch (e) { /* ignore */ }
             if (!hasAudioModality && !REALTIME_USE_ELEVEN) {
               console.error("❌ ERREUR: response.done sans modalité audio et REALTIME_USE_ELEVEN=false - pas d'audio possible !");
             }
@@ -4419,8 +4374,8 @@ But: être naturel et mettre le client en confiance.`,
                 const extractedText = extractTextFromResponseOutput(rawOutput);
                 if (extractedText) {
                   const existingText = transcriptMap.get(rid) || "";
-                  if (!existingText.includes(extractedText)) {
-                    console.log("📝 Texte extrait depuis response.done:", extractedText.substring(0, 160));
+                    if (!existingText.includes(extractedText)) {
+                    if (LOG_VERBOSE) console.log("📝 Texte extrait depuis response.done:", extractedText.substring(0, 160));
                     if (process.env.OPENAI_OUTPUT_DEBUG === "true") {
                       console.log("📋 DEBUG response.output brut:", JSON.stringify(rawOutput).substring(0, 400));
                     }
@@ -4572,9 +4527,9 @@ But: être naturel et mettre le client en confiance.`,
                 // Envoyer le SMS directement à la fin de l'appel (pas besoin de consentement)
                 plateSmsSendOnFinalize = true;
                 plateSmsAlreadyMentioned = true; // Éviter les répétitions
-                console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, confirmsPlate, textPreview: doneText.substring(0, 100) });
+                if (LOG_VERBOSE) console.log("📩 Détection proposition SMS plaque, SMS à la fin:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 60) });
               } else if (confirmsPlate) {
-                console.log("✅ Client confirme la plaque existante, SMS non nécessaire:", { textPreview: doneText.substring(0, 100) });
+                if (LOG_VERBOSE) console.log("✅ Client confirme la plaque, SMS non nécessaire:", doneText.substring(0, 60));
                 plateSmsSendOnFinalize = false;
                 plateSmsAlreadyMentioned = true;
                 plateConfirmedByClient = true; // IA confirme que le client a validé la plaque pour le RDV
@@ -4793,19 +4748,12 @@ But: être naturel et mettre le client en confiance.`,
           // Ici, OpenAI envoie souvent le texte final dans conversation.item.done plutôt que dans response.output.
           if (msg.type === "conversation.item.done" && msg.item) {
             const item = msg.item;
-            try {
-              console.log("📨 conversation.item.done reçu:", {
-                role: item.role,
-                itemId: item.id,
-                responseId: msg.response_id ?? null,
-                hasContent: !!item.content,
-                contentType: Array.isArray(item.content)
-                  ? "array(" + item.content.length + ")"
-                  : typeof item.content,
-                itemKeys: Object.keys(item || {}).slice(0, 10),
-              });
-            } catch {
-              console.log("📨 conversation.item.done reçu (logging simplifié)");
+            if (LOG_VERBOSE) {
+              try {
+                console.log("📨 conversation.item.done:", { role: item.role, itemId: item.id, responseId: msg.response_id ?? null });
+              } catch {
+                console.log("📨 conversation.item.done (simplifié)");
+              }
             }
             // On ne s'intéresse qu'aux messages de rôle assistant
             if (item.role !== "assistant") {
@@ -4870,7 +4818,7 @@ But: être naturel et mettre le client en confiance.`,
                     const otherVehicleConv = userText.match(/\b(non|ce n'est pas|autre voiture|autre véhicule)\b/i);
                     const confirmsPlateConv = confirmsPlatePatternsConv.some(p => p.test(userText)) && !otherVehicleConv;
                     if (confirmsPlateConv) {
-                      console.log("✅ Client confirme la plaque (conversation.item.done user), SMS non envoyé:", { userText: userText.substring(0, 80) });
+                      if (LOG_VERBOSE) console.log("✅ Client confirme la plaque, SMS non envoyé:", userText.substring(0, 60));
                       plateSmsSendOnFinalize = false;
                       plateSmsAlreadyMentioned = true;
                       plateConfirmedByClient = true;
@@ -4901,7 +4849,7 @@ But: être naturel et mettre le client en confiance.`,
 
                 if (extracted && extracted.trim()) {
                   const clean = extracted.trim();
-                  console.log("📝 Texte assistant depuis conversation.item.done:", clean.substring(0, 160));
+                  if (LOG_VERBOSE) console.log("📝 Texte assistant depuis conversation.item.done:", clean.substring(0, 160));
                   // Stocker dans transcriptMap si on a un response_id
                   if (rid) {
                     const existing = transcriptMap.get(rid) || "";
@@ -4981,7 +4929,7 @@ But: être naturel et mettre le client en confiance.`,
                 console.log("🛑 Réponse IA (response.output_text.done) = refus enregistrement, remplacement par message fixe.");
                 playConsentRefusalAndHangup();
               } else {
-              console.log("📝 Réponse texte IA reçue (GPT-5):", doneText.substring(0, 100));
+              if (LOG_VERBOSE) console.log("📝 Réponse texte IA reçue (GPT-5):", doneText.substring(0, 100));
               // #region agent log - RAW TEXT FROM GPT-5
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3501',message:'RAW TEXT FROM GPT-5 response.output_text.done',data:{rawText:doneText,containsEuros:doneText.includes('euros')||doneText.includes('€'),contains12:doneText.match(/\b12\b|\b1\s+2\b|\bdouze\b/i)?.[0],containsHour:doneText.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/i)?.[0],containsPlate:doneText.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i)?.[0]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
               // #endregion
@@ -5003,7 +4951,7 @@ But: être naturel et mettre le client en confiance.`,
               if ((mentionsPlate || mentionsMessage) && !plateSmsAlreadyMentioned && !confirmsPlate) {
                 // Envoyer le SMS directement à la fin de l'appel (pas besoin de consentement)
                 plateSmsSendOnFinalize = true;
-                console.log("📩 Détection proposition SMS plaque, SMS sera envoyé à la fin de l'appel:", { mentionsPlate, mentionsMessage, confirmsPlate, textPreview: doneText.substring(0, 100) });
+                if (LOG_VERBOSE) console.log("📩 Détection proposition SMS plaque, SMS à la fin:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 60) });
               } else if (confirmsPlate) {
                 console.log("✅ IA confirme plaque existante, SMS non nécessaire:", { textPreview: doneText.substring(0, 100) });
                 plateSmsSendOnFinalize = false;
@@ -5271,15 +5219,11 @@ But: être naturel et mettre le client en confiance.`,
           }
           
           if (msg.type === "response.output_item.added" || msg.type === "response.output_item.done") {
-            console.log("✅ Réponse IA:", msg.type, msg.item?.type);
-            // Log détaillé pour diagnostiquer l'absence d'audio
+            if (LOG_VERBOSE) {
+              console.log("✅ Réponse IA:", msg.type, msg.item?.type);
+              if (msg.item) console.log("📋 Détails item réponse:", { type: msg.item.type, hasContent: !!msg.item.content, keys: Object.keys(msg.item) });
+            }
             if (msg.item) {
-              console.log("📋 Détails item réponse:", {
-                type: msg.item.type,
-                hasContent: !!msg.item.content,
-                contentTypes: msg.item.content ? msg.item.content.map((c) => c?.type).filter(Boolean) : [],
-                keys: Object.keys(msg.item),
-              });
               
               // Extraire le texte depuis msg.item.content pour le passer au TTS
               if (msg.item.content && Array.isArray(msg.item.content)) {
@@ -5293,7 +5237,7 @@ But: être naturel et mettre le client en confiance.`,
                   }
                 }
                 if (extractedText.trim() && REALTIME_USE_ELEVEN) {
-                  console.log("📝 Texte extrait depuis output_item:", extractedText.substring(0, 100));
+                  if (LOG_VERBOSE) console.log("📝 Texte extrait depuis output_item:", extractedText.substring(0, 100));
                   // S'assurer que le texte est dans le transcript
                   if (rid) {
                     transcriptMap.set(rid, extractedText);
@@ -5317,18 +5261,13 @@ But: être naturel et mettre le client en confiance.`,
           // Log messages audio/output pour debug (exclure les deltas texte très fréquents → évite spam logs)
           const isNoisyOutputDelta = msg.type === "response.output_text.delta" || msg.type === "response.audio_transcript.delta";
           if (msg.type && (msg.type.includes("audio") || msg.type.includes("output")) && !isNoisyOutputDelta) {
-            console.log("🔊 Message audio/output:", msg.type, {
-              hasDelta: !!msg.delta,
-              hasAudio: !!msg.audio,
-              hasChunk: !!msg.chunk,
-              keys: Object.keys(msg).slice(0, 10),
-            });
+            if (LOG_VERBOSE) console.log("🔊 Message audio/output:", msg.type, { hasDelta: !!msg.delta, hasAudio: !!msg.audio, keys: Object.keys(msg).slice(0, 10) });
           }
           
           if (msg.type === "conversation.item.input_audio_transcription.completed") {
             const transcript = msg.transcript;
             const isJunk = isJunkTranscript(transcript);
-            if (!isJunk) console.log("🎤 Client dit:", transcript?.substring(0, 80));
+            if (!isJunk) console.log(`[CLIENT-SAYS] ${transcript ?? ""}`);
             // Ne pas enregistrer le bruit comme parole utilisateur (ingest + lastCommittedAt)
             if (!isJunk) enqueueIngest("user", transcript);
             // #region agent log - TRANSCRIPTION CLIENT
@@ -5410,7 +5349,7 @@ But: être naturel et mettre le client en confiance.`,
             // #endregion
             
             if (confirmsPlate && !otherVehicle) {
-              console.log("✅ Client confirme la plaque existante, désactivation SMS:", { userText });
+              if (LOG_VERBOSE) console.log("✅ Client confirme la plaque, désactivation SMS:", userText?.substring(0, 60));
               plateSmsSendOnFinalize = false;
               plateSmsAlreadyMentioned = true; // Éviter de proposer à nouveau
               plateConfirmedByClient = true;   // RDV: ne pas envoyer de SMS, valider la plaque en dossier
@@ -5490,13 +5429,7 @@ But: être naturel et mettre le client en confiance.`,
             // #endregion
             if (hasRealSpeech) {
               // ANTI-BRUIT: on ne met plus à jour lastCommittedAt ici. On le fait uniquement quand on a le transcript
-              // (input_audio_transcription.completed ou conversation.item.done user) et qu'il n'est pas du bruit (isJunkTranscript).
-              console.log("✅ OpenAI buffer committed (transcript à valider à la réception):", {
-                item_id: msg.item_id,
-                previous_item_id: msg.previous_item_id,
-                speechActive,
-                timeSinceSpeech: nowMs() - lastSpeechTs,
-              });
+              if (LOG_VERBOSE) console.log("✅ OpenAI buffer committed:", { item_id: msg.item_id, previous_item_id: msg.previous_item_id, timeSinceSpeech: nowMs() - lastSpeechTs });
               const canRequest = (nowMs() - lastResponseAt) > 600;
               if (awaitingUserResponse && canRequest) {
                 lastResponseAt = nowMs();
@@ -5509,11 +5442,7 @@ But: être naturel et mettre le client en confiance.`,
                 }, WATCHDOG_AFTER_COMMIT_MS);
               }
             } else {
-              console.log("⚠️ OpenAI buffer committed IGNORÉ (pas de parole réelle détectée):", {
-                item_id: msg.item_id,
-                speechActive,
-                timeSinceSpeech: nowMs() - lastSpeechTs,
-              });
+              if (LOG_VERBOSE) console.log("⚠️ OpenAI buffer committed IGNORÉ (pas de parole réelle):", { item_id: msg.item_id, timeSinceSpeech: nowMs() - lastSpeechTs });
               // #region agent log
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4675',message:'COMMIT IGNORÉ pas de parole réelle',data:{itemId:msg.item_id,speechActive,timeSinceSpeech:nowMs()-lastSpeechTs},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
               // #endregion
@@ -5942,7 +5871,7 @@ But: être naturel et mettre le client en confiance.`,
           });
         }
         if (mediaCount % 200 === 0) {
-          console.log(`📊 Media frames: ${mediaCount}`);
+          if (LOG_VERBOSE || LOG_TWILIO_FRAMES) console.log(`📊 Media frames: ${mediaCount}`);
         }
         
         // Mode Option B: VAD local → buffer → STT→LLM→TTS
@@ -6123,7 +6052,7 @@ But: être naturel et mettre le client en confiance.`,
                                                      /\b(oui\s*,?\s*(c'est\s*)?(pour\s*)?(cette\s*)?(voiture|plaque|immatriculation))\b/i.test(txtLower) ||
                                                      /\b(exactement|parfait|correct|oui\s*je\s*confirme)\b/i.test(txtLower);
                         if (clientConfirmsPlate && (txtLower.includes("plaque") || txtLower.includes("immatric") || txtLower.includes("voiture"))) {
-                          console.log("✅ Client confirme la plaque existante dans sa transcription:", txt.substring(0, 100));
+                          if (LOG_VERBOSE) console.log("✅ Client confirme la plaque (transcription):", txt.substring(0, 60));
                           // CRITIQUE: Mettre à false AVANT de mettre plateSmsAlreadyMentioned à true
                           plateSmsSendOnFinalize = false;
                           plateSmsAlreadyMentioned = true; // Marquer que la plaque a été confirmée pour éviter l'envoi de SMS
@@ -6377,8 +6306,8 @@ But: être naturel et mettre le client en confiance.`,
         // Le pacing sortant est géré par le timer 20ms.
         
       } else if (msg.event === "stop") {
-        console.log("🛑 Stream stop (Twilio a demandé l'arrêt)");
-        console.log("🛑 Raison possible: timeout, erreur Twilio, ou fin d'appel normale");
+        console.log("🛑 Stream stop");
+        if (LOG_VERBOSE) console.log("🛑 Raison: timeout, erreur Twilio ou fin d'appel");
         // Nettoyer les timers de hangup automatique
         if (goodbyeTimer) {
           clearTimeout(goodbyeTimer);
@@ -6397,10 +6326,10 @@ But: être naturel et mettre le client en confiance.`,
         if (plateSmsSendOnFinalize) {
           const shouldSend = plateSmsSendOnFinalize;
           plateSmsSendOnFinalize = false;
-          console.log("📩 Demande d'envoi du SMS (plaque) à la fin de l'appel → API AutoGuru enverra le SMS au client. plateSmsSendOnFinalize:", shouldSend);
+          if (LOG_VERBOSE) console.log("📩 Demande SMS plaque (fin appel):", shouldSend); else console.log("📩 SMS plaque demandé");
           requestPlateSmsIfNeeded("send_plate_sms_on_finalize", shouldSend)
             .then((res) => {
-              console.log("📩 Résultat envoi SMS plaque (stop):", res);
+              if (LOG_VERBOSE) console.log("📩 Résultat SMS plaque (stop):", res); else if (res?.sent) console.log("📩 SMS envoyé");
               if (res && res.sent) {
                 plateSmsWaitingForReply = true;
                 if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
@@ -6437,20 +6366,20 @@ But: être naturel et mettre le client en confiance.`,
           outboundTimer = null;
         }
         if (openaiWs) {
-          console.log("🛑 Fermeture connexion OpenAI...");
+          if (LOG_VERBOSE) console.log("🛑 Fermeture connexion OpenAI...");
           try {
             // Vérifier l'état avant de fermer
             if (openaiWs.readyState === WebSocket.OPEN || openaiWs.readyState === WebSocket.CONNECTING) {
               openaiWs.close();
             } else {
-              console.log("🛑 OpenAI WS déjà fermé ou en cours de fermeture (état:", openaiWs.readyState, ")");
+              if (LOG_VERBOSE) console.log("🛑 OpenAI WS déjà fermé (état:", openaiWs.readyState, ")");
             }
           } catch (err) {
             console.error("❌ Erreur lors de la fermeture OpenAI WS:", err);
           }
         }
       } else {
-        console.log("ℹ️ Other event:", msg.event);
+        if (LOG_VERBOSE) console.log("ℹ️ Other event:", msg.event);
       }
     } catch (err) {
       console.error("❌ Invalid message", err);
@@ -6458,15 +6387,15 @@ But: être naturel et mettre le client en confiance.`,
   });
 
   ws.on("close", () => {
-    console.log("🔌 Connection closed. Media frames total:", mediaCount);
+    console.log("🔌 Closed, frames:", mediaCount);
     if (plateConfirmedByClient) plateSmsSendOnFinalize = false;
     if (plateSmsSendOnFinalize) {
       const shouldSend = plateSmsSendOnFinalize;
       plateSmsSendOnFinalize = false;
-        console.log("📩 Demande d'envoi du SMS (plaque) à la fermeture du WebSocket → API AutoGuru enverra le SMS au client. plateSmsSendOnFinalize:", shouldSend);
+        if (LOG_VERBOSE) console.log("📩 Demande SMS plaque (ws close):", shouldSend); else console.log("📩 SMS plaque demandé (close)");
       requestPlateSmsIfNeeded("send_plate_sms_on_finalize_ws_close", shouldSend)
         .then((res) => {
-          console.log("📩 Résultat envoi SMS plaque (ws close):", res);
+          if (LOG_VERBOSE) console.log("📩 Résultat SMS plaque (ws close):", res); else if (res?.sent) console.log("📩 SMS envoyé");
           if (res && res.sent) {
             plateSmsWaitingForReply = true;
             if (plateSmsPollTimer) clearInterval(plateSmsPollTimer);
