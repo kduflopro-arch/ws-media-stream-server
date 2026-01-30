@@ -4895,8 +4895,10 @@ But: être naturel et mettre le client en confiance.`,
                   // Synthèse via TTS premium (Minimax/ElevenLabs)
                   if (REALTIME_USE_ELEVEN) {
                     const spokenSet = ws.__realtimeSpokenResponseId;
-                    // CORRECTION: Quand rid est présent, on buffer le texte (le plus long vu) et on n'enqueue PAS ici.
-                    // Le TTS sera déclenché une seule fois dans response.done (évite phrases en double/désordre).
+                    // CORRECTION ANTI-RÉPÉTITION: En REALTIME_USE_ELEVEN (TTS premium), le TTS assistant est déclenché
+                    // UNIQUEMENT depuis response.done (texte complet garanti, une seule fois). On ne déclenche
+                    // JAMAIS le TTS depuis conversation.item.done pour l'assistant, sinon la même phrase est jouée
+                    // plusieurs fois (response.done + conversation.item.done avec rid null).
                     if (rid) {
                       if (!ws.__conversationItemTextByRid) ws.__conversationItemTextByRid = new Map();
                       const current = ws.__conversationItemTextByRid.get(rid) || "";
@@ -4908,24 +4910,16 @@ But: être naturel et mettre le client en confiance.`,
                       } else {
                         if (LOG_TTS) console.log(`[TTS] conversation.item.done buffer (attente response.done):`, { rid, text: clean.substring(0, 80) });
                       }
-                      return;
                     }
-                    // rid null: enqueue immédiatement (fallback si l'API n'envoie pas response_id)
-                    if (spokenSet && spokenSet.has(rid)) {
-                      if (LOG_TTS) console.log(`[TTS] SKIPPED conversation.item.done (déjà dans spokenSet):`, { rid, text: clean.substring(0, 100) });
-                    } else {
-                      console.log("🎤 Envoi du texte à enqueuePremiumTts depuis conversation.item.done (sans response_id)");
-                      const isInitialConsent = !userHasSpoken;
-                      const noValidUserYet = lastCommittedAt === 0;
-                      const allowTtsWithoutUser = isInitialConsent || noValidUserYet;
+                    // rid null ou rid présent: on n'enqueue jamais ici en REALTIME_USE_ELEVEN (TTS = response.done uniquement).
+                    // Refus consentement: on traite quand même depuis conversation.item.done si besoin.
+                    if (!rid) {
                       if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(clean)) {
                         console.log("🛑 Réponse IA (conversation.item.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
-                      } else {
-                        enqueuePremiumTts(clean, { interrupt: false, source: "conversation.item.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
-                        if (rid && spokenSet) spokenSet.add(rid);
                       }
-                    }
+                      if (LOG_TTS) console.log(`[TTS] SKIPPED conversation.item.done (TTS assistant = response.done uniquement):`, { text: clean.substring(0, 80) });
+                  }
                   }
                 } else {
                   console.warn("⚠️ Aucun texte assistant extrait depuis conversation.item.done");
