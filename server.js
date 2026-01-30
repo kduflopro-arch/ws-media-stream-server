@@ -4430,6 +4430,19 @@ But: être naturel et mettre le client en confiance.`,
                       } else {
                         enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
                       }
+                    } else if (REALTIME_USE_ELEVEN && !spokenSet.has(rid)) {
+                      // REALTIME_USE_ELEVEN: une seule fois par réponse (évite phrases en double/désordre depuis conversation.item.done)
+                      spokenSet.add(rid);
+                      if (ws.__conversationItemTextByRid) ws.__conversationItemTextByRid.delete(rid);
+                      const isInitialConsent = !userHasSpoken;
+                      const noValidUserYet = lastCommittedAt === 0;
+                      const allowTtsWithoutUser = isInitialConsent || noValidUserYet;
+                      if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
+                        console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
+                        playConsentRefusalAndHangup();
+                      } else {
+                        enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
+                      }
                     } else {
                       // #region agent log
                       fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3616',message:'response.done SKIPPED (déjà dans spokenSet)',data:{responseId:rid,text:extractedText.substring(0,150),spokenSetSize:spokenSet.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
@@ -4482,6 +4495,24 @@ But: être naturel et mettre le client en confiance.`,
                 console.error("❌ Erreur extraction texte depuis response.output:", e);
                 if (process.env.OPENAI_OUTPUT_DEBUG === "true") {
                   console.log("📋 DEBUG response.output (erreur extraction):", JSON.stringify(rawOutput).substring(0, 800));
+                }
+              }
+            }
+            // REALTIME_USE_ELEVEN: si output vide, utiliser le buffer (conversation.item.done) pour TTS une seule fois
+            if (REALTIME_USE_ELEVEN && rid && !spokenSet.has(rid)) {
+              const buffered = ws.__conversationItemTextByRid?.get(rid);
+              if (buffered && buffered.trim()) {
+                spokenSet.add(rid);
+                ws.__conversationItemTextByRid.delete(rid);
+                console.log("📝 Texte TTS depuis buffer (conversation.item.done):", buffered.substring(0, 160));
+                const isInitialConsent = !userHasSpoken;
+                const noValidUserYet = lastCommittedAt === 0;
+                const allowTtsWithoutUser = isInitialConsent || noValidUserYet;
+                if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(buffered)) {
+                  console.log("🛑 Réponse IA (response.done buffer) = refus enregistrement, remplacement par message fixe.");
+                  playConsentRefusalAndHangup();
+                } else {
+                  enqueuePremiumTts(buffered, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
                 }
               }
             }
@@ -4858,34 +4889,30 @@ But: être naturel et mettre le client en confiance.`,
                   }
                   // Synthèse via TTS premium (Minimax/ElevenLabs)
                   if (REALTIME_USE_ELEVEN) {
-                    // CORRECTION CRITIQUE: Vérifier si ce texte a déjà été envoyé depuis response.done
-                    // Si responseId existe et est déjà dans spokenSet, on skip pour éviter les doublons
                     const spokenSet = ws.__realtimeSpokenResponseId;
-                    if (rid && spokenSet && spokenSet.has(rid)) {
-                      // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3857',message:'conversation.item.done SKIPPED (déjà dans spokenSet)',data:{responseId:rid,text:clean.substring(0,150),spokenSetSize:spokenSet.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-                      // #endregion
+                    // CORRECTION: Quand rid est présent, on buffer le texte (le plus long vu) et on n'enqueue PAS ici.
+                    // Le TTS sera déclenché une seule fois dans response.done (évite phrases en double/désordre).
+                    if (rid) {
+                      if (!ws.__conversationItemTextByRid) ws.__conversationItemTextByRid = new Map();
+                      const current = ws.__conversationItemTextByRid.get(rid) || "";
+                      if (clean.length >= current.length) {
+                        ws.__conversationItemTextByRid.set(rid, clean);
+                      }
+                      if (spokenSet && spokenSet.has(rid)) {
+                        if (LOG_TTS) console.log(`[TTS] conversation.item.done buffer only (TTS déjà fait dans response.done):`, { rid, text: clean.substring(0, 80) });
+                      } else {
+                        if (LOG_TTS) console.log(`[TTS] conversation.item.done buffer (attente response.done):`, { rid, text: clean.substring(0, 80) });
+                      }
+                      return;
+                    }
+                    // rid null: enqueue immédiatement (fallback si l'API n'envoie pas response_id)
+                    if (spokenSet && spokenSet.has(rid)) {
                       if (LOG_TTS) console.log(`[TTS] SKIPPED conversation.item.done (déjà dans spokenSet):`, { rid, text: clean.substring(0, 100) });
                     } else {
-                      console.log("🎤 Envoi du texte à enqueuePremiumTts depuis conversation.item.done");
-                      // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3860',message:'calling enqueuePremiumTts from conversation.item.done',data:{text:clean.substring(0,200),responseId:rid,hasResponseId:!!rid,spokenSetHasRid:rid&&spokenSet?spokenSet.has(rid):null},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-                      // #endregion
-                      // CORRECTION: L'IA doit toujours commencer en premier (consentement initial)
-                      // Si l'utilisateur n'a pas encore parlé, c'est forcément le consentement/accueil
-                      // Donc on permet allowWithoutUser=true pour tous les premiers messages
+                      console.log("🎤 Envoi du texte à enqueuePremiumTts depuis conversation.item.done (sans response_id)");
                       const isInitialConsent = !userHasSpoken;
-                      // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3868',message:'conversation.item.done consentement check',data:{userHasSpoken,isInitialConsent,text:clean.substring(0,100),responseId:rid,hasResponseId:!!rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                      // #endregion
-                      // CORRECTION: allowWithoutUser = true si consentement initial OU aucune parole utilisateur valide encore (lastCommittedAt === 0).
-                      // Ainsi la première question après l'accueil ("Dites-moi, quel est votre besoin ?") est toujours jouée même si
-                      // userHasSpoken a été mis à true par un bruit (speech_started) sans transcript valide.
                       const noValidUserYet = lastCommittedAt === 0;
                       const allowTtsWithoutUser = isInitialConsent || noValidUserYet;
-                      // #region agent log
-                      fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4525',message:'conversation.item.done - enqueuePremiumTts APRÈS CONSENT',data:{consentGiven,isInitialConsent,noValidUserYet,allowTtsWithoutUser,lastCommittedAt,text:clean.substring(0,200),hasRdvMention:clean.toLowerCase().includes('rendez-vous')||clean.toLowerCase().includes('rdv'),responseId:rid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-                      // #endregion
                       if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(clean)) {
                         console.log("🛑 Réponse IA (conversation.item.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
