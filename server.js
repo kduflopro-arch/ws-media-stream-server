@@ -258,6 +258,7 @@ wss.on("connection", (ws, req) => {
   let lastUserActivityMs = 0;
   let callStartTimeMs = nowMs(); // Initialiser le temps de début d'appel
   const GOODBYE_DELAY_MS = 5000; // 5 secondes après l'au revoir pour couper l'appel
+  const GOODBYE_POST_AUDIO_DELAY_MS = 2500; // 2,5 s après la fin du message de fin (Minimax) avant de raccrocher
   const MIN_CALL_DURATION_MS = 30000; // Minimum 30 secondes d'appel avant hangup automatique
   const MIN_USER_INACTIVITY_MS = 5000; // Client doit être inactif depuis au moins 5 secondes
   
@@ -2362,9 +2363,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     return `${thousandWord} ${threeDigits(rest)}`;
   }
 
-  // Variante "TTS-friendly": évite les tirets dans les nombres (certains TTS FR prononcent mal les mots hyphenés)
+  // Variante "TTS-friendly": pour 80-99 garder les tirets (quatre-vingt-trois) pour une prononciation plus naturelle ; sinon remplacer par espaces
   function numberToFrenchWordsTts(n) {
-    return numberToFrenchWords(n).replace(/-/g, " ").replace(/\s+/g, " ").trim();
+    const num = typeof n === "number" ? n : Number(String(n).replace(/\s+/g, ""));
+    const raw = numberToFrenchWords(n);
+    if (num >= 80 && num <= 99) return raw; // "quatre-vingt-trois" plus naturel que "quatre vingt trois"
+    return raw.replace(/-/g, " ").replace(/\s+/g, " ").trim();
   }
 
   /** Sanitise le texte envoyé à Minimax TTS pour éviter erreurs 1000/1042 (invisible chars, control chars, longueur). */
@@ -2937,6 +2941,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     // #endregion
     
+    // CORRECTION: Espace après "à" / "de" devant un mot (ex: "àquatre" -> "à quatre" pour prononciation naturelle du tarif)
+    t = t.replace(/\b(à|de)([a-zàâäéèêëïîôùûüÿœæç])/gi, "$1 $2");
+    
     return t.trim();
   }
 
@@ -3413,6 +3420,7 @@ IMPORTANT - GESTION DES RENDEZ-VOUS:
   3. Si le client refuse (non, pas maintenant, non merci, etc.): Demande "Avez-vous besoin d'autre chose ?" (ATTENDS LA RÉPONSE)
      - Si oui: Continue à l'aider
      - Si non: Dis "D'accord, nous sommes disponibles si vous avez besoin. Au revoir et bonne journée !"
+- RÈGLE FIN D'APPEL: Avant de dire au revoir ou toute formule de fin (bonne journée, merci, etc.), tu DOIS avoir demandé "Avez-vous besoin d'autre chose ?" et le client doit avoir répondu non ou ne plus rien demander. Ne dis jamais au revoir sans avoir posé cette question avant.
 - EXEMPLE OBLIGATOIRE DE STRUCTURE: "D'accord, un problème de voyant de batterie qui reste allumé peut venir d'un problème de batterie ou du système de charge. Depuis quand avez-vous remarqué ce voyant ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Merci. Avez-vous remarqué d'autres symptômes, comme des difficultés au démarrage ou des phares qui faiblissent ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Je vous propose de venir faire un diagnostic au garage pour ce problème. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" (ATTENDS LA RÉPONSE) Puis selon la réponse: prendre le rendez-vous OU demander si besoin d'autre chose OU dire au revoir.
 - EXEMPLE INTERDIT (NE PAS FAIRE): "Un problème de charge pourrait venir de la batterie ou du système de charge." (SANS QUESTION - INTERDIT)
 - EXEMPLE CORRECT (OBLIGATOIRE): "Un problème de charge pourrait venir de la batterie ou du système de charge. Depuis quand avez-vous remarqué ce problème ?"
@@ -3433,6 +3441,7 @@ Tu dois DÉTECTER automatiquement si le client mentionne "modifier", "changer", 
         const baseInstructions = `⚠️⚠️⚠️ RÔLE - C'EST TOI QUI ACCOMPAGNES LE CLIENT ⚠️⚠️⚠️
 - Tu ACCOMPAGNES le client: tu poses les questions, le client RÉPOND. Le client ne fait que répondre à tes questions. C'EST TOI QUI GUIDES, PAS LE CLIENT.
 - RÈGLE ABSOLUE: Chaque fois que tu parles (sauf au revoir / confirmation finale), ta réponse DOIT se terminer par UNE question claire (phrase qui se termine par ?). Tu ne t'arrêtes JAMAIS sur une affirmation sans question.
+- FIN D'APPEL: Avant de dire au revoir ou bonne journée, tu DOIS demander "Avez-vous besoin d'autre chose ?" et attendre la réponse. Si le client dit non ou ne demande plus rien, dis alors ton message de fin (au revoir, bonne journée).
 - Si tu viens d'expliquer des causes possibles (ex: "ça peut venir de la batterie ou de l'alternateur"), tu DOIS enchaîner IMMÉDIATEMENT dans la MÊME réplique par une question (ex: "Depuis quand est-il allumé ?", "D'autres symptômes ?"). Une réplique qui explique sans question = INTERDIT.
 - Scénario type: tu dis "D'accord, un voyant batterie peut indiquer un problème batterie ou alternateur. Depuis quand est-il allumé ?" → tu ATTENDS la réponse → le client dit "depuis une semaine" → tu enchaînes "D'autres symptômes, comme des difficultés au démarrage ?" → tu ATTENDS → etc.
 ⚠️⚠️⚠️ FIN RÔLE ⚠️⚠️⚠️
@@ -4522,8 +4531,8 @@ But: être naturel et mettre le client en confiance.`,
               // Ne pas activer si l'IA confirme que la plaque est correcte (ex: "oui c'est bien", "correct", "oui c'est la bonne")
               const confirmsPlate = low.includes("oui c'est") || low.includes("c'est bien") || low.includes("c'est correct") || 
                                     low.includes("oui c'est la bonne") || low.includes("oui c'est pour cette voiture");
-              // Activer seulement si l'IA propose d'envoyer un message ET que ce n'est pas une confirmation de plaque
-              if ((mentionsPlate || mentionsMessage) && !plateSmsAlreadyMentioned && !confirmsPlate) {
+              // Activer seulement si l'IA propose d'envoyer un message ET que ce n'est pas une confirmation de plaque ET que le client n'a pas déjà confirmé la plaque
+              if ((mentionsPlate || mentionsMessage) && !plateSmsAlreadyMentioned && !confirmsPlate && !plateConfirmedByClient) {
                 // Envoyer le SMS directement à la fin de l'appel (pas besoin de consentement)
                 plateSmsSendOnFinalize = true;
                 plateSmsAlreadyMentioned = true; // Éviter les répétitions
@@ -4634,12 +4643,12 @@ But: être naturel et mettre le client en confiance.`,
                     setTimeout(checkAudioAndHangup, 500);
                     return;
                   }
-                  // L'audio est terminé OU on a atteint la limite, on raccroche
+                  // L'audio est terminé OU on a atteint la limite : attendre 2-3 s après la fin du message avant de raccrocher
                   console.log("📞 Hangup automatique après détection fin d'échange (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending, hasSaidGoodbye });
                   // #region agent log
                   fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3486',message:'HANGUP DÉCLENCHÉ (response.done)',data:{checkCount,hadAudioPending:hasAudioPending,hasSaidGoodbye,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                   // #endregion
-                  triggerHangup("auto_goodbye");
+                  setTimeout(() => triggerHangup("auto_goodbye"), GOODBYE_POST_AUDIO_DELAY_MS);
                 };
                 // Démarrer immédiatement la vérification de l'audio (pas de délai supplémentaire)
                 checkAudioAndHangup();
@@ -4703,12 +4712,12 @@ But: être naturel et mettre le client en confiance.`,
                           setTimeout(checkAudioAndHangupAfterGoodbye, 500);
                           return;
                         }
-                        // L'audio est terminé OU on a atteint la limite, on raccroche
+                        // L'audio est terminé OU on a atteint la limite : attendre 2-3 s après la fin du message avant de raccrocher
                         console.log("📞 Hangup automatique après que l'IA ait dit 'au revoir' (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending });
                         // #region agent log
                         fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3965',message:'HANGUP DÉCLENCHÉ après au revoir',data:{checkCount,hadAudioPending:hasAudioPending,reason:'auto_goodbye_after_message'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                         // #endregion
-                        triggerHangup("auto_goodbye");
+                        setTimeout(() => triggerHangup("auto_goodbye"), GOODBYE_POST_AUDIO_DELAY_MS);
                       };
                       checkAudioAndHangupAfterGoodbye();
                     }, 1000); // Attendre 1 seconde pour que l'IA commence à répondre
@@ -4948,8 +4957,8 @@ But: être naturel et mettre le client en confiance.`,
               const confirmsPlate = low.includes("oui c'est") || low.includes("c'est bien") || low.includes("c'est correct") || 
                                     low.includes("oui c'est la bonne") || low.includes("oui c'est pour cette voiture") ||
                                     low.includes("c'est correct") || low.includes("c'est ça") || low.includes("exact");
-              // Activer seulement si l'IA propose d'envoyer un message ET que ce n'est pas une confirmation de plaque
-              if ((mentionsPlate || mentionsMessage) && !plateSmsAlreadyMentioned && !confirmsPlate) {
+              // Activer seulement si l'IA propose d'envoyer un message ET que ce n'est pas une confirmation de plaque ET que le client n'a pas déjà confirmé la plaque
+              if ((mentionsPlate || mentionsMessage) && !plateSmsAlreadyMentioned && !confirmsPlate && !plateConfirmedByClient) {
                 // Envoyer le SMS directement à la fin de l'appel (pas besoin de consentement)
                 plateSmsSendOnFinalize = true;
                 if (LOG_VERBOSE) console.log("📩 Détection proposition SMS plaque, SMS à la fin:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 60) });
@@ -5059,12 +5068,12 @@ But: être naturel et mettre le client en confiance.`,
                     setTimeout(checkAudioAndHangup, 500);
                     return;
                   }
-                  // L'audio est terminé OU on a atteint la limite, on raccroche
+                  // L'audio est terminé OU on a atteint la limite : attendre 2-3 s après la fin du message avant de raccrocher
                   console.log("📞 Hangup automatique après détection fin d'échange (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending, hasSaidGoodbye });
                   // #region agent log
                   fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3719',message:'HANGUP DÉCLENCHÉ (conversation.item.done)',data:{checkCount,hadAudioPending:hasAudioPending,hasSaidGoodbye,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                   // #endregion
-                  triggerHangup("auto_goodbye");
+                  setTimeout(() => triggerHangup("auto_goodbye"), GOODBYE_POST_AUDIO_DELAY_MS);
                 };
                 // Démarrer immédiatement la vérification de l'audio (pas de délai supplémentaire)
                 checkAudioAndHangup();
