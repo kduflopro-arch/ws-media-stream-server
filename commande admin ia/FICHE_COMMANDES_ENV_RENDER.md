@@ -319,10 +319,10 @@ Si vous voyez **"RATE LIMIT OpenAI (TPM)"** dans les logs :
 
 ### `INPUT_SPEECH_THRESHOLD`
 - **Rôle** : seuil au-dessus duquel on considère que l’audio est “parole” côté Twilio.
-- **Défaut** : `2500`
+- **Défaut** : `600` (sensible, pour éviter que l'utilisateur doive répéter en environnement calme).
 - **Conseils** :
-  - Si la TV déclenche encore → **augmente** : `3500` → `5000`
-  - Si tu dois parler très fort → **baisse** : `1800`
+  - Si l'IA ne réagit pas à la parole → **baisse** : `500` ou `400`
+  - Si l'IA répond au bruit / TV → **augmente** : `900` → `1200`
 
 ### `INPUT_SPEECH_FRAMES`
 - **Rôle** : nombre de frames (20ms) de “parole” consécutives avant de démarrer une prise de parole.

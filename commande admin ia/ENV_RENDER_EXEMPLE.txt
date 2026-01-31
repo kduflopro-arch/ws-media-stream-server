@@ -37,10 +37,10 @@ BACKCHANNEL_ENABLED=false
 BARGE_IN_ENABLED=false
 
 # --- Détection de la parole client (si l'IA ne répond pas à chaque fois) ---
-# Si tu vois dans les logs "Ignoré speech_started (niveau audio trop faible: X < 1400)",
-# baisse le seuil pour que la parole soit reconnue (ex: 900 ou 1000).
-# 900 = plus sensible (recommandé si l'IA ne répond pas assez), 1400 = plus strict (moins de faux positifs).
-INPUT_SPEECH_THRESHOLD=900
+# Si tu vois dans les logs "Ignoré speech_started (niveau audio trop faible: X < ...)",
+# baisse le seuil pour que la parole soit reconnue. Défaut serveur: 600 (sensible).
+# 600 = sensible (recommandé si l'utilisateur doit répéter), 900–1200 = plus strict (moins de faux positifs).
+INPUT_SPEECH_THRESHOLD=600
 # Optionnel: désactiver le filtre (toute détection OpenAI = parole). Risque: IA peut répondre au bruit.
 # INPUT_GATE_ENABLED=false
 

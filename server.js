@@ -2981,9 +2981,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // Donc par défaut on l'active seulement si la variable Render est explicitement à true.
   // En realtime, on active le gate par défaut pour éviter que l'IA réponde sur une micro-pause.
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
-  // Valeurs plus strictes par défaut pour éviter les faux positifs (IA qui répond sans parole réelle)
-  // Augmenté pour être moins sensible au bruit de fond
-  const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "1200"); // Augmenté de 900 à 1200
+  // Seuil de niveau audio pour considérer qu'il y a parole (input_audio_buffer.speech_started).
+  // Plus bas = plus sensible (moins de répétitions nécessaires en environnement calme). Plus haut = moins de faux positifs.
+  const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible (recommandé si l'utilisateur doit répéter); 900–1200: plus strict
   const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "10"); // Augmenté de 6 à 10 (~200ms au lieu de 120ms)
   const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "450");
   const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? (PIPELINE_MODE === "realtime" ? "28" : "20")); // ~560ms en realtime
@@ -4292,20 +4292,22 @@ But: être naturel et mettre le client en confiance.`,
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               // MAIS seulement si c'est pour un autre véhicule (pas si le client confirme la plaque existante)
               const low = String(doneText || "").toLowerCase();
-              // Détecter si l'IA propose d'envoyer un message pour la plaque
-              // Chercher des patterns comme "envoyer un message", "envoyer message", "message pour plaque", etc.
+              // Détecter si l'IA propose explicitement d'envoyer un message/SMS pour la plaque (pas seulement qu'elle mentionne la plaque).
               const mentionsPlate = low.includes("plaque") || low.includes("immatric");
-              const mentionsMessage = (low.includes("envoyer") && low.includes("message")) || 
-                                      (low.includes("message") && (low.includes("plaque") || low.includes("immatric")));
+              const offersToSend = low.includes("envoyer") && (low.includes("message") || low.includes("sms") || low.includes("texte") || low.includes("plaque") || low.includes("immatric"));
               // Ne pas activer si l'IA confirme que la plaque est correcte (ex: "oui c'est bien", "correct", "oui c'est la bonne")
               const confirmsPlate = low.includes("oui c'est") || low.includes("c'est bien") || low.includes("c'est correct") || 
                                     low.includes("oui c'est la bonne") || low.includes("oui c'est pour cette voiture");
-              // Activer seulement si l'IA propose d'envoyer un message ET que ce n'est pas une confirmation de plaque ET que le client n'a pas déjà confirmé la plaque
-              if ((mentionsPlate || mentionsMessage) && !plateSmsAlreadyMentioned && !confirmsPlate && !plateConfirmedByClient) {
-                // Envoyer le SMS directement à la fin de l'appel (pas besoin de consentement)
+              // Récap après confirmation client : "J'ai bien noté... avec la plaque" => ne pas envoyer de SMS
+              const isRecapWithPlate = (low.includes("bien noté") || low.includes("bien note")) && mentionsPlate;
+              if (isRecapWithPlate) {
+                plateSmsSendOnFinalize = false;
+                plateSmsAlreadyMentioned = true;
+                if (LOG_VERBOSE) console.log("✅ Récap avec plaque (après confirmation), SMS non envoyé:", doneText.substring(0, 60));
+              } else if (mentionsPlate && offersToSend && !plateSmsAlreadyMentioned && !confirmsPlate && !plateConfirmedByClient) {
                 plateSmsSendOnFinalize = true;
-                plateSmsAlreadyMentioned = true; // Éviter les répétitions
-                if (LOG_VERBOSE) console.log("📩 Détection proposition SMS plaque, SMS à la fin:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 60) });
+                plateSmsAlreadyMentioned = true;
+                if (LOG_VERBOSE) console.log("📩 Détection proposition SMS plaque, SMS à la fin:", { offersToSend, textPreview: doneText.substring(0, 60) });
               } else if (confirmsPlate) {
                 if (LOG_VERBOSE) console.log("✅ Client confirme la plaque, SMS non nécessaire:", doneText.substring(0, 60));
                 plateSmsSendOnFinalize = false;
@@ -4717,20 +4719,22 @@ But: être naturel et mettre le client en confiance.`,
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               // MAIS seulement si ce n'est pas une confirmation de plaque existante
               const low = String(doneText || "").toLowerCase();
-              // Détecter si l'IA propose d'envoyer un message pour la plaque
-              // Chercher des patterns comme "envoyer un message", "envoyer message", "message pour plaque", etc.
+              // Détecter si l'IA propose explicitement d'envoyer un message/SMS pour la plaque (pas seulement qu'elle mentionne la plaque).
               const mentionsPlate = low.includes("plaque") || low.includes("immatric");
-              const mentionsMessage = (low.includes("envoyer") && low.includes("message")) || 
-                                      (low.includes("message") && (low.includes("plaque") || low.includes("immatric")));
+              const offersToSend = low.includes("envoyer") && (low.includes("message") || low.includes("sms") || low.includes("texte") || low.includes("plaque") || low.includes("immatric"));
               // Ne pas activer si l'IA confirme que la plaque est correcte
               const confirmsPlate = low.includes("oui c'est") || low.includes("c'est bien") || low.includes("c'est correct") || 
                                     low.includes("oui c'est la bonne") || low.includes("oui c'est pour cette voiture") ||
                                     low.includes("c'est correct") || low.includes("c'est ça") || low.includes("exact");
-              // Activer seulement si l'IA propose d'envoyer un message ET que ce n'est pas une confirmation de plaque ET que le client n'a pas déjà confirmé la plaque
-              if ((mentionsPlate || mentionsMessage) && !plateSmsAlreadyMentioned && !confirmsPlate && !plateConfirmedByClient) {
-                // Envoyer le SMS directement à la fin de l'appel (pas besoin de consentement)
+              // Récap après confirmation client : "J'ai bien noté... avec la plaque" => ne pas envoyer de SMS
+              const isRecapWithPlate = (low.includes("bien noté") || low.includes("bien note")) && mentionsPlate;
+              if (isRecapWithPlate) {
+                plateSmsSendOnFinalize = false;
+                plateSmsAlreadyMentioned = true;
+                if (LOG_VERBOSE) console.log("✅ Récap avec plaque (après confirmation), SMS non envoyé:", doneText.substring(0, 60));
+              } else if (mentionsPlate && offersToSend && !plateSmsAlreadyMentioned && !confirmsPlate && !plateConfirmedByClient) {
                 plateSmsSendOnFinalize = true;
-                if (LOG_VERBOSE) console.log("📩 Détection proposition SMS plaque, SMS à la fin:", { mentionsPlate, mentionsMessage, textPreview: doneText.substring(0, 60) });
+                if (LOG_VERBOSE) console.log("📩 Détection proposition SMS plaque, SMS à la fin:", { offersToSend, textPreview: doneText.substring(0, 60) });
               } else if (confirmsPlate) {
                 console.log("✅ IA confirme plaque existante, SMS non nécessaire:", { textPreview: doneText.substring(0, 100) });
                 plateSmsSendOnFinalize = false;
