@@ -1,0 +1,23 @@
+# Déploiement Render à chaque push sur main
+# À configurer : secret RENDER_DEPLOY_HOOK_URL (GitHub → Settings → Secrets → Actions)
+name: Deploy to Render
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "⚠️ RENDER_DEPLOY_HOOK_URL non défini → GitHub Settings → Secrets and variables → Actions → New repository secret"
+            exit 1
+          fi
+          echo "🚀 Déclenchement du déploiement Render..."
+          curl -f -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          echo ""
+          echo "✅ Demande de déploiement envoyée à Render."
