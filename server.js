@@ -258,7 +258,7 @@ wss.on("connection", (ws, req) => {
   let lastUserActivityMs = 0;
   let callStartTimeMs = nowMs(); // Initialiser le temps de début d'appel
   const GOODBYE_DELAY_MS = 5000; // 5 secondes après l'au revoir pour couper l'appel
-  const GOODBYE_POST_AUDIO_DELAY_MS = 2500; // 2,5 s après la fin du message de fin (Minimax) avant de raccrocher
+  const GOODBYE_POST_AUDIO_DELAY_MS = 4500; // 4,5 s après la fin du message (Minimax) pour laisser Twilio finir de jouer avant de raccrocher
   const MIN_CALL_DURATION_MS = 30000; // Minimum 30 secondes d'appel avant hangup automatique
   const MIN_USER_INACTIVITY_MS = 5000; // Client doit être inactif depuis au moins 5 secondes
   
@@ -4361,8 +4361,10 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
-                // Attendre que l'audio soit terminé avant de raccrocher (laisser Minimax finir sa phrase)
+                // Attendre que l'audio soit terminé avant de raccrocher (laisser Minimax finir sa phrase + temps de lecture Twilio)
                 let checkCount = 0;
+                let emptyChecksConsecutive = 0; // exiger 2 vérifications consécutives "plus d'audio" pour éviter raccrocher pendant un creux Minimax
+                const MIN_EMPTY_CHECKS = 2; // 2 x 500ms = 1 s de queue vide stable avant de considérer l'audio vraiment terminé
                 const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
                   // Utiliser isRealGoodbye pour éviter raccrochage en cours d'échange (formule en fin de message uniquement)
@@ -4408,14 +4410,22 @@ But: être naturel et mettre le client en confiance.`,
                   fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3395',message:'checkAudioAndHangup',data:{checkCount,premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,outboundQueuedBytes,hasAudioPending,allEmpty:!hasAudioPending,hasSaidGoodbye,lastTextPreview:lastText.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
                   // #endregion
                   if (hasAudioPending && checkCount < MAX_CHECK_COUNT) {
+                    emptyChecksConsecutive = 0;
                     // L'audio est encore en cours, réessayer dans 500ms
                     console.log("⏳ Audio encore en cours, attente...", { checkCount, premiumTtsInFlight, premiumTtsQueueLen: premiumTtsQueue.length, outboundQueueLen: outboundQueue.length, outboundQueuedBytes });
                     checkCount++;
                     setTimeout(checkAudioAndHangup, 500);
                     return;
                   }
-                  // L'audio est terminé OU on a atteint la limite : attendre 2-3 s après la fin du message avant de raccrocher
-                  console.log("📞 Hangup automatique après détection fin d'échange (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending, hasSaidGoodbye });
+                  if (!hasAudioPending) emptyChecksConsecutive++;
+                  if (emptyChecksConsecutive < MIN_EMPTY_CHECKS && checkCount < MAX_CHECK_COUNT) {
+                    // Attendre encore 1 cycle pour être sûr que Minimax n'envoie plus de chunks
+                    checkCount++;
+                    setTimeout(checkAudioAndHangup, 500);
+                    return;
+                  }
+                  // L'audio est vraiment terminé : attendre GOODBYE_POST_AUDIO_DELAY_MS pour que Twilio finisse de jouer
+                  console.log("📞 Hangup automatique après détection fin d'échange (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending, hasSaidGoodbye, emptyChecksConsecutive });
                   // #region agent log
                   fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3486',message:'HANGUP DÉCLENCHÉ (response.done)',data:{checkCount,hadAudioPending:hasAudioPending,hasSaidGoodbye,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                   // #endregion
@@ -4467,24 +4477,31 @@ But: être naturel et mettre le client en confiance.`,
                     openaiWs.send(JSON.stringify(goodbyeMessage));
                     console.log("📤 Message 'Au revoir' envoyé à l'IA pour qu'elle réponde");
                     
-                    // Attendre que l'IA réponde avec "au revoir" puis raccrocher
-                    // On va attendre un peu pour que l'IA réponde, puis vérifier l'audio
+                    // Attendre que l'IA réponde avec "au revoir" puis que Minimax/Twilio finissent de jouer
                     setTimeout(() => {
                       let checkCount = 0;
-                      const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 secondes max pour que le TTS (Minimax) finisse la phrase au revoir
+                      let emptyChecksConsecutive = 0;
+                      const MIN_EMPTY_CHECKS = 2;
+                      const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 s max
                       const checkAudioAndHangupAfterGoodbye = () => {
                         const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
                         // #region agent log
                         fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3955',message:'checkAudioAndHangupAfterGoodbye',data:{checkCount,premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,outboundQueuedBytes,hasAudioPending,allEmpty:!hasAudioPending},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
                         // #endregion
                         if (hasAudioPending && checkCount < MAX_CHECK_COUNT) {
+                          emptyChecksConsecutive = 0;
                           console.log("⏳ Attente que l'IA dise 'au revoir'...", { checkCount, premiumTtsInFlight, premiumTtsQueueLen: premiumTtsQueue.length, outboundQueueLen: outboundQueue.length, outboundQueuedBytes });
                           checkCount++;
                           setTimeout(checkAudioAndHangupAfterGoodbye, 500);
                           return;
                         }
-                        // L'audio est terminé OU on a atteint la limite : attendre 2-3 s après la fin du message avant de raccrocher
-                        console.log("📞 Hangup automatique après que l'IA ait dit 'au revoir' (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending });
+                        if (!hasAudioPending) emptyChecksConsecutive++;
+                        if (emptyChecksConsecutive < MIN_EMPTY_CHECKS && checkCount < MAX_CHECK_COUNT) {
+                          checkCount++;
+                          setTimeout(checkAudioAndHangupAfterGoodbye, 500);
+                          return;
+                        }
+                        console.log("📞 Hangup automatique après que l'IA ait dit 'au revoir' (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending, emptyChecksConsecutive });
                         // #region agent log
                         fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3965',message:'HANGUP DÉCLENCHÉ après au revoir',data:{checkCount,hadAudioPending:hasAudioPending,reason:'auto_goodbye_after_message'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                         // #endregion
@@ -4788,39 +4805,29 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
-                // Attendre que l'audio soit terminé avant de raccrocher (laisser Minimax finir sa phrase)
+                // Attendre que l'audio soit terminé avant de raccrocher (laisser Minimax finir sa phrase + temps de lecture Twilio)
                 let checkCount = 0;
+                let emptyChecksConsecutive = 0;
+                const MIN_EMPTY_CHECKS = 2; // 2 x 500ms = 1 s de queue vide stable avant de considérer l'audio vraiment terminé
                 const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
-                  // Utiliser isRealGoodbye pour éviter raccrochage en cours d'échange (formule en fin de message uniquement)
                   const lastText = premiumTtsLastText || doneText || "";
                   const hasSaidGoodbye = isRealGoodbye(lastText);
                   
                   if (!hasSaidGoodbye && checkCount === 0) {
-                    // L'IA n'a pas encore dit "au revoir", on doit le faire dire avant de raccrocher
                     console.log("👋 L'IA n'a pas encore dit 'au revoir', faire dire avant de raccrocher");
-                    // Faire dire "au revoir" à l'IA via OpenAI
                     if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
                       const goodbyeMessage = {
                         type: "conversation.item.create",
                         item: {
                           type: "message",
                           role: "user",
-                          content: [
-                            {
-                              type: "input_text",
-                              text: "Au revoir"
-                            }
-                          ]
+                          content: [{ type: "input_text", text: "Au revoir" }]
                         }
                       };
                       openaiWs.send(JSON.stringify(goodbyeMessage));
                       console.log("📤 Message 'Au revoir' envoyé à l'IA pour qu'elle réponde");
-                      // Attendre un peu pour que l'IA réponde, puis continuer la vérification
-                      setTimeout(() => {
-                        checkCount++;
-                        checkAudioAndHangup();
-                      }, 1500); // Attendre 1.5 secondes pour que l'IA commence à répondre
+                      setTimeout(() => { checkCount++; checkAudioAndHangup(); }, 1500);
                       return;
                     } else {
                       console.warn("⚠️ Impossible d'envoyer 'au revoir' à l'IA (WebSocket fermé), raccrochage direct");
@@ -4829,26 +4836,29 @@ But: être naturel et mettre le client en confiance.`,
                     }
                   }
                   
-                  // Vérifier aussi outboundQueuedBytes pour détecter les buffers en attente
                   const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
                   // #region agent log
                   fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3395',message:'checkAudioAndHangup',data:{checkCount,premiumTtsInFlight,premiumTtsQueueLen:premiumTtsQueue.length,outboundQueueLen:outboundQueue.length,outboundQueuedBytes,hasAudioPending,allEmpty:!hasAudioPending,hasSaidGoodbye,lastTextPreview:lastText.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
                   // #endregion
                   if (hasAudioPending && checkCount < MAX_CHECK_COUNT) {
-                    // L'audio est encore en cours, réessayer dans 500ms
+                    emptyChecksConsecutive = 0;
                     console.log("⏳ Audio encore en cours, attente...", { checkCount, premiumTtsInFlight, premiumTtsQueueLen: premiumTtsQueue.length, outboundQueueLen: outboundQueue.length, outboundQueuedBytes });
                     checkCount++;
                     setTimeout(checkAudioAndHangup, 500);
                     return;
                   }
-                  // L'audio est terminé OU on a atteint la limite : attendre 2-3 s après la fin du message avant de raccrocher
-                  console.log("📞 Hangup automatique après détection fin d'échange (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending, hasSaidGoodbye });
+                  if (!hasAudioPending) emptyChecksConsecutive++;
+                  if (emptyChecksConsecutive < MIN_EMPTY_CHECKS && checkCount < MAX_CHECK_COUNT) {
+                    checkCount++;
+                    setTimeout(checkAudioAndHangup, 500);
+                    return;
+                  }
+                  console.log("📞 Hangup automatique après détection fin d'échange (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending, hasSaidGoodbye, emptyChecksConsecutive });
                   // #region agent log
                   fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3719',message:'HANGUP DÉCLENCHÉ (conversation.item.done)',data:{checkCount,hadAudioPending:hasAudioPending,hasSaidGoodbye,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                   // #endregion
                   setTimeout(() => triggerHangup("auto_goodbye"), GOODBYE_POST_AUDIO_DELAY_MS);
                 };
-                // Démarrer immédiatement la vérification de l'audio (pas de délai supplémentaire)
                 checkAudioAndHangup();
               } else if (isGoodbye && !goodbyeDetected) {
                 // Log pour debug si les conditions ne sont pas remplies
