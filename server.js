@@ -294,6 +294,8 @@ wss.on("connection", (ws, req) => {
   let lastResponseAt = 0;
   let awaitingUserResponse = false;
   let droppedOutboundBytes = 0;
+  // Compteur de retries après rate limit (évite de spammer response.create et aggraver le TPM)
+  let rateLimitRetryCount = 0;
   // Debug VAD local (ne doit PAS impacter la logique OpenAI)
   let localDbgSpeechActive = false;
 
@@ -3572,251 +3574,10 @@ STYLE (échange humain):
 - Si le client répond, tu enchaînes logiquement (pas de bloc pré-écrit).
 - Utilise la ponctuation pour sonner naturel.`;
 
-        // Base de connaissances mécaniques pour l'IA - ENCYCLOPÉDIE COMPLÈTE
-        const mechanicalKnowledgePrompt = `=== BASE DE CONNAISSANCES MÉCANIQUES COMPLÈTE ===
-Tu es un expert en mécanique automobile avec une connaissance approfondie de tous les systèmes du véhicule. Voici une base de connaissances exhaustive pour t'aider à diagnostiquer les problèmes :
-
-=== SYSTÈMES DU VÉHICULE ===
-
-**1. SYSTÈME MOTEUR**
-- Bloc moteur, culasse, pistons, bielles, vilebrequin
-- Système d'allumage (bougies, bobines, distributeur)
-- Système d'injection (injecteurs, pompe à essence, filtre à essence)
-- Système d'admission (filtre à air, collecteur d'admission)
-- Système d'échappement (collecteur, catalyseur, pot d'échappement)
-- Système de refroidissement (radiateur, pompe à eau, thermostat, liquide de refroidissement)
-- Système de lubrification (pompe à huile, filtre à huile, carter d'huile)
-
-**2. SYSTÈME ÉLECTRIQUE**
-- Batterie (12V, capacité, état de charge)
-- Alternateur (recharge batterie, 13-14V en fonctionnement)
-- Démarreur (moteur électrique pour démarrer)
-- Fusibles et relais
-- Câblage et connecteurs
-- Voyants du tableau de bord
-
-**3. SYSTÈME DE FREINAGE**
-- Plaquettes de frein (avant/arrière)
-- Disques de frein (avant/arrière)
-- Étriers de frein
-- Liquide de frein (purge tous les 2 ans)
-- Maître-cylindre
-- ABS (système antiblocage)
-
-**4. SUSPENSION ET DIRECTION**
-- Amortisseurs (avant/arrière)
-- Ressorts de suspension
-- Rotules de direction
-- Biellettes de direction
-- Barre stabilisatrice
-- Géométrie des trains (parallélisme, carrossage, chasse)
-
-**5. TRANSMISSION**
-- Boîte de vitesses (manuelle/automatique)
-- Embrayage (si manuelle)
-- Différentiel
-- Cardans et joints homocinétiques
-- Courroie de distribution
-
-**6. CLIMATISATION**
-- Compresseur de climatisation
-- Condenseur
-- Évaporateur
-- Gaz frigorigène (R134a, R1234yf)
-- Filtre habitacle
-
-**7. PNEUS ET ROUES**
-- Pneus (usure, pression, âge)
-- Jantes
-- Valves
-- Équilibrage et géométrie
-
-=== CODES OBD-II COURANTS ===
-
-**P0xxx - Codes génériques moteur**
-- P0300-P0308 : Ratés d'allumage (bougies, bobines, injecteurs)
-- P0171/P0174 : Mélange pauvre (fuite admission, filtre à air, capteur MAF)
-- P0172/P0175 : Mélange riche (injecteurs, régulateur pression, filtre à air)
-- P0420/P0430 : Efficacité catalyseur (catalyseur défaillant)
-- P0401-P0405 : EGR (vanne EGR encrassée)
-- P0440-P0446 : Évaporation carburant (bouchon réservoir, purge canister)
-- P0128 : Thermostat (thermostat défaillant, circuit refroidissement)
-
-**P1xxx - Codes spécifiques constructeur**
-- Variables selon marque et modèle
-
-**P2xxx - Codes génériques moteur (suite)**
-- P2100-P2109 : Contrôleur accélérateur (papillon électronique)
-- P2119-P2122 : Position papillon (capteur position papillon)
-
-**P3xxx - Codes allumage/auxiliaires**
-- P0300-P0316 : Ratés d'allumage multiples
-- P0320-P0339 : Problèmes allumage (capteur vilebrequin, arbre à cames)
-
-**C0xxx - Codes châssis**
-- C1200-C1299 : ABS/ESP (capteurs roues, calculateur ABS)
-
-**B0xxx - Codes carrosserie**
-- B1000-B1999 : Airbags, ceintures, modules carrosserie
-
-**U0xxx - Codes réseau**
-- U1000-U1999 : Problèmes communication bus CAN
-
-=== PROBLÈMES COURANTS ET LEURS CAUSES PROBABLES ===
-
-**Moteur qui tousse ou broute**
-- Urgence: MOYENNE
-- Service recommandé: Diagnostic moteur complet
-- Causes probables :
-  • Bougies d'allumage usées ou encrassées (probabilité: HAUTE)
-    Questions à poser : Depuis quand avez-vous remarqué ce problème ?, Le problème se produit-il à froid ou à chaud ?, Avez-vous remarqué une perte de puissance ?, Quel est le kilométrage de votre véhicule ?
-  • Filtre à essence encrassé (probabilité: MOYENNE)
-    Questions à poser : Quand avez-vous changé le filtre à essence pour la dernière fois ?, Le problème s'aggrave-t-il en accélérant ?
-  • Problème d'injection (injecteurs encrassés) (probabilité: MOYENNE)
-    Questions à poser : Avez-vous remarqué une consommation d'essence anormale ?, Le problème se produit-il surtout au démarrage ?
-  • Batterie faible ou alternateur défaillant (probabilité: FAIBLE)
-    Questions à poser : Avez-vous des difficultés à démarrer ?, Les phares sont-ils moins lumineux qu'avant ?
-
-**Moteur qui surchauffe**
-- Urgence: ÉLEVÉE
-- ⚠️ PROBLÈME DE SÉCURITÉ - À TRAITER EN PRIORITÉ
-- Service recommandé: Diagnostic circuit de refroidissement
-- Causes probables :
-  • Manque de liquide de refroidissement (probabilité: HAUTE)
-    Questions à poser : Avez-vous vérifié le niveau de liquide de refroidissement ?, Y a-t-il des traces de fuite sous le véhicule ?, Le voyant de température s'allume-t-il souvent ?
-  • Thermostat défaillant (probabilité: HAUTE)
-    Questions à poser : Le problème se produit-il uniquement en ville ou aussi sur autoroute ?, La température monte-t-elle rapidement ?
-  • Radiateur bouché ou encrassé (probabilité: MOYENNE)
-    Questions à poser : Quand avez-vous fait la dernière vidange du circuit de refroidissement ?, Le radiateur est-il propre à l'extérieur ?
-  • Pompe à eau défaillante (probabilité: MOYENNE)
-    Questions à poser : Entendez-vous un bruit anormal au niveau du moteur ?, Y a-t-il des traces de fuite au niveau de la pompe à eau ?
-  • Joint de culasse défaillant (probabilité: FAIBLE)
-    Questions à poser : Y a-t-il de la vapeur blanche à l'échappement ?, Le niveau d'huile est-il anormal (mousse blanche) ?
-
-**Moteur qui ne démarre pas**
-- Urgence: ÉLEVÉE
-- Service recommandé: Diagnostic électrique et démarrage
-- Causes probables :
-  • Batterie déchargée ou défaillante (probabilité: HAUTE)
-    Questions à poser : Y a-t-il un bruit au moment de tourner la clé ?, Les phares s'allument-ils ?, Quand avez-vous changé la batterie pour la dernière fois ?
-  • Alternateur défaillant (probabilité: MOYENNE)
-    Questions à poser : La batterie se décharge-t-elle souvent ?, Le voyant de la batterie s'allume-t-il au tableau de bord ?
-  • Démarreur défaillant (probabilité: MOYENNE)
-    Questions à poser : Entendez-vous un clic au moment de tourner la clé ?, Le moteur ne tourne pas du tout ?
-  • Problème de carburant (pompe à essence) (probabilité: FAIBLE)
-    Questions à poser : Entendez-vous un bruit de pompe à essence au démarrage ?, Y a-t-il assez de carburant dans le réservoir ?
-
-**Perte de puissance**
-- Urgence: MOYENNE
-- Service recommandé: Diagnostic moteur et performance
-- Causes probables :
-  • Filtre à air encrassé (probabilité: HAUTE)
-    Questions à poser : Quand avez-vous changé le filtre à air pour la dernière fois ?, Le problème s'aggrave-t-il progressivement ?
-  • Turbo défaillant (si véhicule équipé) (probabilité: MOYENNE)
-    Questions à poser : Votre véhicule est-il équipé d'un turbo ?, Y a-t-il un sifflement anormal ?, Fumez-vous à l'échappement ?
-  • Catalyseur bouché (probabilité: MOYENNE)
-    Questions à poser : Y a-t-il une odeur d'œuf pourri ?, Le véhicule a-t-il plus de 150 000 km ?
-  • Problème de transmission (probabilité: FAIBLE)
-    Questions à poser : Le problème se produit-il en montée ?, Y a-t-il des bruits anormaux ?
-
-**Freinage anormal ou bruit de frein**
-- Urgence: ÉLEVÉE
-- ⚠️ PROBLÈME DE SÉCURITÉ - À TRAITER EN PRIORITÉ
-- Service recommandé: Contrôle système de freinage
-- Causes probables :
-  • Plaquettes de frein usées (probabilité: HAUTE)
-    Questions à poser : Quand avez-vous changé les plaquettes pour la dernière fois ?, Le bruit se produit-il uniquement au freinage ?, Y a-t-il des vibrations au freinage ?
-  • Disques de frein usés ou voilés (probabilité: HAUTE)
-    Questions à poser : Y a-t-il des vibrations dans le volant au freinage ?, Quand avez-vous changé les disques pour la dernière fois ?
-  • Liquide de frein à changer (probabilité: MOYENNE)
-    Questions à poser : Quand avez-vous fait la dernière purge du liquide de frein ?, La pédale de frein est-elle molle ?
-  • Étriers de frein grippés (probabilité: FAIBLE)
-    Questions à poser : Y a-t-il une surchauffe des roues ?, Le véhicule tire-t-il d'un côté au freinage ?
-
-**Bruit ou problème de suspension**
-- Urgence: MOYENNE
-- Service recommandé: Contrôle suspension et géométrie
-- Causes probables :
-  • Amortisseurs usés (probabilité: HAUTE)
-    Questions à poser : Le véhicule rebondit-il après un dos d'âne ?, Y a-t-il des bruits de claquement ?, Quel est le kilométrage de votre véhicule ?
-  • Ressorts de suspension fatigués (probabilité: MOYENNE)
-    Questions à poser : Le véhicule est-il plus bas qu'avant ?, Y a-t-il une différence de hauteur entre les roues ?
-  • Rotules ou biellettes de direction usées (probabilité: MOYENNE)
-    Questions à poser : Y a-t-il du jeu dans la direction ?, Le véhicule tire-t-il d'un côté ?
-
-**Problème électrique**
-- Urgence: MOYENNE
-- Service recommandé: Diagnostic électrique
-- Causes probables :
-  • Batterie défaillante (probabilité: HAUTE)
-    Questions à poser : Quand avez-vous changé la batterie pour la dernière fois ?, Le véhicule a-t-il des difficultés à démarrer ?
-  • Alternateur défaillant (probabilité: HAUTE)
-    Questions à poser : Le voyant de la batterie s'allume-t-il ?, La batterie se décharge-t-elle souvent ?
-  • Fusible grillé (probabilité: MOYENNE)
-    Questions à poser : Quel équipement ne fonctionne plus ?, Le problème est-il apparu soudainement ?
-
-**Climatisation qui ne fonctionne pas**
-- Urgence: FAIBLE
-- Service recommandé: Diagnostic climatisation
-- Causes probables :
-  • Manque de gaz frigorigène (probabilité: HAUTE)
-    Questions à poser : Quand avez-vous fait la dernière recharge de climatisation ?, La climatisation fonctionnait-elle bien avant ?
-  • Compresseur de climatisation défaillant (probabilité: MOYENNE)
-    Questions à poser : Y a-t-il un bruit anormal au démarrage de la climatisation ?, Le compresseur se déclenche-t-il ?
-  • Filtre habitacle encrassé (probabilité: FAIBLE)
-    Questions à poser : Y a-t-il une mauvaise odeur dans l'habitacle ?, Le débit d'air est-il réduit ?
-
-**Bruit d'échappement ou fumée**
-- Urgence: MOYENNE
-- Service recommandé: Contrôle échappement
-- Causes probables :
-  • Pot d'échappement percé ou rouillé (probabilité: HAUTE)
-    Questions à poser : Le bruit est-il très fort ?, Y a-t-il des traces de rouille sur le pot ?
-  • Catalyseur défaillant (probabilité: MOYENNE)
-    Questions à poser : Y a-t-il une odeur d'œuf pourri ?, Le véhicule a-t-il plus de 150 000 km ?
-  • Joint de culasse (fumée blanche) (probabilité: FAIBLE)
-    Questions à poser : La fumée est-elle blanche ?, Y a-t-il une surchauffe du moteur ?
-
-=== RÈGLES DE DIAGNOSTIC PROFESSIONNEL ===
-
-**ORDRE DE PRIORITÉ DES QUESTIONS :**
-1. Symptôme principal (quoi exactement ?)
-2. Depuis quand (temporalité)
-3. Conditions d'apparition (à froid/chaud, en roulant, etc.)
-4. Autres symptômes associés
-5. Kilométrage et historique d'entretien
-6. Urgence et sécurité
-
-**RÈGLES ABSOLUES :**
-- Toujours poser des questions de clarification AVANT de proposer des causes
-- Commencer par les causes les plus probables (probabilité HAUTE)
-- Ne JAMAIS proposer de réparation sans diagnostic préalable au garage
-- Les problèmes de FREINAGE et de SURCHAUFFE sont des URGENCES PRIORITAIRES
-- Toujours recommander un diagnostic professionnel avec lecture codes OBD-II pour confirmer
-- Utiliser les questions suggérées pour chaque cause probable
-- Adapter les questions selon les réponses du client
-- Ne JAMAIS deviner - si tu n'es pas sûr, demande plus de précisions
-- Les codes OBD-II sont essentiels pour un diagnostic précis - toujours recommander une lecture
-
-**NIVEAUX D'URGENCE :**
-- ÉLEVÉE : Problèmes de sécurité (freinage, surchauffe, voyant clignotant) - À traiter immédiatement
-- MOYENNE : Problèmes affectant la conduite ou la fiabilité - À traiter rapidement
-- FAIBLE : Problèmes de confort ou esthétiques - Peut attendre
-
-**VOCABULAIRE TECHNIQUE À UTILISER (mais expliquer simplement) :**
-- OBD-II : Système de diagnostic embarqué (expliquer : "lecture des codes d'erreur du véhicule")
-- Capteur lambda : Sonde à oxygène (expliquer : "capteur qui mesure les gaz d'échappement")
-- EGR : Recirculation des gaz d'échappement (expliquer : "système anti-pollution")
-- MAF : Débitmètre d'air (expliquer : "capteur qui mesure l'air entrant")
-- ABS : Système antiblocage des roues (expliquer : "système de sécurité au freinage")
-`;
-
         const mechanicPersona =
           `Persona: tu es ${assistantName}, une vraie personne au téléphone (pas un robot).
 Tu mets à l'aise, tu écoutes ATTENTIVEMENT, tu réagis naturellement.
 ${garageTone ? `Ton du garage (à respecter): ${garageTone}` : ""}
-
-${mechanicalKnowledgePrompt}
 
 Méthode d'ÉCOUTE ACTIVE:
 1) Écoute COMPLÈTEMENT ce que le client dit AVANT de répondre. Ne l'interromps pas.
@@ -4370,6 +4131,7 @@ But: être naturel et mettre le client en confiance.`,
               const statusDetails = resp.status_details || resp.statusDetails || null;
               const isFailed = status === 'failed';
               const isRateLimit = isFailed && statusDetails?.error?.code === 'rate_limit_exceeded';
+              if (!isFailed) rateLimitRetryCount = 0; // Réussite → reset compteur retries rate limit
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4168',message:'response.done STATUS',data:{rid,status,isFailed,isRateLimit,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken,hasOutputItems:!!resp.output},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
             } catch (e) { /* ignore */ }
             if (!hasAudioModality && !REALTIME_USE_ELEVEN) {
@@ -4443,19 +4205,26 @@ But: être naturel et mettre le client en confiance.`,
                   const isRateLimit = respStatus === 'failed' && respStatusDetails?.error?.code === 'rate_limit_exceeded';
                   const isInsufficientQuota = respStatus === 'failed' && respStatusDetails?.error?.code === 'insufficient_quota';
                   if (isRateLimit) {
+                    const maxRetries = Number(process.env.OPENAI_RATE_LIMIT_MAX_RETRIES ?? "2");
+                    if (rateLimitRetryCount >= maxRetries) {
+                      console.warn("⚠️ RATE LIMIT: max retries atteint (" + rateLimitRetryCount + "/" + maxRetries + "), pas de nouveau retry. Augmentez OPENAI_RATE_LIMIT_MAX_RETRIES ou les limites Tier OpenAI.");
+                      rateLimitRetryCount = 0;
+                      return;
+                    }
+                    rateLimitRetryCount++;
                     const rateLimitMsg = respStatusDetails?.error?.message || '';
                     const retryAfterMatch = rateLimitMsg.match(/try again in ([\d.]+)s/);
                     const retryAfterSeconds = retryAfterMatch ? parseFloat(retryAfterMatch[1]) : null;
-                    const retryBufferSec = Number(process.env.OPENAI_RATE_LIMIT_RETRY_BUFFER_SECONDS ?? "5");
+                    const retryBufferSec = Number(process.env.OPENAI_RATE_LIMIT_RETRY_BUFFER_SECONDS ?? "12");
                     const delaySeconds = Math.ceil((retryAfterSeconds || 2)) + retryBufferSec;
                     const delayMs = delaySeconds * 1000;
-                    console.error("❌ RATE LIMIT OpenAI (TPM) - Réponse en attente. Retry automatique dans", delaySeconds, "s. Pour augmenter les limites: https://platform.openai.com/account/rate-limits", { rid, retryAfterSeconds, bufferSec: retryBufferSec });
+                    console.error("❌ RATE LIMIT OpenAI (TPM) - Réponse en attente. Retry", rateLimitRetryCount + "/" + maxRetries, "dans", delaySeconds, "s. https://platform.openai.com/account/rate-limits", { rid, retryAfterSeconds, bufferSec: retryBufferSec });
                     // #region agent log - RATE LIMIT
-                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4241',message:'RATE LIMIT - Réponse bloquée',data:{rid,status:respStatus,retryAfterSeconds,delaySeconds,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                    fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4241',message:'RATE LIMIT - Réponse bloquée',data:{rid,status:respStatus,retryAfterSeconds,delaySeconds,rateLimitRetryCount,maxRetries,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
                     // #endregion
                     setTimeout(() => {
                       if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
-                        console.log("🔄 Retry response.create après rate limit (rate_limit_retry)");
+                        console.log("🔄 Retry response.create après rate limit (rate_limit_retry)", rateLimitRetryCount + "/" + maxRetries);
                         requestResponseCreate("rate_limit_retry");
                       }
                     }, delayMs);

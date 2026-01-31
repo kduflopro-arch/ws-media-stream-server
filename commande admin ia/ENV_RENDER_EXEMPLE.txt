@@ -49,6 +49,16 @@ GREETING_DELAY_MS=150
 GREETING_ONCE_PER_CALL=true
 GREETING_ONCE_TTL_MS=600000
 
+# --- Rate limit OpenAI (TPM = tokens/minute) ---
+# Si vous voyez "RATE LIMIT OpenAI (TPM)" dans les logs :
+# 1. Vérifiez votre tier : https://platform.openai.com/account/rate-limits (Tier 1 = 10k TPM pour gpt-4o-realtime)
+# 2. Augmentez le délai avant retry (évite de re-frapper la limite)
+OPENAI_RATE_LIMIT_RETRY_BUFFER_SECONDS=12
+# 3. Nombre max de retries après rate limit (défaut 2 ; plus bas = moins de charge)
+OPENAI_RATE_LIMIT_MAX_RETRIES=2
+# 4. Debounce entre deux response.create (plus haut = moins de requêtes/minute, défaut 700)
+# RESPONSE_CREATE_DEBOUNCE_MS=1000
+
 # --- Réseau / Render ---
 PORT=10000
 

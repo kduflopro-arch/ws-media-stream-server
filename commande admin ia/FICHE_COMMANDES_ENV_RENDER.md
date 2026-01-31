@@ -198,8 +198,32 @@ Ce document liste **toutes les variables d’environnement Render** utilisées p
 - **Défaut** : `250`
 
 ### `RESPONSE_CREATE_DEBOUNCE_MS`
-- **Rôle** : anti-spam `response.create` (plus bas = plus réactif).
-- **Défaut** : `400`
+- **Rôle** : anti-spam `response.create` (plus bas = plus réactif, plus haut = moins de requêtes/minute → moins de rate limit TPM).
+- **Défaut** : `700`
+- **Si rate limit TPM** : essayer `1000` pour espacer les requêtes.
+
+---
+
+## Variables Rate limit OpenAI (TPM)
+
+Si vous voyez **"RATE LIMIT OpenAI (TPM)"** dans les logs :
+
+1. **Vérifier le tier** : https://platform.openai.com/account/rate-limits — Tier 1 = 10k TPM pour gpt-4o-realtime.
+2. **Augmenter le buffer avant retry** : `OPENAI_RATE_LIMIT_RETRY_BUFFER_SECONDS=12` (défaut) ou `15` pour attendre plus longtemps avant de réessayer.
+3. **Limiter les retries** : `OPENAI_RATE_LIMIT_MAX_RETRIES=2` (défaut) — chaque retry consomme encore des tokens.
+4. **Espacer les requêtes** : `RESPONSE_CREATE_DEBOUNCE_MS=1000` pour moins de `response.create` par minute.
+
+### `OPENAI_RATE_LIMIT_RETRY_BUFFER_SECONDS`
+- **Rôle** : secondes ajoutées au délai "try again in Xs" avant de refaire un `response.create` après rate limit.
+- **Défaut** : `12`
+- **Conseil** : si vous restez en rate limit, monter à `15` ou `20`.
+
+### `OPENAI_RATE_LIMIT_MAX_RETRIES`
+- **Rôle** : nombre max de retries après un rate limit (par "tour" de réponse). Au-delà, on ne réessaie plus (évite d’aggraver le TPM).
+- **Défaut** : `2`
+
+
+---
 
 ## Variables “persona / style” (rendre l’IA comme un mécanicien)
 
