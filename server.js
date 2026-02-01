@@ -2408,24 +2408,25 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!t) return "";
     const originalText = t;
     // #region agent log - DÉBUT NORMALISATION (TOUS les textes pour debug)
-    // Log TOUS les textes pour voir ce qui arrive
     const hasHourPattern = t.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/i);
     const hasHourWords = t.match(/\b(huit|sept|six|cinq|quatre|trois|deux|une)\s+heures?\s+(trois|zéro|zero|\d)/i);
     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1949',message:'normalizeFrenchTtsText DÉBUT (TOUS)',data:{input:t.substring(0,300),hasHourPattern:hasHourPattern?.[0],hasHourWords:hasHourWords?.[0],contains8h30:t.includes('8h30')||t.includes('8 h 30')||t.includes('8:30')||t.match(/8\s*[hH:]\s*30|8\s+heures?\s+30/i)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
     // #endregion
-    // Nettoyage léger : normaliser les espaces multiples + espace après point (garage.Les → garage. Les)
-    t = t.replace(/\s+/g, " ");
+    // Normaliser TOUS les espaces (y compris Unicode nbsp, etc.) en espace normal
+    t = t.replace(/[\s\u00a0\u2000-\u200b\u202f\u205f\u3000]+/g, " ");
     t = t.replace(/\.([A-ZÀÂÆÇÉÈÊËÎÏÔÙÛÜŸ])/g, ". $1");
-    // CORRECTION FRANÇAIS: Mots coupés ou collés par le modèle → français écrit correct pour Minimax
-    t = t.replace(/de\s+ux\b/gi, "deux");
-    t = t.replace(/de\s+vis\b/gi, "devis");
-    t = t.replace(/du\s+de\s+vis\b/gi, "du devis");
-    t = t.replace(/lors\s+du\s+de\s+vis\b/gi, "lors du devis");
-    t = t.replace(/de\s+mie\b/gi, "demie");
-    t = t.replace(/et\s+de\s+mie\b/gi, "et demie");
-    t = t.replace(/heures\s+demie\b/gi, "heures et demie");
-    t = t.replace(/àseize\b/gi, "à seize");
-    t = t.replace(/de\s+mande\b/gi, "demande");
+    // CORRECTION FRANÇAIS (ordre: plus long d'abord) — mots coupés/collés par le modèle → français correct pour Minimax
+    t = t.replace(/lors\s+du\s+de\s+vis/gi, "lors du devis");
+    t = t.replace(/du\s+de\s+vis/gi, "du devis");
+    t = t.replace(/de\s+vis/gi, "devis");
+    t = t.replace(/de\s+ux/gi, "deux");
+    t = t.replace(/heures\s+et\s+de\s+mie/gi, "heures et demie");
+    t = t.replace(/et\s+de\s+mie/gi, "et demie");
+    t = t.replace(/de\s+mie/gi, "demie");
+    t = t.replace(/heures\s+demie/gi, "heures et demie");
+    t = t.replace(/à16(?=\s|$)/gi, "à 16");
+    t = t.replace(/àseize/gi, "à seize");
+    t = t.replace(/de\s+mande/gi, "demande");
     t = t.replace(/\b(de|à|est|sont)(\d{1,4})\b/g, (_, det, n) => `${det} ${n}`);
     t = t.replace(/\bà(seize|huit|dix|neuf|quinze|vingt|trente|quarante|cinquante|soixante|sept|six|cinq|quatre|trois|deux|une?)\b/gi, (_, w) => `à ${w}`);
     // CORRECTION: Normaliser "est-ce bien" pour améliorer la prononciation
