@@ -258,7 +258,7 @@ wss.on("connection", (ws, req) => {
   let lastUserActivityMs = 0;
   let callStartTimeMs = nowMs(); // Initialiser le temps de début d'appel
   const GOODBYE_DELAY_MS = 5000; // 5 secondes après l'au revoir pour couper l'appel
-  const GOODBYE_POST_AUDIO_DELAY_MS = 2000; // 2 s après que Minimax a totalement fini de dire "au revoir" avant de raccrocher
+  const GOODBYE_POST_AUDIO_DELAY_MS = 4000; // 4 s après que la queue audio soit vide (Twilio a fini de jouer) avant de raccrocher
   const MIN_CALL_DURATION_MS = 30000; // Minimum 30 secondes d'appel avant hangup automatique
   const MIN_USER_INACTIVITY_MS = 5000; // Client doit être inactif depuis au moins 5 secondes
   
@@ -2413,18 +2413,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const hasHourWords = t.match(/\b(huit|sept|six|cinq|quatre|trois|deux|une)\s+heures?\s+(trois|zéro|zero|\d)/i);
     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1949',message:'normalizeFrenchTtsText DÉBUT (TOUS)',data:{input:t.substring(0,300),hasHourPattern:hasHourPattern?.[0],hasHourWords:hasHourWords?.[0],contains8h30:t.includes('8h30')||t.includes('8 h 30')||t.includes('8:30')||t.match(/8\s*[hH:]\s*30|8\s+heures?\s+30/i)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
     // #endregion
-    // Nettoyage léger : normaliser les espaces multiples
+    // Nettoyage léger : normaliser les espaces multiples + espace après point (garage.Les → garage. Les)
     t = t.replace(/\s+/g, " ");
-    // CORRECTION: Mots coupés par le modèle ("de ux" -> "deux", "de vis" -> "devis", "de mie" -> "demie")
-    t = t.replace(/\bde\s+ux\b/gi, "deux");
-    t = t.replace(/\bde\s+vis\b/gi, "devis");
-    t = t.replace(/\bdu\s+de\s+vis\b/gi, "du devis");
-    t = t.replace(/\blors\s+du\s+de\s+vis\b/gi, "lors du devis");
-    t = t.replace(/\bde\s+mie\b/gi, "demie");
-    t = t.replace(/\bet\s+de\s+mie\b/gi, "et demie");
-    // "huit heures de mie" -> "huit heures et demie" (après "de mie"->"demie" on a "heures demie", on corrige)
-    t = t.replace(/\bheures\s+demie\b/gi, "heures et demie");
-    // PRIORITÉ -1: Espace entre déterminant et nombre (ex: "de250" -> "de 250", "à16" -> "à 16", "àseize" -> "à seize")
+    t = t.replace(/\.([A-ZÀÂÆÇÉÈÊËÎÏÔÙÛÜŸ])/g, ". $1");
+    // CORRECTION FRANÇAIS: Mots coupés ou collés par le modèle → français écrit correct pour Minimax
+    t = t.replace(/de\s+ux\b/gi, "deux");
+    t = t.replace(/de\s+vis\b/gi, "devis");
+    t = t.replace(/du\s+de\s+vis\b/gi, "du devis");
+    t = t.replace(/lors\s+du\s+de\s+vis\b/gi, "lors du devis");
+    t = t.replace(/de\s+mie\b/gi, "demie");
+    t = t.replace(/et\s+de\s+mie\b/gi, "et demie");
+    t = t.replace(/heures\s+demie\b/gi, "heures et demie");
+    t = t.replace(/àseize\b/gi, "à seize");
+    t = t.replace(/de\s+mande\b/gi, "demande");
     t = t.replace(/\b(de|à|est|sont)(\d{1,4})\b/g, (_, det, n) => `${det} ${n}`);
     t = t.replace(/\bà(seize|huit|dix|neuf|quinze|vingt|trente|quarante|cinquante|soixante|sept|six|cinq|quatre|trois|deux|une?)\b/gi, (_, w) => `à ${w}`);
     // CORRECTION: Normaliser "est-ce bien" pour améliorer la prononciation
@@ -4383,11 +4384,11 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
-                // Attendre que Minimax ait totalement fini de dire "au revoir" (queue audio vide stable), puis 2 s avant de raccrocher
+                // Attendre queue audio vide stable (Minimax + Twilio ont fini), puis 4 s avant de raccrocher
                 let checkCount = 0;
                 let emptyChecksConsecutive = 0;
-                const MIN_EMPTY_CHECKS = 6; // 6 x 500ms = 3 s de queue vide stable = Minimax a vraiment fini (évite raccrocher en cours de phrase)
-                const MAX_CHECK_COUNT = 40; // 40 x 500ms = 20 s max pour que le TTS (Minimax) finisse
+                const MIN_EMPTY_CHECKS = 10; // 10 x 500ms = 5 s de queue vide stable (évite raccrocher en cours de phrase)
+                const MAX_CHECK_COUNT = 50; // 50 x 500ms = 25 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
                   // Utiliser isRealGoodbye pour éviter raccrochage en cours d'échange (formule en fin de message uniquement)
                   const lastText = premiumTtsLastText || doneText || "";
@@ -4502,8 +4503,8 @@ But: être naturel et mettre le client en confiance.`,
                     setTimeout(() => {
                       let checkCount = 0;
                       let emptyChecksConsecutive = 0;
-                      const MIN_EMPTY_CHECKS = 6; // 6 x 500ms = 3 s queue vide stable (Minimax a vraiment fini)
-                      const MAX_CHECK_COUNT = 40; // 40 x 500ms = 20 s max
+                      const MIN_EMPTY_CHECKS = 10; // 10 x 500ms = 5 s queue vide stable
+                      const MAX_CHECK_COUNT = 50; // 50 x 500ms = 25 s max
                       const checkAudioAndHangupAfterGoodbye = () => {
                         const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
                         // #region agent log
@@ -4826,11 +4827,11 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
-                // Attendre que Minimax ait totalement fini de dire "au revoir", puis 2 s avant de raccrocher
+                // Attendre queue audio vide stable (5 s), puis 4 s avant de raccrocher
                 let checkCount = 0;
                 let emptyChecksConsecutive = 0;
-                const MIN_EMPTY_CHECKS = 6; // 6 x 500ms = 3 s de queue vide stable (évite raccrocher en cours de phrase)
-                const MAX_CHECK_COUNT = 40; // 40 x 500ms = 20 s max pour que le TTS (Minimax) finisse
+                const MIN_EMPTY_CHECKS = 10; // 10 x 500ms = 5 s de queue vide stable
+                const MAX_CHECK_COUNT = 50; // 50 x 500ms = 25 s max
                 const checkAudioAndHangup = () => {
                   const lastText = premiumTtsLastText || doneText || "";
                   const hasSaidGoodbye = isRealGoodbye(lastText);
