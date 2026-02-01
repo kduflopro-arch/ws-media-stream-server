@@ -2099,6 +2099,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
         return;
       }
+      // Si le texte actuel est entièrement contenu dans le dernier (phrase répétée en doublon), ne pas rejouer
+      if (lastNormalized.includes(normalizedForCompare) && normalizedForCompare.length > 25) {
+        if (LOG_TTS) console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (phrase déjà jouée, sous-chaîne du précédent) [source: ${source}]:`, textToSpeak.substring(0, 100));
+        return;
+      }
       // CORRECTION: Vérifier la similarité avec un seuil plus bas (60% pour textes courts, 70% pour textes longs)
       // pour mieux détecter les répétitions même avec de petites variations
       // SUPPRESSION LIMITE CARACTÈRES: Plus de limite de longueur minimale pour détecter TOUTES les répétitions
@@ -2410,6 +2415,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // #endregion
     // Nettoyage léger : normaliser les espaces multiples
     t = t.replace(/\s+/g, " ");
+    // PRIORITÉ -1: Espace entre déterminant et nombre (ex: "de250" -> "de 250", "àseize" -> "à seize", "et de mie" -> "et demie")
+    t = t.replace(/\b(de|à|est|sont)(\d{1,4})\b/g, (_, det, n) => `${det} ${n}`);
+    t = t.replace(/\bà(seize|huit|dix|neuf|quinze|vingt|trente|quarante|cinquante|soixante|sept|six|cinq|quatre|trois|deux|une?)\b/gi, (_, w) => `à ${w}`);
+    t = t.replace(/\bet\s+de\s+mie\b/gi, "et demie");
+    t = t.replace(/\bdu\s+de\s+vis\b/gi, "du devis");
     // CORRECTION: Normaliser "est-ce bien" pour améliorer la prononciation
     t = t.replace(/\best[- ]ce[- ]bien\b/gi, "est ce bien");
     // IMPORTANT: On laisse Minimax gérer TOUTES les prononciations
