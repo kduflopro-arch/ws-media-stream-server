@@ -258,7 +258,7 @@ wss.on("connection", (ws, req) => {
   let lastUserActivityMs = 0;
   let callStartTimeMs = nowMs(); // Initialiser le temps de début d'appel
   const GOODBYE_DELAY_MS = 5000; // 5 secondes après l'au revoir pour couper l'appel
-  const GOODBYE_POST_AUDIO_DELAY_MS = 4500; // 4,5 s après la fin du message (Minimax) pour laisser Twilio finir de jouer avant de raccrocher
+  const GOODBYE_POST_AUDIO_DELAY_MS = 2000; // 2 s après que Minimax a totalement fini de dire "au revoir" avant de raccrocher
   const MIN_CALL_DURATION_MS = 30000; // Minimum 30 secondes d'appel avant hangup automatique
   const MIN_USER_INACTIVITY_MS = 5000; // Client doit être inactif depuis au moins 5 secondes
   
@@ -4383,11 +4383,11 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
-                // Attendre que l'audio soit terminé avant de raccrocher (laisser Minimax finir sa phrase + temps de lecture Twilio)
+                // Attendre que Minimax ait totalement fini de dire "au revoir" (queue audio vide stable), puis 2 s avant de raccrocher
                 let checkCount = 0;
-                let emptyChecksConsecutive = 0; // exiger 2 vérifications consécutives "plus d'audio" pour éviter raccrocher pendant un creux Minimax
-                const MIN_EMPTY_CHECKS = 2; // 2 x 500ms = 1 s de queue vide stable avant de considérer l'audio vraiment terminé
-                const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 s max pour que le TTS (Minimax) finisse
+                let emptyChecksConsecutive = 0;
+                const MIN_EMPTY_CHECKS = 6; // 6 x 500ms = 3 s de queue vide stable = Minimax a vraiment fini (évite raccrocher en cours de phrase)
+                const MAX_CHECK_COUNT = 40; // 40 x 500ms = 20 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
                   // Utiliser isRealGoodbye pour éviter raccrochage en cours d'échange (formule en fin de message uniquement)
                   const lastText = premiumTtsLastText || doneText || "";
@@ -4446,14 +4446,13 @@ But: être naturel et mettre le client en confiance.`,
                     setTimeout(checkAudioAndHangup, 500);
                     return;
                   }
-                  // L'audio est vraiment terminé : attendre GOODBYE_POST_AUDIO_DELAY_MS pour que Twilio finisse de jouer
+                  // Minimax a totalement fini : attendre 2 s (GOODBYE_POST_AUDIO_DELAY_MS) puis raccrocher
                   console.log("📞 Hangup automatique après détection fin d'échange (audio terminé ou timeout)", { checkCount, hadAudioPending: hasAudioPending, hasSaidGoodbye, emptyChecksConsecutive });
                   // #region agent log
                   fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3486',message:'HANGUP DÉCLENCHÉ (response.done)',data:{checkCount,hadAudioPending:hasAudioPending,hasSaidGoodbye,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                   // #endregion
                   setTimeout(() => triggerHangup("auto_goodbye"), GOODBYE_POST_AUDIO_DELAY_MS);
                 };
-                // Démarrer immédiatement la vérification de l'audio (pas de délai supplémentaire)
                 checkAudioAndHangup();
               } else if (!isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && timeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
                 // CORRECTION: Si l'IA n'a pas encore dit "au revoir" mais que l'appel doit se terminer,
@@ -4503,8 +4502,8 @@ But: être naturel et mettre le client en confiance.`,
                     setTimeout(() => {
                       let checkCount = 0;
                       let emptyChecksConsecutive = 0;
-                      const MIN_EMPTY_CHECKS = 2;
-                      const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 s max
+                      const MIN_EMPTY_CHECKS = 6; // 6 x 500ms = 3 s queue vide stable (Minimax a vraiment fini)
+                      const MAX_CHECK_COUNT = 40; // 40 x 500ms = 20 s max
                       const checkAudioAndHangupAfterGoodbye = () => {
                         const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
                         // #region agent log
@@ -4827,11 +4826,11 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
-                // Attendre que l'audio soit terminé avant de raccrocher (laisser Minimax finir sa phrase + temps de lecture Twilio)
+                // Attendre que Minimax ait totalement fini de dire "au revoir", puis 2 s avant de raccrocher
                 let checkCount = 0;
                 let emptyChecksConsecutive = 0;
-                const MIN_EMPTY_CHECKS = 2; // 2 x 500ms = 1 s de queue vide stable avant de considérer l'audio vraiment terminé
-                const MAX_CHECK_COUNT = 30; // 30 x 500ms = 15 s max pour que le TTS (Minimax) finisse
+                const MIN_EMPTY_CHECKS = 6; // 6 x 500ms = 3 s de queue vide stable (évite raccrocher en cours de phrase)
+                const MAX_CHECK_COUNT = 40; // 40 x 500ms = 20 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
                   const lastText = premiumTtsLastText || doneText || "";
                   const hasSaidGoodbye = isRealGoodbye(lastText);
