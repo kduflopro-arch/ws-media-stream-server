@@ -2415,11 +2415,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // #endregion
     // Nettoyage léger : normaliser les espaces multiples
     t = t.replace(/\s+/g, " ");
-    // PRIORITÉ -1: Espace entre déterminant et nombre (ex: "de250" -> "de 250", "àseize" -> "à seize", "et de mie" -> "et demie")
+    // CORRECTION: Mots coupés par le modèle ("de ux" -> "deux", "de vis" -> "devis", "de mie" -> "demie")
+    t = t.replace(/\bde\s+ux\b/gi, "deux");
+    t = t.replace(/\bde\s+vis\b/gi, "devis");
+    t = t.replace(/\bdu\s+de\s+vis\b/gi, "du devis");
+    t = t.replace(/\blors\s+du\s+de\s+vis\b/gi, "lors du devis");
+    t = t.replace(/\bde\s+mie\b/gi, "demie");
+    t = t.replace(/\bet\s+de\s+mie\b/gi, "et demie");
+    // "huit heures de mie" -> "huit heures et demie" (après "de mie"->"demie" on a "heures demie", on corrige)
+    t = t.replace(/\bheures\s+demie\b/gi, "heures et demie");
+    // PRIORITÉ -1: Espace entre déterminant et nombre (ex: "de250" -> "de 250", "à16" -> "à 16", "àseize" -> "à seize")
     t = t.replace(/\b(de|à|est|sont)(\d{1,4})\b/g, (_, det, n) => `${det} ${n}`);
     t = t.replace(/\bà(seize|huit|dix|neuf|quinze|vingt|trente|quarante|cinquante|soixante|sept|six|cinq|quatre|trois|deux|une?)\b/gi, (_, w) => `à ${w}`);
-    t = t.replace(/\bet\s+de\s+mie\b/gi, "et demie");
-    t = t.replace(/\bdu\s+de\s+vis\b/gi, "du devis");
     // CORRECTION: Normaliser "est-ce bien" pour améliorer la prononciation
     t = t.replace(/\best[- ]ce[- ]bien\b/gi, "est ce bien");
     // IMPORTANT: On laisse Minimax gérer TOUTES les prononciations
