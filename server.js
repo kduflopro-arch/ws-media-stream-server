@@ -213,10 +213,7 @@ const OPENAI_AUDIO_FORMAT = (process.env.OPENAI_AUDIO_FORMAT || "pcm16").toLower
 
 if (!OPENAI_API_KEY) console.error("⚠️ OPENAI_API_KEY non configuré !");
 
-  setImmediate(runRestPart2);
-}
-
-function runRestPart2() {
+  function runRestPart2() {
   console.log("[Render] Init partie 2 (WebSocket) en cours…");
 // Serveur et listen déjà faits en tête de fichier pour Render
 const wss = new WebSocketServer({
@@ -6252,4 +6249,6 @@ But: être naturel et mettre le client en confiance.`,
     });
   });
 });
+  }
+  setImmediate(runRestPart2);
 }
