@@ -24,6 +24,14 @@ server.headersTimeout = 70_000;
 // LOG_LEVEL=verbose pour tous les détails ; par défaut "minimal" (essentiel uniquement)
 const LOG_VERBOSE = (process.env.LOG_LEVEL || "minimal").toLowerCase() === "verbose";
 
+// RENDER: bind immédiatement pour que le scan de port détecte le port (voir https://render.com/docs/web-services#port-binding)
+const INIT_DELAY_MS = Number(process.env.RENDER_INIT_DELAY_MS ?? "5000");
+server.listen(PORT, HOST, () => {
+  console.log(`WS Media Stream server listening on ${HOST}:${PORT}`);
+  console.log(`[Render] Health check: GET http://0.0.0.0:${PORT}/health (init dans ${INIT_DELAY_MS}ms)`);
+  setTimeout(runRest, INIT_DELAY_MS);
+});
+
 function runRest() {
   console.log("[Render] Init lourde (WebSocket, TTS…) en cours…");
 // Empêche les "bonjour" répétés en cas de reconnexion du stream Twilio pendant le même appel.
@@ -6249,12 +6257,3 @@ But: être naturel et mettre le client en confiance.`,
   });
 });
 }
-
-// Délai avant l'init lourde (WebSocket, TTS…) pour que Render reçoive GET /health et marque le déploiement live
-const INIT_DELAY_MS = Number(process.env.RENDER_INIT_DELAY_MS ?? "5000");
-
-server.listen(PORT, HOST, () => {
-  console.log(`WS Media Stream server listening on ${HOST}:${PORT}`);
-  console.log(`[Render] Health check: GET http://0.0.0.0:${PORT}/health (init dans ${INIT_DELAY_MS}ms)`);
-  setTimeout(runRest, INIT_DELAY_MS);
-});
