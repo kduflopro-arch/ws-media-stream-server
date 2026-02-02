@@ -23,6 +23,14 @@ server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;
 // LOG_LEVEL=verbose pour tous les détails ; par défaut "minimal" (essentiel uniquement)
 const LOG_VERBOSE = (process.env.LOG_LEVEL || "minimal").toLowerCase() === "verbose";
+// Mode pipeline (top-level pour que runRestPart2 y accède)
+const PIPELINE_MODE_RAW = String(process.env.PIPELINE_MODE ?? "realtime").toLowerCase().trim();
+const PIPELINE_MODE =
+  PIPELINE_MODE_RAW === "stt_llm_tts"
+    ? "stt_llm_tts"
+    : PIPELINE_MODE_RAW.includes("realtime")
+      ? "realtime"
+      : "realtime";
 
 // RENDER: bind immédiatement pour que le scan de port détecte le port (voir https://render.com/docs/web-services#port-binding)
 const INIT_DELAY_MS = Number(process.env.RENDER_INIT_DELAY_MS ?? "5000");
@@ -204,18 +212,6 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_AUDIO_FORMAT = (process.env.OPENAI_AUDIO_FORMAT || "pcm16").toLowerCase();
 
 if (!OPENAI_API_KEY) console.error("⚠️ OPENAI_API_KEY non configuré !");
-
-// Mode pipeline:
-// - realtime (historique): Twilio ↔ OpenAI Realtime (audio) (+ éventuellement ElevenLabs voix)
-// - stt_llm_tts (Option B): VAD local → STT (Whisper) → LLM (texte) → TTS (ElevenLabs)
-const PIPELINE_MODE_RAW = String(process.env.PIPELINE_MODE ?? "realtime").toLowerCase().trim();
-// Tolérance: certains envs peuvent contenir "gpt-realtime", "openai-realtime", etc.
-const PIPELINE_MODE =
-  PIPELINE_MODE_RAW === "stt_llm_tts"
-    ? "stt_llm_tts"
-    : PIPELINE_MODE_RAW.includes("realtime")
-      ? "realtime"
-      : "realtime";
 
   setImmediate(runRestPart2);
 }
