@@ -209,6 +209,11 @@ const PIPELINE_MODE =
       ? "realtime"
       : "realtime";
 
+  setImmediate(runRestPart2);
+}
+
+function runRestPart2() {
+  console.log("[Render] Init partie 2 (WebSocket) en cours…");
 // Serveur et listen déjà faits en tête de fichier pour Render
 const wss = new WebSocketServer({
   server,
