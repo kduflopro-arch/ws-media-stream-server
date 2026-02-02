@@ -2962,9 +2962,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     // #endregion
     
-    // CORRECTION: Espace après "à" / "de" devant un mot (ex: "àquatre" -> "à quatre" pour prononciation naturelle du tarif)
-    t = t.replace(/\b(à|de)([a-zàâäéèêëïîôùûüÿœæç])/gi, "$1 $2");
-    
     return t.trim();
   }
 
