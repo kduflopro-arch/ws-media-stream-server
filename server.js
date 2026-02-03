@@ -261,8 +261,8 @@ wss.on("connection", (ws, req) => {
   let goodbyeTimer = null;
   let lastUserActivityMs = 0;
   let callStartTimeMs = nowMs(); // Initialiser le temps de début d'appel
-  const GOODBYE_DELAY_MS = 5000; // 5 secondes après l'au revoir pour couper l'appel
-  const GOODBYE_POST_AUDIO_DELAY_MS = 4000; // 4 s après que la queue audio soit vide (Twilio a fini de jouer) avant de raccrocher
+  const GOODBYE_DELAY_MS = 2000; // 2 s après l'au revoir pour couper l'appel
+  const GOODBYE_POST_AUDIO_DELAY_MS = 1500; // 1,5 s après que la queue audio soit vide (Twilio a fini de jouer) avant de raccrocher
   const MIN_CALL_DURATION_MS = 30000; // Minimum 30 secondes d'appel avant hangup automatique
   const MIN_USER_INACTIVITY_MS = 5000; // Client doit être inactif depuis au moins 5 secondes
   
@@ -400,6 +400,8 @@ wss.on("connection", (ws, req) => {
   let garageTone = "";
   let consentRequired = true;
   let consentGiven = false; // Track si le consentement a déjà été donné
+  let lastUserTextForConsent = null; // Dernier texte client avant réponse IA (pour forcer rappel consentement si ni oui ni non)
+  const CONSENT_REMINDER = "Dites oui pour continuer l'appel, ou raccrochez si vous refusez.";
   let appointmentMode = "request";
   let garageClosed = false;
   let garageClosedReason = "";
@@ -1893,14 +1895,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       source: "consent_refusal",
       allowWithoutUser: true,
       onComplete: () => {
-        // Attendre que l'audio soit vraiment fini (file outbound vide) puis 3s avant de raccrocher
+        // Attendre que l'audio soit fini puis raccrocher un peu plus tôt (1,5 s)
         const waitForOutboundDrain = () => {
           if (outboundQueuedBytes === 0 && outboundQueue.length === 0) {
-            console.log("🛑 Consent refusé: phrase terminée, raccrochage dans 3s.");
+            const hangupDelayMs = 1500;
+            console.log("🛑 Consent refusé: phrase terminée, raccrochage dans " + (hangupDelayMs / 1000) + " s.");
             setTimeout(() => {
               finalizeCallToAutoGuru("consent_refused");
               triggerHangup("consent_refused");
-            }, 3000);
+            }, hangupDelayMs);
             return;
           }
           setTimeout(waitForOutboundDrain, 200);
@@ -4642,7 +4645,7 @@ But: être naturel et mettre le client en confiance.`,
                     const acceptsConsent = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient)\b/i.test(ut);
                     const refusesConsent = /\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(ut);
                     if (refusesConsent) {
-                      console.log("🛑 Client refuse l'enregistrement (depuis conversation.item.done), message de refus puis raccrochage dans 3s.", { userText: ut.substring(0, 80) });
+                      console.log("🛑 Client refuse l'enregistrement (depuis conversation.item.done), message de refus puis raccrochage.", { userText: ut.substring(0, 80) });
                       playConsentRefusalAndHangup();
                     } else if (acceptsConsent) {
                       console.log("✅ Client accepte le consentement (depuis conversation.item.done).", { userText: ut.substring(0, 80) });
@@ -4720,6 +4723,14 @@ But: être naturel et mettre le client en confiance.`,
                       if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(clean)) {
                         console.log("🛑 Réponse IA (conversation.item.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
+                      } else if (consentRequired && !consentGiven && lastUserTextForConsent) {
+                        const accepts = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient)\b/i.test(lastUserTextForConsent);
+                        const refuses = /\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(lastUserTextForConsent);
+                        if (!accepts && !refuses) {
+                          console.log("🔄 Rappel consentement (conversation.item.done, client a dit autre chose):", lastUserTextForConsent.substring(0, 60));
+                          enqueuePremiumTts(CONSENT_REMINDER, { interrupt: true, source: "consent_reminder", allowWithoutUser: true });
+                        }
+                        lastUserTextForConsent = null;
                       }
                       if (LOG_TTS) console.log(`[TTS] SKIPPED conversation.item.done (TTS assistant = response.done uniquement):`, { text: clean.substring(0, 80) });
                   }
@@ -4768,6 +4779,17 @@ But: être naturel et mettre le client en confiance.`,
                 // Refus consentement: remplacer toute réponse IA par le message fixe
                 console.log("🛑 Réponse IA (response.output_text.done) = refus enregistrement, remplacement par message fixe.");
                 playConsentRefusalAndHangup();
+              } else if (consentRequired && !consentGiven && lastUserTextForConsent) {
+                // Client a dit autre chose que oui/non : forcer le rappel consentement (l'IA ne le fait pas toujours)
+                const accepts = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient)\b/i.test(lastUserTextForConsent);
+                const refuses = /\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(lastUserTextForConsent);
+                if (!accepts && !refuses) {
+                  console.log("🔄 Rappel consentement (client a dit autre chose):", lastUserTextForConsent.substring(0, 60));
+                  enqueuePremiumTts(CONSENT_REMINDER, { interrupt: true, source: "consent_reminder", allowWithoutUser: true });
+                  lastUserTextForConsent = null;
+                  return;
+                }
+                lastUserTextForConsent = null;
               } else {
               if (LOG_VERBOSE) console.log("📝 Réponse texte IA reçue (GPT-5):", doneText.substring(0, 100));
               // #region agent log - RAW TEXT FROM GPT-5
@@ -4922,6 +4944,16 @@ But: être naturel et mettre le client en confiance.`,
               if (!REALTIME_ELEVEN_CHUNKING_ENABLED && consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(doneText)) {
                 console.log("🛑 Réponse IA (response.output_text.done) = refus enregistrement, remplacement par message fixe.");
                 playConsentRefusalAndHangup();
+              }
+              // Rappel consentement si client a dit autre chose que oui/non (chemin sans chunking)
+              if (!REALTIME_ELEVEN_CHUNKING_ENABLED && consentRequired && !consentGiven && lastUserTextForConsent) {
+                const accepts = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient)\b/i.test(lastUserTextForConsent);
+                const refuses = /\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(lastUserTextForConsent);
+                if (!accepts && !refuses) {
+                  console.log("🔄 Rappel consentement (client a dit autre chose, sans chunking):", lastUserTextForConsent.substring(0, 60));
+                  enqueuePremiumTts(CONSENT_REMINDER, { interrupt: true, source: "consent_reminder", allowWithoutUser: true });
+                }
+                lastUserTextForConsent = null;
               }
               // TTS: fait uniquement depuis conversation.item.done (texte complet garanti)
               }
@@ -5148,11 +5180,12 @@ But: être naturel et mettre le client en confiance.`,
             }
             // #endregion
             if (refusesConsent && consentRequired && !consentGiven) {
-              console.log("🛑 Client refuse l'enregistrement (transcription), message de refus puis raccrochage dans 3s.", { userText });
+              console.log("🛑 Client refuse l'enregistrement (transcription), message de refus puis raccrochage.", { userText });
               playConsentRefusalAndHangup();
             } else if (acceptsConsent && consentRequired && !consentGiven) {
               console.log("✅ Client accepte le consentement, ne plus redemander:", { userText });
               consentGiven = true;
+              lastUserTextForConsent = null;
               // CORRECTION: NE PAS mettre à jour lastCommittedAt lors du consentement
               // Le consentement n'est pas une vraie parole utilisateur qui nécessite une réponse
               // L'IA ne doit répondre QUE si l'utilisateur pose vraiment une question ou dit quelque chose
@@ -5164,6 +5197,9 @@ But: être naturel et mettre le client en confiance.`,
               // avant la prochaine requête LLM. Pour l'instant, le prompt est construit dynamiquement à chaque requête
               // donc consentGiven sera pris en compte automatiquement.
               // IMPORTANT: S'assurer que le prompt système ne demande plus le consentement si consentGiven=true
+            } else if (consentRequired && !consentGiven && userText && userText.trim()) {
+              // Client a dit autre chose que oui/non : mémoriser pour forcer le rappel consentement à la réponse IA
+              lastUserTextForConsent = userText;
             }
             
             // Détecter si le client confirme la plaque existante ou demande un autre véhicule
