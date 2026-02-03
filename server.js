@@ -3302,7 +3302,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
         const consentLine =
           consentRequired && !consentGiven
-            ? "Dès le début de l'appel, annonce: 'Cet appel est enregistré pour préparer votre arrivée au garage. Si vous refusez, vous pouvez raccrocher à tout moment.' Puis demande un oui/non. IMPORTANT: Ne demande le consentement QU'UNE SEULE FOIS. Si le client a déjà donné son accord (oui, d'accord, ok, bien sûr), ne redemande PAS le consentement."
+            ? "RÈGLE ABSOLUE - CONSENTEMENT: Dès le début de l'appel, annonce UNIQUEMENT: 'Cet appel est enregistré pour préparer votre arrivée au garage. Dites oui pour continuer, ou raccrochez si vous refusez.' Puis TU T'ARRÊTES et tu ATTENDS la réponse du client. Tu ne dis RIEN d'autre (pas 'En quoi puis-je vous aider ?', pas 'Quel est votre besoin ?') avant qu'il ait dit oui ou non. Si le client dit oui, d'accord ou ok, tu peux alors demander 'En quoi puis-je vous aider ?'. Si le client refuse, tu dis au revoir et tu raccroches. Si le client dit autre chose (ex: il décrit un problème sans avoir dit oui), tu réponds UNIQUEMENT: 'Dites oui pour continuer l\'appel, ou raccrochez si vous refusez.' Tu ne traites aucune autre demande tant qu'il n'a pas dit oui ou non. Ne demande le consentement QU'UNE SEULE FOIS."
             : consentRequired && consentGiven
             ? "Consentement enregistrement: déjà donné par le client. NE PAS redemander le consentement."
             : "Consentement enregistrement: non requis.";
@@ -5537,17 +5537,17 @@ But: être naturel et mettre le client en confiance.`,
                     } else if (clientInfo.name) {
                       salutationName = title ? `${title} ${clientInfo.name}` : clientInfo.name;
                     }
-                    // Accueil naturel : salutation puis consentement (court) puis question ouverte
+                    // Accueil : salutation puis consentement clair. On n'enchaîne PAS avec la question avant d'avoir le oui.
                     const baseHello = salutationName
                       ? `Bonjour ${salutationName}. Ici ${assistantName} du garage ${garageNom}.`
                       : `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
                     const consentText = consentRequired && !consentGiven
-                      ? "On enregistre l'appel pour préparer votre venue. Ça vous va ?"
+                      ? "Cet appel est enregistré pour préparer votre arrivée au garage. Dites oui pour continuer, ou raccrochez si vous refusez."
                       : "";
-                    const question = consentRequired && !consentGiven
-                      ? "Parfait. Alors, qu'est-ce qui se passe avec votre véhicule ?"
-                      : ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
-                    const greeting = consentText ? [baseHello, consentText, question].filter(Boolean).join(" ") : [baseHello, question].filter(Boolean).join(" ");
+                    const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
+                    const greeting = consentRequired && !consentGiven
+                      ? [baseHello, consentText].filter(Boolean).join(" ")
+                      : [baseHello, question].filter(Boolean).join(" ");
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4288',message:'GREETING CONSTRUIT (avec nom client)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
                     // #endregion
@@ -5608,12 +5608,12 @@ But: être naturel et mettre le client en confiance.`,
             const garageNom = /^garage\s+/i.test(rawName) ? rawName.replace(/^garage\s+/i, "").trim() : rawName;
             const baseHello = `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
             const consentText = consentRequired && !consentGiven
-              ? "On enregistre l'appel pour préparer votre venue. Ça vous va ?"
+              ? "Cet appel est enregistré pour préparer votre arrivée au garage. Dites oui pour continuer, ou raccrochez si vous refusez."
               : "";
-            const question = consentRequired && !consentGiven
-              ? "Parfait. Alors, qu'est-ce qui se passe avec votre véhicule ?"
-              : ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
-            const greeting = consentText ? [baseHello, consentText, question].filter(Boolean).join(" ") : [baseHello, question].filter(Boolean).join(" ");
+            const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
+            const greeting = consentRequired && !consentGiven
+              ? [baseHello, consentText].filter(Boolean).join(" ")
+              : [baseHello, question].filter(Boolean).join(" ");
             // #region agent log
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4353',message:'GREETING CONSTRUIT (générique IMMÉDIAT)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
             // #endregion
