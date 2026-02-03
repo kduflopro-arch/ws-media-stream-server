@@ -494,17 +494,20 @@ wss.on("connection", (ws, req) => {
           const result = await finalizeResponse.json().catch(() => null);
           if (LOG_VERBOSE) console.log("✅ Finalize réussi:", result); else console.log("✅ Finalize ok");
           const runAnalysisSecret = RUN_ANALYSIS_SECRET_ENV;
-          if (result?.triggerAnalysis && (result?.callId || result?.runAnalysisUrl) && runAnalysisSecret) {
-            const runAnalysisUrl = result.runAnalysisUrl || (String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "").replace(/\/api\/twilio\/realtime-finalize\/?$/i, "") + "/api/calls/" + result.callId + "/run-analysis");
+          const runAnalysisUrl = result?.runAnalysisUrl || (result?.callId && (String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "").replace(/\/api\/twilio\/realtime-finalize\/?$/i, "") + "/api/calls/" + result.callId + "/run-analysis"));
+          if (result?.triggerAnalysis && runAnalysisUrl && runAnalysisSecret) {
             fetch(runAnalysisUrl, {
               method: "POST",
               headers: { "Authorization": "Bearer " + runAnalysisSecret },
             }).then((r) => {
               if (r.ok) console.log("✅ Run-analysis démarré pour appel", result.callId);
-              else console.warn("⚠️ Run-analysis non ok:", r.status);
+              else console.warn("⚠️ Run-analysis non ok:", r.status, runAnalysisUrl.slice(0, 60) + "...");
             }).catch((err) => {
               console.warn("⚠️ Run-analysis (fire-and-forget) erreur:", err?.message || err);
             });
+          } else if (result?.triggerAnalysis && result?.callId) {
+            if (!runAnalysisSecret) console.warn("⚠️ RUN_ANALYSIS_SECRET non défini sur Render → run-analysis non appelé. L'appel restera en 'analyzing' jusqu'à traitement par le cron Vercel (run-pending-analyses).");
+            if (!runAnalysisUrl) console.warn("⚠️ runAnalysisUrl manquant dans la réponse finalize → run-analysis non appelé.");
           }
         }
       } else {
@@ -719,14 +722,15 @@ wss.on("connection", (ws, req) => {
   // (Variables déplacées en haut de la fonction wss.on("connection") pour éviter les erreurs de scope)
 
   function isAffirmativeFr(text) {
-    const t = String(text || "").toLowerCase();
+    const t = String(text || "").toLowerCase().trim();
     if (!t) return false;
-    return /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche)\b/.test(t);
+    return /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|voilà|voila)(\s+oui|\s+merci)?\.?$/i.test(t.replace(/\s+/g, " ")) || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|voilà|voila)\b/.test(t);
   }
   function isNegativeFr(text) {
-    const t = String(text || "").toLowerCase();
+    const t = String(text || "").toLowerCase().trim();
     if (!t) return false;
-    return /\b(non|pas du tout|nan|nann|nope|laisse tomber)\b/.test(t);
+    // Ne pas inclure "nan" seul : souvent mal reconnu pour "oui" au téléphone
+    return /\b(non|nope|pas du tout|nann|laisse tomber)\b/.test(t) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(t.replace(/\s+/g, " "));
   }
 
   // Fonction utilitaire pour détecter si un texte est un vrai goodbye (pas juste "bonne journée" en milieu de phrase)
@@ -781,6 +785,9 @@ wss.on("connection", (ws, req) => {
     // --- Longueur significative (sans ponctuation/espaces) ---
     const stripped = lower.replace(/[\s\p{P}\p{S}]/gu, "");
     if (stripped.length < 3) return true;
+    // Ne jamais traiter les courtes réponses oui/non comme du bruit (consentement + confirmation plaque)
+    const shortValid = ["oui", "ouais", "ouai", "oua", "ok", "non", "nan", "nope", "dac", "daccord", "voila", "voilà"];
+    if (shortValid.includes(stripped)) return false;
     if (NOISE_FILTER_STRICT && stripped.length < 5) return true;
 
     // --- Bruits / sons isolés / hésitations ---
@@ -793,7 +800,7 @@ wss.on("connection", (ws, req) => {
     if (words.length === 0) return true;
 
     // --- Un seul mot très court (sauf oui/non/etc.) ---
-    const oneWordOk = ["oui", "non", "ok", "aller", "merci", "salut", "allo", "bonjour", "bonsoir", "d'accord", "dac"];
+    const oneWordOk = ["oui", "ouais", "ouai", "non", "ok", "aller", "merci", "salut", "allo", "bonjour", "bonsoir", "d'accord", "dac", "voilà", "voila", "nan", "nope"];
     if (words.length === 1) {
       if (words[0].length < 3) return true;
       if (NOISE_FILTER_STRICT && words[0].length < 4 && !oneWordOk.includes(words[0].toLowerCase())) return true;
@@ -801,7 +808,7 @@ wss.on("connection", (ws, req) => {
 
     // --- Deux mots très courts : accepter seulement combinaisons connues ---
     if (words.length <= 2 && t.length < 12) {
-      const commonFrench = ["oui", "non", "oui oui", "non non", "oui merci", "non merci", "d'accord", "ok ok", "bonjour oui", "oui s'il vous plaît"];
+      const commonFrench = ["oui", "ouais", "ouai", "non", "oui oui", "non non", "oui merci", "non merci", "d'accord", "ok ok", "bonjour oui", "oui s'il vous plaît", "euh oui", "ben oui", "ah oui", "ouais oui", "c'est bon", "c'est ça"];
       const normalized = lower.replace(/\s+/g, " ").trim();
       if (!commonFrench.some(phrase => normalized === phrase || normalized.startsWith(phrase + " ") || normalized.endsWith(" " + phrase))) {
         if (words.some(w => w.length < 2)) return true;
@@ -4642,8 +4649,10 @@ But: être naturel et mettre le client en confiance.`,
                   // Détection consentement depuis conversation.item.done (quand input_audio_transcription est désactivé)
                   if (userText && userText.trim() && consentRequired && !consentGiven) {
                     const ut = String(userText).toLowerCase().trim();
-                    const acceptsConsent = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient)\b/i.test(ut);
-                    const refusesConsent = /\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(ut);
+                    const utNorm = ut.replace(/\s+/g, " ").trim();
+                    const acceptsConsent = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|voilà|voila|me convient)(\s+oui|\s+merci)?\.?$/i.test(utNorm)
+                      || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|voilà|voila)\b/i.test(ut);
+                    const refusesConsent = /\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(ut) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(utNorm);
                     if (refusesConsent) {
                       console.log("🛑 Client refuse l'enregistrement (depuis conversation.item.done), message de refus puis raccrochage.", { userText: ut.substring(0, 80) });
                       playConsentRefusalAndHangup();
@@ -4654,12 +4663,14 @@ But: être naturel et mettre le client en confiance.`,
                   }
                   // Détection confirmation plaque depuis conversation.item.done (user) — désactiver SMS si client a confirmé la plaque annoncée
                   if (userText && userText.trim()) {
+                    const utPlate = String(userText).toLowerCase().trim().replace(/\s+/g, " ");
                     const confirmsPlatePatternsConv = [
-                      /\b(oui|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui voilà|oui c'est bon|voilà c'est ça|correct|exact|oui c'est bien|oui c'est la même|oui c'est celle-là)\b/i,
+                      /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|voilà|voila)(\s+oui|\s+c'est ça|\s+merci)?\.?$/i,
+                      /\b(oui|ouais|ouai|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui voilà|oui c'est bon|voilà c'est ça|correct|exact)\b/i,
                       /\b(c'est bien ça|c'est exact|tout à fait|parfait)\b/i
                     ];
-                    const otherVehicleConv = userText.match(/\b(non|ce n'est pas|autre voiture|autre véhicule)\b/i);
-                    const confirmsPlateConv = confirmsPlatePatternsConv.some(p => p.test(userText)) && !otherVehicleConv;
+                    const otherVehicleConv = userText.match(/\b(non|ce n'est pas|autre voiture|autre véhicule)\b/i) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(utPlate);
+                    const confirmsPlateConv = confirmsPlatePatternsConv.some(p => p.test(utPlate)) && !otherVehicleConv;
                     if (confirmsPlateConv) {
                       if (LOG_VERBOSE) console.log("✅ Client confirme la plaque, SMS non envoyé:", userText.substring(0, 60));
                       plateSmsSendOnFinalize = false;
@@ -4724,8 +4735,9 @@ But: être naturel et mettre le client en confiance.`,
                         console.log("🛑 Réponse IA (conversation.item.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
                       } else if (consentRequired && !consentGiven && lastUserTextForConsent) {
-                        const accepts = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient)\b/i.test(lastUserTextForConsent);
-                        const refuses = /\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(lastUserTextForConsent);
+                        const l = String(lastUserTextForConsent).toLowerCase().trim().replace(/\s+/g, " ");
+                        const accepts = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|voilà|voila|me convient)(\s+oui|\s+merci)?\.?$/i.test(l) || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|voilà|voila)\b/i.test(lastUserTextForConsent);
+                        const refuses = /\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(lastUserTextForConsent) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(l);
                         if (!accepts && !refuses) {
                           console.log("🔄 Rappel consentement (conversation.item.done, client a dit autre chose):", lastUserTextForConsent.substring(0, 60));
                           enqueuePremiumTts(CONSENT_REMINDER, { interrupt: true, source: "consent_reminder", allowWithoutUser: true });
@@ -4780,9 +4792,9 @@ But: être naturel et mettre le client en confiance.`,
                 console.log("🛑 Réponse IA (response.output_text.done) = refus enregistrement, remplacement par message fixe.");
                 playConsentRefusalAndHangup();
               } else if (consentRequired && !consentGiven && lastUserTextForConsent) {
-                // Client a dit autre chose que oui/non : forcer le rappel consentement (l'IA ne le fait pas toujours)
-                const accepts = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient)\b/i.test(lastUserTextForConsent);
-                const refuses = /\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(lastUserTextForConsent);
+                const l = String(lastUserTextForConsent).toLowerCase().trim().replace(/\s+/g, " ");
+                const accepts = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|voilà|voila|me convient)(\s+oui|\s+merci)?\.?$/i.test(l) || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|voilà|voila)\b/i.test(lastUserTextForConsent);
+                const refuses = /\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(lastUserTextForConsent) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(l);
                 if (!accepts && !refuses) {
                   console.log("🔄 Rappel consentement (client a dit autre chose):", lastUserTextForConsent.substring(0, 60));
                   enqueuePremiumTts(CONSENT_REMINDER, { interrupt: true, source: "consent_reminder", allowWithoutUser: true });
@@ -4947,8 +4959,9 @@ But: être naturel et mettre le client en confiance.`,
               }
               // Rappel consentement si client a dit autre chose que oui/non (chemin sans chunking)
               if (!REALTIME_ELEVEN_CHUNKING_ENABLED && consentRequired && !consentGiven && lastUserTextForConsent) {
-                const accepts = /\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient)\b/i.test(lastUserTextForConsent);
-                const refuses = /\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(lastUserTextForConsent);
+                const l = String(lastUserTextForConsent).toLowerCase().trim().replace(/\s+/g, " ");
+                const accepts = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|voilà|voila|me convient)(\s+oui|\s+merci)?\.?$/i.test(l) || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|voilà|voila)\b/i.test(lastUserTextForConsent);
+                const refuses = /\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(lastUserTextForConsent) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(l);
                 if (!accepts && !refuses) {
                   console.log("🔄 Rappel consentement (client a dit autre chose, sans chunking):", lastUserTextForConsent.substring(0, 60));
                   enqueuePremiumTts(CONSENT_REMINDER, { interrupt: true, source: "consent_reminder", allowWithoutUser: true });
@@ -5170,10 +5183,13 @@ But: être naturel et mettre le client en confiance.`,
               // #endregion
             }
             
-            // Détecter si le client accepte ou refuse le consentement
+            // Détecter si le client accepte ou refuse le consentement (sensibilité élevée pour "oui")
             const userText = String(transcript || "").toLowerCase().trim();
-            const acceptsConsent = userText.match(/\b(oui|ouais|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient)\b/i);
-            const refusesConsent = userText.match(/\b(non|nan|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i);
+            const userTextNorm = userText.replace(/\s+/g, " ").trim();
+            const acceptsConsent = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient|voilà|voila)(\s+oui|\s+merci)?\.?$/i.test(userTextNorm)
+              || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|voilà|voila)\b/i.test(userText);
+            // Ne pas inclure "nan" dans le refus : souvent mal reconnu pour "oui" au téléphone
+            const refusesConsent = userText.match(/\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(userTextNorm);
             // #region agent log
             if (acceptsConsent && consentRequired && !consentGiven) {
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3912',message:'CONSENT ACCEPTÉ',data:{userText,transcript,consentRequired,consentGiven},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
@@ -5205,15 +5221,16 @@ But: être naturel et mettre le client en confiance.`,
             // Détecter si le client confirme la plaque existante ou demande un autre véhicule
             // Si le client confirme la plaque (ex: "oui", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne")
             // CORRECTION: Améliorer la détection de confirmation de plaque
-            // Patterns pour confirmation de la plaque annoncée par l'IA (éviter SMS inutile si client a déjà confirmé)
+            // Patterns pour confirmation de la plaque (sensibilité élevée : "oui" / "ouais" = confirmation)
             const confirmsPlatePatterns = [
-              /\b(oui|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui c'est pour cette voiture|correct|exact|oui c'est bien|oui c'est la même|oui c'est celle-là|oui voilà|oui c'est bon|voilà c'est ça)\b/i,
-              /\b(oui|exactement|précisément)\s+(c'est|c'est bien|c'est correct|c'est la bonne|c'est pour cette voiture)\b/i,
+              /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|voilà|voila)(\s+oui|\s+c'est ça|\s+c'est bon|\s+merci)?\.?$/i,
+              /\b(oui|ouais|ouai|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui c'est pour cette voiture|correct|exact|oui c'est bien|oui c'est la même|oui c'est celle-là|oui voilà|oui c'est bon|voilà c'est ça)\b/i,
+              /\b(oui|ouais|ouai|exactement|précisément)\s+(c'est|c'est bien|c'est correct|c'est la bonne|c'est pour cette voiture)\b/i,
               /\b(c'est bien ça|c'est exact|tout à fait|parfait)\b/i
             ];
-            const confirmsPlate = confirmsPlatePatterns.some(pattern => pattern.test(userText));
-            // Si le client dit que c'est pour un autre véhicule (ex: "non", "ce n'est pas la bonne", "autre voiture", "autre véhicule")
-            const otherVehicle = userText.match(/\b(non|ce n'est pas|autre voiture|autre véhicule|j'ai changé|nouvelle voiture|nouveau véhicule)\b/i);
+            const confirmsPlate = confirmsPlatePatterns.some(pattern => pattern.test(userTextNorm));
+            // Négatif uniquement si clairement "non" ou autre véhicule (ne pas utiliser "nan" : souvent mal reconnu pour "oui")
+            const otherVehicle = userText.match(/\b(non|ce n'est pas|autre voiture|autre véhicule|j'ai changé|nouvelle voiture|nouveau véhicule)\b/i) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(userTextNorm);
             
             // #region agent log
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3980',message:'DÉTECTION CONFIRMATION PLAQUE',data:{userText:userText.substring(0,200),confirmsPlate,otherVehicle:!!otherVehicle,plateSmsSendOnFinalize},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
