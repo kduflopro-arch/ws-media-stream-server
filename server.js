@@ -1,6 +1,6 @@
 // WebSocket server for Twilio Media Streams + OpenAI Realtime API
 // Deploy on Render / Railway / Fly. Not for Vercel (no persistent WS).
-// Ports: Render auto-assigns process.env.PORT; locally use 8080.
+// Port: Render auto-assigns process.env.PORT; locally use 8080.
 
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
