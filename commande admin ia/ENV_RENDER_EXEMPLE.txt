@@ -27,13 +27,19 @@ ELEVENLABS_OPTIMIZE_STREAMING_LATENCY=3
 
 # --- AutoGuru (détails d'appel) ---
 # Permet de remplir automatiquement transcript/détails de l'appel côté AutoGuru en mode realtime.
-# Pas de "AUTOGURU_API_KEY" sur le serveur ws : l'analyse OpenAI (analyzeCallTranscript) se fait
-# côté Vercel (autoguru-ai). Ici on configure URL + secrets pour que le ws appelle
-# realtime-ingest, realtime-finalize, puis run-analysis (analyse en arrière-plan).
+# Le ws appelle realtime-ingest, realtime-finalize, puis run-analysis. L'analyse OpenAI tourne
+# sur Render (POST /run-analysis/:id) pour éviter les timeouts Vercel.
 AUTOGURU_INGEST_URL=https://<TON_AUTOGURU>/api/twilio/realtime-ingest
 AUTOGURU_INGEST_SECRET=change-me-please-32-chars-minimum
-# Même valeur que RUN_ANALYSIS_SECRET sur Vercel (AutoGuru). Obligatoire pour déclencher l'analyse après finalize.
+# Même valeur que RUN_ANALYSIS_SECRET sur Vercel. Obligatoire pour POST /run-analysis (auth Bearer).
 RUN_ANALYSIS_SECRET=change-me-same-as-vercel-32-chars
+
+# --- Supabase (obligatoire pour /run-analysis) ---
+# Lecture/écriture autoguru.calls (transcript, statut, résumé, conclusion IA).
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJxxx
+# Optionnel : modèle OpenAI pour l'analyse (défaut gpt-4o)
+# OPENAI_ANALYSIS_MODEL=gpt-4o
 
 # Backchannel OFF en realtime (sinon "Ok je vois" peut spam)
 BACKCHANNEL_ENABLED=false

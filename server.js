@@ -5,15 +5,269 @@
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { Readable } from "stream";
+import { createClient } from "@supabase/supabase-js";
 
 // RENDER: écouter le port dès le démarrage pour que le health check réponde avant le chargement du reste (~6k lignes)
 const PORT = process.env.PORT || 8080;
 const HOST = process.env.HOST || "0.0.0.0";
+
+// Prompt et schéma pour l'analyse d'appel (aligné sur autoguru-ai)
+const CALL_ANALYSIS_PROMPT = `Tu es AutoGuru, assistant IA pour l'analyse d'appels téléphoniques de garages automobiles.
+
+Ta mission : Analyser une transcription d'appel client et fournir une analyse structurée avec des informations enrichies pour faciliter le rappel et l'accueil du client au garage.
+
+Contraintes strictes :
+1. Sécurité avant tout : Si voyant rouge, fumée, perte de freinage, bruit métallique fort, odeur de brûlé -> urgence HAUTE
+2. Reste prudent : Ne jamais conseiller de continuer à rouler si danger potentiel
+3. Causes probables : Identifie 2 à 4 causes les plus probables avec un niveau de confiance (0.0 à 1.0). NE PAS utiliser "Fallback" comme cause. Si l'appel est une simple demande de prestation (vidange, révision, devis, etc.) SANS description de symptômes ou problème par le client, fournir tout de même des causes pertinentes à la prestation mais le front n'affichera pas les pourcentages ; garde confidence pour cohérence du schéma.
+4. Symptômes : liste 1 à 6 éléments. UNIQUEMENT ce que le client a réellement mentionné (pas d'interprétation). Format court.
+5. Résumé de l'appel (champ "summary") : NE PAS recopier la transcription. RÉSUMÉ STRUCTURÉ et LISIBLE pour le garage, UNIQUEMENT les infos utiles pour le rappel et l'accueil. Présentation en paragraphes courts, une idée par ligne si besoin. Contenu :
+   - Prestation demandée (ex: diagnostic batterie, réparation freins, devis) avec tarif si mentionné.
+   - Symptômes évoqués par le client uniquement s'il en a décrit.
+   - RDV : oui/non, et si oui jour/heure demandés ou proposés.
+   - Diagnostic préliminaire si problème décrit, sinon "à confirmer au diagnostic".
+   - Autres demandes (devis, info, autre véhicule).
+   - Réponses utiles du client (depuis quand, conditions) en 2 à 4 lignes max.
+   Pas de transcription mot à mot. Texte aéré, facile à lire.
+6. Conclusion IA (champ "aiConclusion") : Conclusion ACTIONNABLE pour le garage, 3 à 5 points courts et spécifiques. Présentation CLAIRE : un point par ligne, phrases courtes. NE JAMAIS inclure de pourcentages (ex: "85%") dans la conclusion. Si l'appel est une simple demande de prestation (vidange, révision, devis) SANS description de symptômes ou problème par le client, ne pas mentionner de niveau de confiance ni pourcentages. Contenu :
+   - Diagnostic préliminaire ou hypothèse (ex: "Vérifier alternateur et batterie en priorité").
+   - Niveau d'urgence et pourquoi (ex: "Urgence faible : voyant batterie ; proposer diagnostic sous 1 semaine").
+   - Infos à demander au rappel si pertinent (plaque, kilométrage, depuis quand) — uniquement utiles pour ce cas.
+   - Préparation accueil (ex: "Prévoir créneau diagnostic 30 min").
+   - Point d'attention (ex: "Client inquiet sur le coût ; rassurer sur devis gratuit").
+   INTERDIT : phrases génériques, listes sans contexte, pourcentages dans le texte.
+7. Urgence : Analyse RÉELLE et PRÉCISE de l'urgence basée sur les symptômes mentionnés. NE JAMAIS mettre "medium" par défaut sans analyse. Évalue vraiment en fonction des symptômes :
+   - HAUTE : danger immédiat (voyant rouge, fumée, perte de freinage, bruit métallique fort, odeur de brûlé, problème de sécurité critique)
+   - MOYENNE : problème qui nécessite une attention rapide mais pas immédiate (voyant orange, bruit anormal, perte de performance)
+   - FAIBLE : problème mineur ou consultation de routine (entretien, question d'information, voyant d'entretien)
+8. Consentement : Analyse RÉELLE et PRÉCISE du consentement dans la conversation. NE JAMAIS utiliser "Fallback" ou "unknown" par défaut sans analyse.
+9. Recommandation RDV :
+   - Si urgence HAUTE : "Intervention immédiate requise (sous 24h)"
+   - Si urgence MOYENNE : "Consultation recommandée dans les 2-3 jours"
+   - Si urgence FAIBLE : "Consultation à planifier selon disponibilité"
+10. Informations client : Analyse la conversation pour extraire TOUTES les informations utiles pour le rappel (genre, âge, état émotionnel, kilométrage, durée du problème, conditions, créneaux, contraintes, niveau de connaissance, style de communication, raison urgence, expérience garages, notes). Si aucune note utile, mets une chaîne vide "".
+
+Format de sortie JSON strict requis. Réponds en français.`;
+
+const CALL_ANALYSIS_SCHEMA = {
+  type: "object",
+  properties: {
+    symptoms: { type: "array", items: { type: "string" } },
+    summary: { type: "string" },
+    aiConclusion: { type: "string" },
+    probableCauses: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { label: { type: "string" }, confidence: { type: "number" } },
+        required: ["label", "confidence"],
+        additionalProperties: false,
+      },
+    },
+    urgency: { type: "string", enum: ["low", "medium", "high"] },
+    appointmentRecommendation: { type: "string" },
+    clientInsights: {
+      type: "object",
+      properties: {
+        gender: { type: "string", enum: ["homme", "femme", "indéterminé"] },
+        genderConfidence: { type: "number" },
+        genderEvidence: { type: "string" },
+        ageGroup: { type: "string", enum: ["jeune", "adulte", "senior", "indéterminé"] },
+        emotionalState: { type: "string", enum: ["calme", "inquiet", "stressé", "énervé", "confiant", "indéterminé"] },
+        notes: { type: "string" },
+        vehicleMileage: { type: "string" },
+        problemDuration: { type: "string" },
+        problemConditions: { type: "string" },
+        preferredTimeSlots: { type: "string" },
+        constraints: { type: "string" },
+        knowledgeLevel: { type: "string", enum: ["débutant", "intermédiaire", "expérimenté", "indéterminé"] },
+        communicationStyle: { type: "string", enum: ["direct", "détaillé", "réservé", "bavard", "indéterminé"] },
+        urgencyReason: { type: "string" },
+        previousGarageExperience: { type: "string" },
+      },
+      required: ["gender", "genderConfidence", "genderEvidence", "ageGroup", "emotionalState", "notes", "vehicleMileage", "problemDuration", "problemConditions", "preferredTimeSlots", "constraints", "knowledgeLevel", "communicationStyle", "urgencyReason", "previousGarageExperience"],
+      additionalProperties: false,
+    },
+  },
+  required: ["symptoms", "summary", "aiConclusion", "probableCauses", "urgency", "appointmentRecommendation", "clientInsights"],
+  additionalProperties: false,
+};
+
+async function handleRunAnalysis(callId, res) {
+  const send = (status, body) => {
+    res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify(body));
+  };
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !supabaseKey) {
+    console.error("[run-analysis] SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY manquant");
+    return send(500, { error: "config", message: "Supabase non configuré" });
+  }
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  const { data: call, error: callError } = await supabase
+    .schema("autoguru")
+    .from("calls")
+    .select("id, transcript_text, symptom_summary, client_insights, status")
+    .eq("id", callId)
+    .maybeSingle();
+
+  if (callError) {
+    console.error("[run-analysis] Erreur récupération appel:", callError);
+    return send(500, { error: "db_error", message: callError.message });
+  }
+  if (!call) {
+    return send(404, { error: "call_not_found" });
+  }
+  if (call.status !== "analyzing") {
+    return send(200, { ok: true, message: "call_not_analyzing", status: call.status });
+  }
+
+  const transcript = (call.transcript_text ?? "").trim();
+  if (!transcript) {
+    await supabase.schema("autoguru").from("calls").update({
+      status: "done",
+      updated_at: new Date().toISOString(),
+    }).eq("id", callId);
+    return send(200, { ok: true, message: "no_transcript" });
+  }
+
+  const openaiKey = (process.env.OPENAI_API_KEY || "").trim().replace(/\n/g, "").replace(/\r/g, "");
+  if (!openaiKey) {
+    console.error("[run-analysis] OPENAI_API_KEY manquant");
+    return send(500, { error: "config", message: "OPENAI_API_KEY non configuré" });
+  }
+
+  const model = process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
+  const userInput = `Transcription: ${transcript}\nSymptômes déclarés: ${(call.symptom_summary ?? "non précisé")}\n`;
+
+  try {
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        temperature: 0.3,
+        messages: [
+          { role: "system", content: `${CALL_ANALYSIS_PROMPT} Réponds en fr.` },
+          { role: "user", content: userInput },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "call_analysis", schema: CALL_ANALYSIS_SCHEMA, strict: true },
+        },
+      }),
+    });
+
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const msg = json?.error?.message || `OpenAI ${resp.status}`;
+      console.error("[run-analysis] OpenAI erreur:", callId, msg);
+      await supabase.schema("autoguru").from("calls").update({
+        status: "done",
+        updated_at: new Date().toISOString(),
+      }).eq("id", callId);
+      return send(500, { error: "analysis_failed", message: msg, statusSetToDone: true });
+    }
+
+    const content = json.choices?.[0]?.message?.content;
+    if (!content) {
+      console.error("[run-analysis] Analyse vide pour appel:", callId);
+      return send(500, { error: "analysis_empty" });
+    }
+
+    const analysis = JSON.parse(content);
+    const filteredProbableCauses = Array.isArray(analysis.probableCauses)
+      ? analysis.probableCauses.filter(
+          (c) =>
+            c?.label &&
+            typeof c.label === "string" &&
+            !c.label.toLowerCase().includes("fallback") &&
+            c.label.trim().length > 0
+        )
+      : [];
+    const validUrgency =
+      analysis.urgency && ["low", "medium", "high"].includes(analysis.urgency)
+        ? analysis.urgency
+        : null;
+    const existingInsights = (call.client_insights && typeof call.client_insights === "object") ? call.client_insights : {};
+    const clientInsights = {
+      ...existingInsights,
+      ...(typeof analysis.clientInsights === "object" && analysis.clientInsights ? analysis.clientInsights : {}),
+    };
+
+    const { error: updateError } = await supabase
+      .schema("autoguru")
+      .from("calls")
+      .update({
+        status: "done",
+        updated_at: new Date().toISOString(),
+        call_summary: analysis.summary ?? null,
+        ai_conclusion: analysis.aiConclusion ?? null,
+        probable_causes: filteredProbableCauses,
+        urgency_level: validUrgency,
+        symptom_summary: Array.isArray(analysis.symptoms)
+          ? analysis.symptoms.filter(Boolean).slice(0, 8).join(" ; ")
+          : null,
+        symptoms: Array.isArray(analysis.symptoms) ? analysis.symptoms : null,
+        client_insights: clientInsights,
+      })
+      .eq("id", callId);
+
+    if (updateError) {
+      console.error("[run-analysis] Erreur mise à jour:", updateError);
+      return send(500, { error: "db_update_failed", message: updateError.message });
+    }
+
+    console.log("[run-analysis] Analyse terminée pour appel:", callId);
+    return send(200, { ok: true, callId, status: "done" });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[run-analysis] Erreur analyse:", callId, msg);
+    try {
+      await supabase.schema("autoguru").from("calls").update({
+        status: "done",
+        updated_at: new Date().toISOString(),
+      }).eq("id", callId);
+    } catch (e) {
+      console.error("[run-analysis] Fallback status done échoué:", e);
+    }
+    return send(500, { error: "analysis_failed", message: msg, statusSetToDone: true });
+  }
+}
+
 const server = http.createServer((req, res) => {
-  const pathname = (req.url || "/").split("?")[0].trim().toLowerCase();
-  if (pathname === "/health" || pathname === "/health/") {
+  const pathname = (req.url || "/").split("?")[0].trim();
+  const pathnameLower = pathname.toLowerCase();
+  if (pathnameLower === "/health" || pathnameLower === "/health/") {
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("ok");
+    return;
+  }
+  // POST /run-analysis/:id — analyse OpenAI sur Render (appelée par Vercel cron ou par Render après finalize)
+  if (req.method === "POST" && pathnameLower.startsWith("/run-analysis/")) {
+    const callId = pathname.slice("/run-analysis/".length).trim().replace(/\/.*$/, "");
+    const authHeader = req.headers.authorization || "";
+    const runAnalysisSecret = process.env.RUN_ANALYSIS_SECRET;
+    const expected = runAnalysisSecret ? `Bearer ${runAnalysisSecret}` : "";
+    if (!expected || authHeader !== expected) {
+      res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ error: "Unauthorized" }));
+      return;
+    }
+    if (!callId) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ error: "missing id" }));
+      return;
+    }
+    handleRunAnalysis(callId, res);
     return;
   }
   res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
