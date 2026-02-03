@@ -391,6 +391,7 @@ wss.on("connection", (ws, req) => {
   // recevoir URL+token par appel via Twilio <Parameter> (verrouillé par garage).
   const AUTOGURU_INGEST_URL_ENV = process.env.AUTOGURU_INGEST_URL ?? ""; // ex: https://<autoguru>/api/twilio/realtime-ingest
   const AUTOGURU_INGEST_SECRET_ENV = process.env.AUTOGURU_INGEST_SECRET ?? "";
+  const RUN_ANALYSIS_SECRET_ENV = process.env.RUN_ANALYSIS_SECRET ?? ""; // même valeur que sur AutoGuru (Vercel)
   let autoguruIngestUrl = "";
   let autoguruIngestToken = "";
   let clientInfo = null; // Infos client (nom, rendez-vous à venir)
@@ -490,6 +491,19 @@ wss.on("connection", (ws, req) => {
         } else {
           const result = await finalizeResponse.json().catch(() => null);
           if (LOG_VERBOSE) console.log("✅ Finalize réussi:", result); else console.log("✅ Finalize ok");
+          const runAnalysisSecret = RUN_ANALYSIS_SECRET_ENV;
+          if (result?.triggerAnalysis && (result?.callId || result?.runAnalysisUrl) && runAnalysisSecret) {
+            const runAnalysisUrl = result.runAnalysisUrl || (String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "").replace(/\/api\/twilio\/realtime-finalize\/?$/i, "") + "/api/calls/" + result.callId + "/run-analysis");
+            fetch(runAnalysisUrl, {
+              method: "POST",
+              headers: { "Authorization": "Bearer " + runAnalysisSecret },
+            }).then((r) => {
+              if (r.ok) console.log("✅ Run-analysis démarré pour appel", result.callId);
+              else console.warn("⚠️ Run-analysis non ok:", r.status);
+            }).catch((err) => {
+              console.warn("⚠️ Run-analysis (fire-and-forget) erreur:", err?.message || err);
+            });
+          }
         }
       } else {
         console.error("❌ Impossible d'appeler realtime-finalize (fetch a échoué)");
@@ -3861,21 +3875,20 @@ STYLE (échange humain):
               salutationName = title ? `${title} ${clientName}` : clientName;
             }
             
-            // Si le client est détecté, saluer avec le titre approprié
+            // Formulations naturelles avec le nom du client
             const greetingsWithName = [
-              `Bonjour ${salutationName} ! Je suis ${assistantName}, l'assistante du ${label}. En quoi puis-je vous aider ?`,
-              `Bonjour ${salutationName}, ${assistantName} à l'appareil, du ${label}. Qu'est-ce qui vous amène ?`,
-              `Bonjour ${salutationName} ! Ici ${assistantName}, du ${label}. Dites-moi ce qui se passe avec votre voiture.`,
-              `Bonjour ${salutationName}, vous êtes bien au ${label}. Je suis ${assistantName}. En quoi je peux vous aider ?`,
+              `Bonjour ${salutationName}. Ici ${assistantName}, du ${label}. Je vous écoute, qu'est-ce qui se passe ?`,
+              `Bonjour ${salutationName}, ${assistantName} à l'appareil. Vous êtes bien au ${label}. Dites-moi, en quoi je peux vous aider ?`,
+              `Oui bonjour ${salutationName}. Ici ${assistantName} du garage ${label}. Alors, c'est pour quoi aujourd'hui ?`,
+              `Bonjour ${salutationName}. ${assistantName} du ${label}. Qu'est-ce qui vous amène ?`,
             ];
             return greetingsWithName[Math.floor(Math.random() * greetingsWithName.length)];
           }
           const greetings = [
-            `Bonjour ! Je suis ${assistantName}, l'assistante du ${label}. En quoi puis-je vous aider ?`,
-            `Bonjour, ${assistantName} à l'appareil, du ${label}. Qu'est-ce qui vous amène ?`,
-            `Bonjour ! Ici ${assistantName}, du ${label}. Dites-moi ce qui se passe avec votre voiture.`,
-            `Bonjour, vous êtes bien au ${label}. Je suis ${assistantName}. En quoi je peux vous aider ?`,
-            `Bonjour ! Je suis ${assistantName} du ${label}. C'est un bruit, un voyant, ou un souci au démarrage ?`,
+            `Bonjour. Ici ${assistantName} du ${label}. Je vous écoute.`,
+            `Oui bonjour, ${assistantName} à l'appareil, ${label}. Qu'est-ce qui se passe ?`,
+            `Bonjour. ${assistantName} du ${label}. Dites-moi en quoi je peux vous aider.`,
+            `Bonjour, vous êtes bien au ${label}. Ici ${assistantName}. Alors, c'est pour la voiture ?`,
           ];
           return greetings[Math.floor(Math.random() * greetings.length)];
         }
@@ -5524,17 +5537,17 @@ But: être naturel et mettre le client en confiance.`,
                     } else if (clientInfo.name) {
                       salutationName = title ? `${title} ${clientInfo.name}` : clientInfo.name;
                     }
-                    // Phrase d'accueil : "Bonjour ici (nom) du garage (nom)" — un seul "garage"
+                    // Accueil naturel : salutation puis consentement (court) puis question ouverte
                     const baseHello = salutationName
                       ? `Bonjour ${salutationName}. Ici ${assistantName} du garage ${garageNom}.`
                       : `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
                     const consentText = consentRequired && !consentGiven
-                      ? "Cet appel est enregistré pour faciliter votre arrivée au garage. Si vous refusez vous pouvez raccrocher."
+                      ? "On enregistre l'appel pour préparer votre venue. Ça vous va ?"
                       : "";
                     const question = consentRequired && !consentGiven
-                      ? "Est-ce que cela vous convient ?"
-                      : "Quel est le problème avec votre véhicule ?";
-                    const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+                      ? "Parfait. Alors, qu'est-ce qui se passe avec votre véhicule ?"
+                      : ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
+                    const greeting = consentText ? [baseHello, consentText, question].filter(Boolean).join(" ") : [baseHello, question].filter(Boolean).join(" ");
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4288',message:'GREETING CONSTRUIT (avec nom client)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
                     // #endregion
@@ -5593,15 +5606,14 @@ But: être naturel et mettre le client en confiance.`,
             // Si les infos client arrivent après, on pourra jouer un greeting personnalisé
             const rawName = String(garageName || "AutoGuru").trim();
             const garageNom = /^garage\s+/i.test(rawName) ? rawName.replace(/^garage\s+/i, "").trim() : rawName;
-            // Phrase d'accueil : "Bonjour ici (nom) du garage (nom)" — un seul "garage"
             const baseHello = `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
             const consentText = consentRequired && !consentGiven
-              ? "Cet appel est enregistré pour faciliter votre arrivée au garage. Si vous refusez vous pouvez raccrocher."
+              ? "On enregistre l'appel pour préparer votre venue. Ça vous va ?"
               : "";
             const question = consentRequired && !consentGiven
-              ? "Est-ce que cela vous convient ?"
-              : "Quel est le problème avec votre véhicule ?";
-            const greeting = [baseHello, consentText, question].filter(Boolean).join(" ");
+              ? "Parfait. Alors, qu'est-ce qui se passe avec votre véhicule ?"
+              : ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
+            const greeting = consentText ? [baseHello, consentText, question].filter(Boolean).join(" ") : [baseHello, question].filter(Boolean).join(" ");
             // #region agent log
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4353',message:'GREETING CONSTRUIT (générique IMMÉDIAT)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
             // #endregion
@@ -5636,10 +5648,10 @@ But: être naturel et mettre le client en confiance.`,
               const rawName = String(garageName || "AutoGuru").trim();
               const label = /^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`;
               const variations = [
-                `Oui allô, bonjour ! Ici ${label}. Je vous écoute. Qu'est-ce qui vous amène ?`,
-                `Bonjour ! ${label}. Dites-moi, c'est quoi le souci sur la voiture ?`,
-                `Oui bonjour, ${label}. Je vous écoute, qu'est-ce qui se passe ?`,
-                `Bonjour, vous êtes bien chez ${label}. Je vous écoute.`,
+                `Oui allô, bonjour. Ici ${label}. Je vous écoute.`,
+                `Bonjour. ${label}. Dites-moi ce qui se passe.`,
+                `Oui bonjour, ${label}. Qu'est-ce qui vous amène ?`,
+                `Bonjour, vous êtes bien chez ${label}. Alors, c'est pour la voiture ?`,
               ];
               const greeting = variations[Math.floor(Math.random() * variations.length)];
               enqueueElevenLabsTts(
