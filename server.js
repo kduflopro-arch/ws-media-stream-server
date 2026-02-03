@@ -750,11 +750,12 @@ wss.on("connection", (ws, req) => {
           const runAnalysisSecret = RUN_ANALYSIS_SECRET_ENV;
           const runAnalysisUrl = result?.runAnalysisUrl || (result?.callId && (String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "").replace(/\/api\/twilio\/realtime-finalize\/?$/i, "") + "/api/calls/" + result.callId + "/run-analysis"));
           if (result?.triggerAnalysis && runAnalysisUrl && runAnalysisSecret) {
+            console.log("🔄 Run-analysis: envoi POST pour appel", result.callId, "(réponse dans 30–120 s)");
             fetch(runAnalysisUrl, {
               method: "POST",
               headers: { "Authorization": "Bearer " + runAnalysisSecret },
             }).then((r) => {
-              if (r.ok) console.log("✅ Run-analysis démarré pour appel", result.callId);
+              if (r.ok) console.log("✅ Run-analysis terminé pour appel", result.callId);
               else console.warn("⚠️ Run-analysis non ok:", r.status, runAnalysisUrl.slice(0, 60) + "...");
             }).catch((err) => {
               console.warn("⚠️ Run-analysis (fire-and-forget) erreur:", err?.message || err);
