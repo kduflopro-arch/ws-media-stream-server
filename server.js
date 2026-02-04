@@ -114,7 +114,7 @@ async function handleRunAnalysis(callId, res) {
   const { data: call, error: callError } = await supabase
     .schema("autoguru")
     .from("calls")
-    .select("id, garage_id, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion")
+    .select("id, garage_id, consent, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion")
     .eq("id", callId)
     .maybeSingle();
 
@@ -124,6 +124,13 @@ async function handleRunAnalysis(callId, res) {
   }
   if (!call) {
     return send(404, { error: "call_not_found" });
+  }
+  if (call.consent === "denied") {
+    await supabase.schema("autoguru").from("calls").update({
+      status: "done",
+      updated_at: new Date().toISOString(),
+    }).eq("id", callId);
+    return send(200, { ok: true, message: "consent_denied_no_analysis" });
   }
 
   let appointmentMode = "request";
