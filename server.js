@@ -744,7 +744,11 @@ wss.on("connection", (ws, req) => {
       if (!callSid) return;
       const finalizeUrl = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/realtime-finalize");
       await ingestChain.catch(() => {});
-      
+      // Laisser le temps à Vercel d'enregistrer tous les events (ingest) avant que run-analysis lise le transcript
+      const RUN_ANALYSIS_DELAY_MS = Number(process.env.RUN_ANALYSIS_DELAY_MS ?? "3000");
+      if (RUN_ANALYSIS_DELAY_MS > 0) {
+        await new Promise((r) => setTimeout(r, RUN_ANALYSIS_DELAY_MS));
+      }
       console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason);
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
@@ -4005,10 +4009,11 @@ ${vehicleInfoRule}
           `Fin d'appel:
 - Avant de conclure, dis: "Donnez juste votre numéro de téléphone à l'accueil pour faciliter votre arrivée au garage."
 - En mode demande RDV: rappelle que le garage vous rappelle pour confirmer.
+- RÈGLE ORDRE FIN: Termine TOUJOURS ta dernière phrase par "Au revoir et bonne journée !" à la toute fin. Si le garage est fermé, dis d'abord l'info (À noter, le garage est actuellement fermé ; une personne vous rappellera pour confirmer.), puis termine par "Au revoir et bonne journée !". Ne dis jamais "Au revoir" avant cette info quand le garage est fermé.
 ${garageClosed
   ? (appointmentMode === "internal"
-      ? `- IMPORTANT: en toute fin, ajoute UNE phrase d'info: "À noter, le garage est actuellement fermé; j'ai bien enregistré votre demande/rdv et une personne vous rappellera si besoin."`
-      : `- IMPORTANT: en toute fin, ajoute UNE phrase d'info: "À noter, le garage est actuellement fermé; une personne vous rappellera pour confirmer."`)
+      ? `- Si garage fermé: dis d'abord "À noter, le garage est actuellement fermé ; j'ai bien enregistré votre demande/rdv et une personne vous rappellera si besoin.", puis "Au revoir et bonne journée !" en dernier.`
+      : `- Si garage fermé: dis d'abord "À noter, le garage est actuellement fermé ; une personne vous rappellera pour confirmer.", puis "Au revoir et bonne journée !" en dernier.`)
   : ""}`;
 
         const variationGuidelines =
