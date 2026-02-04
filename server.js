@@ -111,7 +111,7 @@ async function handleRunAnalysis(callId, res) {
   const { data: call, error: callError } = await supabase
     .schema("autoguru")
     .from("calls")
-    .select("id, transcript_text, symptom_summary, client_insights, status")
+    .select("id, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion")
     .eq("id", callId)
     .maybeSingle();
 
@@ -122,8 +122,14 @@ async function handleRunAnalysis(callId, res) {
   if (!call) {
     return send(404, { error: "call_not_found" });
   }
-  if (call.status !== "analyzing") {
+  const hasSummary = (call.call_summary ?? "").trim().length > 0;
+  const hasConclusion = (call.ai_conclusion ?? "").trim().length > 0;
+  const needsAnalysis = call.status === "analyzing" || (call.status === "done" && (!hasSummary || !hasConclusion));
+  if (!needsAnalysis) {
     return send(200, { ok: true, message: "call_not_analyzing", status: call.status });
+  }
+  if (call.status === "done" && (!hasSummary || !hasConclusion)) {
+    console.log("[run-analysis] Appel déjà 'done' sans résumé/conclusion, génération de l'analyse:", callId);
   }
 
   const transcript = (call.transcript_text ?? "").trim();
