@@ -679,7 +679,9 @@ wss.on("connection", (ws, req) => {
   let consentRequired = true;
   let consentGiven = false; // Track si le consentement a déjà été donné
   let lastUserTextForConsent = null; // Dernier texte client avant réponse IA (pour forcer rappel consentement si ni oui ni non)
-  const CONSENT_REMINDER = "Dites oui pour continuer l'appel, ou raccrochez si vous refusez.";
+  let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
+  const CONSENT_MAIN = "Pour continuer, dites par exemple : Oui je suis d'accord, ou Oui j'accepte. Sinon raccrochez si vous refusez.";
+  const CONSENT_REMINDER = "Pour continuer, dites par exemple : Oui je suis d'accord, ou Oui j'accepte. Sinon raccrochez si vous refusez.";
   let appointmentMode = "request";
   let garageClosed = false;
   let garageClosedReason = "";
@@ -756,6 +758,7 @@ wss.on("connection", (ws, req) => {
           reason,
           plate_confirmed_by_client: plateConfirmedByClient,
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
+          consent_granted: consentGiven,
         }),
       }).catch((err) => {
         console.error("❌ Erreur lors de l'appel à realtime-finalize:", err);
@@ -1061,6 +1064,12 @@ wss.on("connection", (ws, req) => {
     if (lower.includes("réalisés par la communauté") || lower.includes("vidéo") || lower.includes("video") || lower.includes("youtube") || lower.includes("channel")) return true;
     if (lower.includes("ontario") || lower.includes("partenariat") || lower.includes("merci d'avoir regardé") || lower.includes("subscribe") || lower.includes("like") || lower.includes("comment")) return true;
     if (lower.includes("au bois") || lower.includes("dans la forêt") || lower.includes("dans le bois") || lower.includes("je suis dans") || lower.includes("nous sommes dans") || lower.includes("on est dans")) return true;
+    // --- Pistes accessibilité / TV captées par le micro (audio-description, sous-titrage Radio-Canada, etc.) ---
+    if (lower.includes("audio-description") || lower.includes("audio description")) return true;
+    if (lower.includes("sous-titrage") && (lower.includes("radio-canada") || lower.includes("radio canada") || lower.includes("société") || lower.includes("src"))) return true;
+    if (lower.includes("sous-titrage société") || /sous[- ]?titrage\s*(société\s+)?radio[- ]?canada/i.test(t)) return true;
+    // --- Texte uniquement ponctuation / points de suspension ---
+    if (/^[\s.\u2026\u00A0\-–—,;:!?]*$/.test(t) || /^(\s*[.\u2026]\s*)+$/.test(t)) return true;
 
     // --- Longueur significative (sans ponctuation/espaces) ---
     const stripped = lower.replace(/[\s\p{P}\p{S}]/gu, "");
@@ -3594,7 +3603,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
         const consentLine =
           consentRequired && !consentGiven
-            ? "RÈGLE ABSOLUE - CONSENTEMENT: Dès le début de l'appel, annonce UNIQUEMENT: 'Cet appel est enregistré pour préparer votre arrivée au garage. Dites oui pour continuer, ou raccrochez si vous refusez.' Puis TU T'ARRÊTES et tu ATTENDS la réponse du client. Tu ne dis RIEN d'autre (pas 'En quoi puis-je vous aider ?', pas 'Quel est votre besoin ?') avant qu'il ait dit oui ou non. Si le client dit oui, d'accord ou ok, tu peux alors demander 'En quoi puis-je vous aider ?'. Si le client refuse, tu dis au revoir et tu raccroches. Si le client dit autre chose (ex: il décrit un problème sans avoir dit oui), tu réponds UNIQUEMENT: 'Dites oui pour continuer l\'appel, ou raccrochez si vous refusez.' Tu ne traites aucune autre demande tant qu'il n'a pas dit oui ou non. Ne demande le consentement QU'UNE SEULE FOIS."
+            ? "RÈGLE ABSOLUE - CONSENTEMENT: Dès le début de l'appel, annonce UNIQUEMENT: 'Cet appel est enregistré pour préparer votre arrivée au garage. Pour continuer, dites par exemple : Oui je suis d'accord, ou Oui j'accepte. Sinon raccrochez si vous refusez.' Puis TU T'ARRÊTES et tu ATTENDS la réponse du client. Tu ne dis RIEN d'autre (pas 'En quoi puis-je vous aider ?', pas 'Quel est votre besoin ?') avant qu'il ait accepté ou refusé. Si le client dit oui, je suis d'accord, j'accepte, d'accord ou ok, tu peux alors demander 'En quoi puis-je vous aider ?'. Si le client refuse, tu dis au revoir et tu raccroches. Si le client dit autre chose (ex: il décrit un problème sans avoir accepté), tu réponds UNIQUEMENT: 'Pour continuer, dites par exemple : Oui je suis d'accord, ou Oui j'accepte. Sinon raccrochez si vous refusez.' Tu ne traites aucune autre demande tant qu'il n'a pas accepté ou refusé. Ne demande le consentement QU'UNE SEULE FOIS."
             : consentRequired && consentGiven
             ? "Consentement enregistrement: déjà donné par le client. NE PAS redemander le consentement."
             : "Consentement enregistrement: non requis.";
@@ -4622,6 +4631,11 @@ But: être naturel et mettre le client en confiance.`,
             const rid = msg.response_id ?? msg.response?.id ?? null;
             const doneText = (typeof msg.transcript === "string" ? msg.transcript : "") || (rid ? (transcriptMap.get(rid) || "") : "");
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
+              // Parole client à laquelle l'IA répond : l'enregistrer juste avant la réponse
+              if (lastUserTextPendingIngest && lastUserTextPendingIngest.trim()) {
+                enqueueIngest("user", lastUserTextPendingIngest);
+                lastUserTextPendingIngest = null;
+              }
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
@@ -4905,6 +4919,8 @@ But: être naturel et mettre le client en confiance.`,
                   }
                   if (userText && userText.trim() && !isJunkTranscript(userText)) {
                     console.log(`[CLIENT-SAYS] ${userText}`);
+                    // Ne pas ingérer tout de suite : on n'enregistre que les phrases client auxquelles l'IA répond (voir conversation.item.done assistant)
+                    lastUserTextPendingIngest = userText;
                     // Mettre à jour lastCommittedAt si ce n'est pas déjà fait (évite les doublons)
                     const now = nowMs();
                     const timeSinceLastCommit = lastCommittedAt > 0 ? now - lastCommittedAt : Infinity;
@@ -4934,8 +4950,10 @@ But: être naturel et mettre le client en confiance.`,
                   if (userText && userText.trim() && consentRequired && !consentGiven) {
                     const ut = String(userText).toLowerCase().trim();
                     const utNorm = ut.replace(/\s+/g, " ").trim();
-                    const acceptsConsent = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|voilà|voila|me convient)(\s+oui|\s+merci)?\.?$/i.test(utNorm)
-                      || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|voilà|voila)\b/i.test(ut);
+                    const acceptsConsent = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|je l'accepte|voilà|voila|me convient|je suis d'accord)(\s+oui|\s+merci)?\.?$/i.test(utNorm)
+                      || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|je l'accepte|voilà|voila|je suis d'accord)\b/i.test(ut)
+                      || /\b(oui\s+)?(je\s+suis\s+d['']?accord|j['']?accepte)\b/i.test(ut)
+                      || /\b(oui\s+)?(je\s+l['']?accepte)\b/i.test(ut);
                     const refusesConsent = /\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(ut) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(utNorm);
                     if (refusesConsent) {
                       console.log("🛑 Client refuse l'enregistrement (depuis conversation.item.done), message de refus puis raccrochage.", { userText: ut.substring(0, 80) });
@@ -4988,6 +5006,11 @@ But: être naturel et mettre le client en confiance.`,
                 if (extracted && extracted.trim()) {
                   const clean = extracted.trim();
                   if (LOG_VERBOSE) console.log("📝 Texte assistant depuis conversation.item.done:", clean.substring(0, 160));
+                  // Enregistrer la dernière parole client uniquement maintenant que l'IA a répondu (seules les phrases auxquelles l'IA répond sont retenues)
+                  if (lastUserTextPendingIngest && lastUserTextPendingIngest.trim()) {
+                    enqueueIngest("user", lastUserTextPendingIngest);
+                    lastUserTextPendingIngest = null;
+                  }
                   // Stocker dans transcriptMap si on a un response_id
                   if (rid) {
                     const existing = transcriptMap.get(rid) || "";
@@ -5091,6 +5114,11 @@ But: être naturel et mettre le client en confiance.`,
               // #region agent log - RAW TEXT FROM GPT-5
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3501',message:'RAW TEXT FROM GPT-5 response.output_text.done',data:{rawText:doneText,containsEuros:doneText.includes('euros')||doneText.includes('€'),contains12:doneText.match(/\b12\b|\b1\s+2\b|\bdouze\b/i)?.[0],containsHour:doneText.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/i)?.[0],containsPlate:doneText.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i)?.[0]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
               // #endregion
+              // Parole client à laquelle l'IA répond : l'enregistrer juste avant la réponse
+              if (lastUserTextPendingIngest && lastUserTextPendingIngest.trim()) {
+                enqueueIngest("user", lastUserTextPendingIngest);
+                lastUserTextPendingIngest = null;
+              }
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
@@ -5431,9 +5459,11 @@ But: être naturel et mettre le client en confiance.`,
           if (msg.type === "conversation.item.input_audio_transcription.completed") {
             const transcript = msg.transcript;
             const isJunk = isJunkTranscript(transcript);
-            if (!isJunk) console.log(`[CLIENT-SAYS] ${transcript ?? ""}`);
-            // Ne pas enregistrer le bruit comme parole utilisateur (ingest + lastCommittedAt)
-            if (!isJunk) enqueueIngest("user", transcript);
+            if (!isJunk) console.log(`[CLIENT-SAYS] (input_audio_transcription) ${transcript ?? ""}`);
+            // Ne plus envoyer à l'ingest ici : on utilise uniquement conversation.item.done (user) comme source
+            // pour éviter doublons et transcriptions parasites (TV, audio-description). La transcription affichée
+            // = ce que le modèle a réellement utilisé (conversation.item.done).
+            // if (!isJunk) enqueueIngest("user", transcript);
             // #region agent log - TRANSCRIPTION CLIENT
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3987',message:'TRANSCRIPTION CLIENT',data:{transcript:transcript?.substring(0,100),transcriptLength:transcript?.length||0,isEmpty:!transcript||transcript.trim().length===0,isJunk},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
             // #endregion
@@ -5470,8 +5500,10 @@ But: être naturel et mettre le client en confiance.`,
             // Détecter si le client accepte ou refuse le consentement (sensibilité élevée pour "oui")
             const userText = String(transcript || "").toLowerCase().trim();
             const userTextNorm = userText.replace(/\s+/g, " ").trim();
-            const acceptsConsent = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient|voilà|voila)(\s+oui|\s+merci)?\.?$/i.test(userTextNorm)
-              || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|voilà|voila)\b/i.test(userText);
+            const acceptsConsent = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|je l'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient|voilà|voila|je suis d'accord)(\s+oui|\s+merci)?\.?$/i.test(userTextNorm)
+              || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|je l'accepte|voilà|voila|je suis d'accord)\b/i.test(userText)
+              || /\b(oui\s+)?(je\s+suis\s+d['']?accord|j['']?accepte)\b/i.test(userText)
+              || /\b(oui\s+)?(je\s+l['']?accepte)\b/i.test(userText);
             // Ne pas inclure "nan" dans le refus : souvent mal reconnu pour "oui" au téléphone
             const refusesConsent = userText.match(/\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(userTextNorm);
             // #region agent log
@@ -5879,7 +5911,7 @@ But: être naturel et mettre le client en confiance.`,
                       ? `Bonjour ${salutationName}. Ici ${assistantName} du garage ${garageNom}.`
                       : `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
                     const consentText = consentRequired && !consentGiven
-                      ? "Cet appel est enregistré pour préparer votre arrivée au garage. Dites oui pour continuer, ou raccrochez si vous refusez."
+                      ? "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN
                       : "";
                     const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
                     const greeting = consentRequired && !consentGiven
@@ -5945,7 +5977,7 @@ But: être naturel et mettre le client en confiance.`,
             const garageNom = /^garage\s+/i.test(rawName) ? rawName.replace(/^garage\s+/i, "").trim() : rawName;
             const baseHello = `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
             const consentText = consentRequired && !consentGiven
-              ? "Cet appel est enregistré pour préparer votre arrivée au garage. Dites oui pour continuer, ou raccrochez si vous refusez."
+              ? "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN
               : "";
             const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
             const greeting = consentRequired && !consentGiven
