@@ -749,6 +749,7 @@ wss.on("connection", (ws, req) => {
           if (LOG_VERBOSE) console.log("✅ Finalize réussi:", result); else console.log("✅ Finalize ok");
           const runAnalysisSecret = RUN_ANALYSIS_SECRET_ENV;
           const runAnalysisUrl = result?.runAnalysisUrl || (result?.callId && (String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "").replace(/\/api\/twilio\/realtime-finalize\/?$/i, "") + "/api/calls/" + result.callId + "/run-analysis"));
+          console.log("🧾 Finalize run-analysis:", { callId: result?.callId, triggerAnalysis: !!result?.triggerAnalysis, hasUrl: !!runAnalysisUrl, hasSecret: !!runAnalysisSecret });
           if (result?.triggerAnalysis && runAnalysisUrl && runAnalysisSecret) {
             console.log("🔄 Run-analysis: envoi POST pour appel", result.callId, "(réponse dans 30–120 s)");
             fetch(runAnalysisUrl, {
