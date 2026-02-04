@@ -114,7 +114,7 @@ async function handleRunAnalysis(callId, res) {
   const { data: call, error: callError } = await supabase
     .schema("autoguru")
     .from("calls")
-    .select("id, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion")
+    .select("id, garage_id, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion")
     .eq("id", callId)
     .maybeSingle();
 
@@ -125,6 +125,23 @@ async function handleRunAnalysis(callId, res) {
   if (!call) {
     return send(404, { error: "call_not_found" });
   }
+
+  let appointmentMode = "request";
+  if (call.garage_id) {
+    const { data: settings } = await supabase
+      .schema("autoguru")
+      .from("garage_settings")
+      .select("appointment_mode")
+      .eq("garage_id", call.garage_id)
+      .maybeSingle();
+    if (settings?.appointment_mode && ["none", "request", "internal"].includes(settings.appointment_mode)) {
+      appointmentMode = settings.appointment_mode;
+    }
+  }
+  const rdvInstruction = appointmentMode === "internal"
+    ? " Pour le résumé (champ summary) : si un rendez-vous est convenu, écris 'Un rendez-vous est pris pour [jour/créneau]'. Réponds en fr."
+    : " Pour le résumé (champ summary) : si le client souhaite un rendez-vous, écris 'Demande de rendez-vous pour [jour/créneau]' (le garage confirmera). Ne jamais écrire 'Un rendez-vous est pris'. Réponds en fr.";
+
   const hasSummary = (call.call_summary ?? "").trim().length > 0;
   const hasConclusion = (call.ai_conclusion ?? "").trim().length > 0;
   const needsAnalysis = call.status === "analyzing" || (call.status === "done" && (!hasSummary || !hasConclusion));
@@ -165,7 +182,7 @@ async function handleRunAnalysis(callId, res) {
         stream: false,
         temperature: 0.3,
         messages: [
-          { role: "system", content: `${CALL_ANALYSIS_PROMPT} Réponds en fr.` },
+          { role: "system", content: `${CALL_ANALYSIS_PROMPT} ${rdvInstruction}` },
           { role: "user", content: userInput },
         ],
         response_format: {
@@ -760,6 +777,7 @@ wss.on("connection", (ws, req) => {
           fromNumber: fromNumber || null,
           appointmentMode: appointmentMode || null,
           reason,
+          consent_refused: reason === "consent_refused",
           plate_confirmed_by_client: plateConfirmedByClient,
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
           consent_granted: consentGiven,
