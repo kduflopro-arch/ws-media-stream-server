@@ -184,6 +184,14 @@ async function handleRunAnalysis(callId, res) {
     }
 
     const analysis = JSON.parse(content);
+    // Accepter summary/Summary et aiConclusion/AIConclusion (variations OpenAI)
+    const summaryText = analysis.summary ?? analysis.Summary ?? null;
+    const conclusionText = analysis.aiConclusion ?? analysis.AIConclusion ?? null;
+    if (summaryText == null || conclusionText == null) {
+      console.warn("[run-analysis] Champs manquants:", { hasSummary: summaryText != null, hasConclusion: conclusionText != null, keys: Object.keys(analysis) });
+    } else {
+      console.log("[run-analysis] Écriture résumé/conclusion:", { summaryLen: String(summaryText).length, conclusionLen: String(conclusionText).length });
+    }
     const filteredProbableCauses = Array.isArray(analysis.probableCauses)
       ? analysis.probableCauses.filter(
           (c) =>
@@ -209,8 +217,8 @@ async function handleRunAnalysis(callId, res) {
       .update({
         status: "done",
         updated_at: new Date().toISOString(),
-        call_summary: analysis.summary ?? null,
-        ai_conclusion: analysis.aiConclusion ?? null,
+        call_summary: summaryText,
+        ai_conclusion: conclusionText,
         probable_causes: filteredProbableCauses,
         urgency_level: validUrgency,
         symptom_summary: Array.isArray(analysis.symptoms)
@@ -516,7 +524,7 @@ wss.on("connection", (ws, req) => {
   let lastUserActivityMs = 0;
   let callStartTimeMs = nowMs(); // Initialiser le temps de début d'appel
   const GOODBYE_DELAY_MS = 2000; // 2 s après l'au revoir pour couper l'appel
-  const GOODBYE_POST_AUDIO_DELAY_MS = 3000; // 3 s après queue audio vide (laisser Minimax/TTS finir de jouer côté client) avant de raccrocher
+  const GOODBYE_POST_AUDIO_DELAY_MS = Number(process.env.GOODBYE_POST_AUDIO_DELAY_MS) || 4500; // 4,5 s après queue vide (laisser Minimax/TTS finir côté client)
   const MIN_CALL_DURATION_MS = 30000; // Minimum 30 secondes d'appel avant hangup automatique
   const MIN_USER_INACTIVITY_MS = 5000; // Client doit être inactif depuis au moins 5 secondes
   
@@ -3050,6 +3058,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       
       return timeExpression;
     });
+    // Format "environ X€" / "environX€" → "(environ X €)" pour prononciation naturelle (entre parenthèses)
+    t = t.replace(/\benviron\s*(\d{1,4})\s*€/gi, "(environ $1 €)");
     // IMPORTANT: Traiter les montants AVANT de coller les chiffres séparés
     // PRIORITÉ 0: Cas "de 1 2 euros" ou "le prix est de 1 2 euros" (avec chiffres séparés + "de" avant)
     t = t.replace(/\b(de|à|est|sont|tarif|prix|coût|montant|facture)\s+(\d(?:\s+\d){1,4})\s+(?:€|euros?)\b/gi, (_, prefix, n) => {
@@ -4673,7 +4683,7 @@ But: être naturel et mettre le client en confiance.`,
                 // Attendre queue audio vide stable (Minimax + Twilio ont fini), puis 4 s avant de raccrocher
                 let checkCount = 0;
                 let emptyChecksConsecutive = 0;
-                const MIN_EMPTY_CHECKS = 18; // 18 x 500ms = 9 s de queue vide stable (Minimax peut avoir du retard, ne pas couper la phrase)
+                const MIN_EMPTY_CHECKS = Number(process.env.GOODBYE_MIN_EMPTY_CHECKS) || 24; // 24 x 500ms = 12 s de queue vide stable (Minimax peut avoir du retard)
                 const MAX_CHECK_COUNT = 60; // 60 x 500ms = 30 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
                   // Utiliser isRealGoodbye pour éviter raccrochage en cours d'échange (formule en fin de message uniquement)
@@ -4740,8 +4750,9 @@ But: être naturel et mettre le client en confiance.`,
                   // #endregion
                   setTimeout(() => triggerHangup("auto_goodbye"), GOODBYE_POST_AUDIO_DELAY_MS);
                 };
-                // Délai initial 2 s avant la 1re vérification : laisser Minimax envoyer sa dernière phrase dans la queue
-                setTimeout(checkAudioAndHangup, 2000);
+                // Délai initial avant la 1re vérification : laisser Minimax envoyer sa dernière phrase dans la queue
+                const GOODBYE_INITIAL_DELAY_MS = Number(process.env.GOODBYE_INITIAL_DELAY_MS) || 3500;
+                setTimeout(checkAudioAndHangup, GOODBYE_INITIAL_DELAY_MS);
               } else if (!isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && timeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
                 // CORRECTION: Si l'IA n'a pas encore dit "au revoir" mais que l'appel doit se terminer,
                 // on doit faire dire "au revoir" à l'IA avant de raccrocher
