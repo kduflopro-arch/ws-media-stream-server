@@ -104,6 +104,9 @@ async function handleRunAnalysis(callId, res) {
     console.error("[run-analysis] SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY manquant");
     return send(500, { error: "config", message: "Supabase non configuré" });
   }
+  // Log court pour vérifier que Render utilise le même projet que l'app (Vercel)
+  const urlPreview = supabaseUrl.replace(/^https:\/\//, "").slice(0, 40);
+  console.log("[run-analysis] Supabase (preview):", urlPreview + "...");
   const supabase = createClient(supabaseUrl, supabaseKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
