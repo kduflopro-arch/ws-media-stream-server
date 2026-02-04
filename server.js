@@ -217,7 +217,7 @@ async function handleRunAnalysis(callId, res) {
       ...(typeof analysis.clientInsights === "object" && analysis.clientInsights ? analysis.clientInsights : {}),
     };
 
-    const { error: updateError } = await supabase
+    const { data: updatedRow, error: updateError } = await supabase
       .schema("autoguru")
       .from("calls")
       .update({
@@ -233,14 +233,21 @@ async function handleRunAnalysis(callId, res) {
         symptoms: Array.isArray(analysis.symptoms) ? analysis.symptoms : null,
         client_insights: clientInsights,
       })
-      .eq("id", callId);
+      .eq("id", callId)
+      .select("id, call_summary, ai_conclusion")
+      .single();
 
     if (updateError) {
       console.error("[run-analysis] Erreur mise à jour:", updateError);
       return send(500, { error: "db_update_failed", message: updateError.message });
     }
 
-    console.log("[run-analysis] Analyse terminée pour appel:", callId);
+    const writtenSummaryLen = (updatedRow?.call_summary ?? "").length;
+    const writtenConclusionLen = (updatedRow?.ai_conclusion ?? "").length;
+    console.log("[run-analysis] Analyse terminée pour appel:", callId, "| vérif écriture:", { writtenSummaryLen, writtenConclusionLen });
+    if (writtenSummaryLen === 0 || writtenConclusionLen === 0) {
+      console.warn("[run-analysis] ATTENTION: résumé ou conclusion vides après update (vérifier même projet Supabase que l'app AutoGuru)");
+    }
     return send(200, { ok: true, callId, status: "done" });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
