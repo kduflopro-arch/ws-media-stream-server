@@ -697,8 +697,8 @@ wss.on("connection", (ws, req) => {
   let consentGiven = false; // Track si le consentement a déjà été donné
   let lastUserTextForConsent = null; // Dernier texte client avant réponse IA (pour forcer rappel consentement si ni oui ni non)
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
-  const CONSENT_MAIN = "Pour continuer, dites par exemple : Oui je suis d'accord, ou Oui j'accepte. Sinon raccrochez si vous refusez.";
-  const CONSENT_REMINDER = "Pour continuer, dites par exemple : Oui je suis d'accord, ou Oui j'accepte. Sinon raccrochez si vous refusez.";
+  const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
+  const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   let appointmentMode = "request";
   let garageClosed = false;
   let garageClosedReason = "";
@@ -3625,7 +3625,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
         const consentLine =
           consentRequired && !consentGiven
-            ? "RÈGLE ABSOLUE - CONSENTEMENT: Dès le début de l'appel, annonce UNIQUEMENT: 'Cet appel est enregistré pour préparer votre arrivée au garage. Pour continuer, dites par exemple : Oui je suis d'accord, ou Oui j'accepte. Sinon raccrochez si vous refusez.' Puis TU T'ARRÊTES et tu ATTENDS la réponse du client. Tu ne dis RIEN d'autre (pas 'En quoi puis-je vous aider ?', pas 'Quel est votre besoin ?') avant qu'il ait accepté ou refusé. Si le client dit oui, je suis d'accord, j'accepte, d'accord ou ok, tu peux alors demander 'En quoi puis-je vous aider ?'. Si le client refuse, tu dis au revoir et tu raccroches. Si le client dit autre chose (ex: il décrit un problème sans avoir accepté), tu réponds UNIQUEMENT: 'Pour continuer, dites par exemple : Oui je suis d'accord, ou Oui j'accepte. Sinon raccrochez si vous refusez.' Tu ne traites aucune autre demande tant qu'il n'a pas accepté ou refusé. Ne demande le consentement QU'UNE SEULE FOIS."
+            ? "RÈGLE ABSOLUE - CONSENTEMENT: Dès le début de l'appel, annonce UNIQUEMENT: 'Cet appel est enregistré pour préparer votre arrivée au garage. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Puis TU T'ARRÊTES et tu ATTENDS la réponse du client. Tu ne dis RIEN d'autre (pas 'En quoi puis-je vous aider ?', pas 'Quel est votre besoin ?') avant qu'il ait accepté ou refusé. Si le client dit oui je suis d'accord, d'accord ou ok, tu peux alors demander 'En quoi puis-je vous aider ?'. Si le client refuse, tu dis au revoir et tu raccroches. Si le client dit autre chose (ex: il décrit un problème sans avoir accepté), tu réponds UNIQUEMENT: 'Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Tu ne traites aucune autre demande tant qu'il n'a pas accepté ou refusé. Ne demande le consentement QU'UNE SEULE FOIS."
             : consentRequired && consentGiven
             ? "Consentement enregistrement: déjà donné par le client. NE PAS redemander le consentement."
             : "Consentement enregistrement: non requis.";
