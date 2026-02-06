@@ -4003,12 +4003,12 @@ RÈGLE: Pose ces questions NATURELLEMENT, une à la fois. Quand tu proposes un R
         // IMPORTANT: Ne plus demander le modèle de véhicule, uniquement la plaque si nécessaire
         const vehicleInfoRule = `- Tu NE demandes PAS le modèle de véhicule (marque/modèle/année). Tu demandes UNIQUEMENT la plaque d'immatriculation si nécessaire.`;
 
-        const infoOnlyRappelRule = !allowTransfer
-          ? `
-APPEL POUR INFO UNIQUEMENT (transfert désactivé) - RÈGLE OBLIGATOIRE:
-- Quand le client appelle UNIQUEMENT pour une information (horaires, tarifs, adresse, ou toute autre question), SANS demander de rendez-vous : après avoir répondu à sa question, tu DOIS demander : "Souhaitez-vous que le garage vous rappelle au cas où ma réponse ne serait pas assez claire ?" Puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". NE PAS oublier la proposition de rappel : c'est OBLIGATOIRE pour les appels info quand le transfert est désactivé.
-`
-          : "";
+        const infoOnlyRappelRule = `
+DÉFINITION - APPEL INFO: Un appel "info" est quand le client appelle pour poser des questions (peu importe la question : horaires, tarifs, adresse, délais, etc.) SANS prendre de rendez-vous.
+
+APPEL POUR INFO - RÈGLE OBLIGATOIRE (transfert désactivé OU transfert activé mais garage ne répond pas):
+- Quand le client appelle UNIQUEMENT pour une information (horaires, tarifs, adresse, ou toute autre question), SANS demander de rendez-vous : après avoir répondu à sa question, tu DOIS demander : "Souhaitez-vous que le garage vous rappelle ?" ou "Souhaitez-vous être rappelé par le garage ?". À partir de sa réponse on définit : info/rappel (callback) si oui, info/pas de rappel si non. Puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". NE PAS oublier la proposition de rappel : c'est OBLIGATOIRE pour les appels info, que le transfert soit désactivé ou que le garage n'ait pas répondu.
+`;
 
         const hardConstraints =
           `IMPORTANT:
