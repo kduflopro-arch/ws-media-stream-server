@@ -713,6 +713,7 @@ wss.on("connection", (ws, req) => {
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
   let closedDaysText = ""; // Jours de fermeture hebdomadaires (ex: "Le garage est fermé le dimanche")
+  let allowTransfer = true; // false = transfert vers le garage désactivé → proposer rappel si client appelle pour une info
   let collectVehicleInfo = false;
   let pricingSummary = "";
   let servicesSummary = "";
@@ -3700,7 +3701,10 @@ IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu D
                 const date = new Date(apt.appointment_date);
                 const dateStr = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
                 const service = apt.service_requested ? ` (${apt.service_requested})` : "";
-                return `- ${dateStr} à ${apt.appointment_time}${service}`;
+                const statutRdv = apt.en_attente_confirmation_garage === true
+                  ? " — DEMANDE EN ATTENTE de confirmation par le garage (pas encore enregistrée)"
+                  : " — Rendez-vous ENREGISTRÉ (déjà confirmé par le garage)";
+                return `- ${dateStr} à ${apt.appointment_time}${service}${statutRdv}`;
               }).join("\n")
             : "Aucun rendez-vous à venir.";
           
@@ -3779,6 +3783,7 @@ IMPORTANT - COMPRÉHENSION ET CONFIRMATION:
 - Si le client a dû répéter (ex. l'heure), considère que tu as compris et confirme: "Parfait, je note 10h." puis enchaîne (ex. confirmation de la plaque si applicable).
 
 IMPORTANT - GESTION DES RENDEZ-VOUS:
+- ANNULATION OU MODIFICATION: Pour chaque rendez-vous listé ci-dessus, le statut est indiqué (demande en attente de confirmation par le garage / rendez-vous enregistré). Quand le client veut annuler ou modifier un rendez-vous, adapte ta formulation au statut : si c'est une "demande en attente", dis par exemple "Votre demande de rendez-vous [date/heure] est encore en attente de confirmation par le garage ; je peux la modifier / l'annuler." ; si c'est un "rendez-vous enregistré", dis "Votre rendez-vous du [date] à [heure] est bien enregistré ; je peux le modifier / l'annuler." Ne confonds pas les deux : une demande en attente n'est pas encore confirmée par le garage, un rendez-vous enregistré l'est déjà.
 - RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (ex: "je voudrais un rdv pour une vidange", "prendre rendez-vous pour un diagnostic", "rdv pour la révision"), tu NE poses PAS de questions de diagnostic (pas de "depuis quand", pas de symptômes). Tu PRENDS LE RENDEZ-VOUS DIRECTEMENT: (1) confirme la prestation et le tarif en une phrase, (2) AVANT de demander le jour, annonce TOUJOURS les horaires d'ouverture du garage (depuis la section Horaires ci-dessus) et les jours de fermeture si présents, (3) puis "Quel jour vous conviendrait le mieux ?", (4) puis "Plutôt le matin ou l'après-midi ?", (5) puis confirmation de la plaque.
 - RÈGLE ABSOLUE - CONSENTEMENT OBLIGATOIRE: Tu NE DOIS JAMAIS prendre un rendez-vous sans le consentement explicite du client. Tu proposes un rendez-vous, tu demandes confirmation, et tu attends la réponse du client avant de confirmer.
 - RÈGLE ABSOLUE - GUIDAGE PROACTIF: Quand le client décrit un problème (SANS avoir demandé un rdv pour une prestation précise), tu DOIS dans la même réponse: (1) reconnaître le problème, (2) mentionner brièvement 1-2 causes possibles, (3) poser UNE SEULE question pour recueillir des informations utiles (depuis quand, autres symptômes, contexte). NE PROPOSE PAS de rendez-vous dans cette première réponse. Attends d'abord la réponse du client.
@@ -3995,6 +4000,13 @@ RÈGLE: Pose ces questions NATURELLEMENT, une à la fois. Quand tu proposes un R
         // IMPORTANT: Ne plus demander le modèle de véhicule, uniquement la plaque si nécessaire
         const vehicleInfoRule = `- Tu NE demandes PAS le modèle de véhicule (marque/modèle/année). Tu demandes UNIQUEMENT la plaque d'immatriculation si nécessaire.`;
 
+        const infoOnlyRappelRule = !allowTransfer
+          ? `
+APPEL POUR INFO UNIQUEMENT (transfert vers le garage désactivé):
+- Quand le client appelle UNIQUEMENT pour une information (horaires, tarifs, adresse, ou toute autre question), sans demander de rendez-vous : après avoir répondu à sa question, demande-lui : "Souhaitez-vous que le garage vous rappelle au cas où ma réponse ne serait pas assez claire ?" Puis propose "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?".
+`
+          : "";
+
         const hardConstraints =
           `IMPORTANT:
 - Tu es un garage auto. Tu parles UNIQUEMENT de véhicules/diagnostic/rendez-vous.
@@ -4009,6 +4021,7 @@ PLAQUE D'IMMATRICULATION (RÈGLE ABSOLUE):
 
 PROCÉDURE RDV (OBLIGATOIRE ET DANS CET ORDRE):
 1) Si le client demande UNIQUEMENT les horaires (ou tarifs, adresse, etc.): donne l'info puis demande "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". NE DIS PAS "Quel jour vous conviendrait le mieux ?" dans ce cas.
+${infoOnlyRappelRule}
 2) Pour un RDV: d'abord demande "Je vous propose de venir faire un diagnostic. Vous voulez prendre rendez-vous ?" (ATTENDS OUI/NON).
 3) SEULEMENT si le client a répondu OUI: alors DANS CET ORDRE (ne pas inverser): (a) "Quel jour vous conviendrait le mieux ?" → attends la réponse ; (b) "Plutôt le matin ou l'après-midi ?" → attends la réponse ; (c) ENSUITE demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?" ou envoi de message si pas de plaque). Ne demande JAMAIS la plaque avant le jour et le créneau matin/après-midi.
 - INTERDICTION: Ne dis JAMAIS "Quel jour vous conviendrait le mieux ?" ou "Quel créneau ?" si le client n'a pas d'abord dit explicitement qu'il veut prendre rendez-vous. Une simple demande d'horaires n'est PAS une demande de RDV.
@@ -5787,6 +5800,7 @@ But: être naturel et mettre le client en confiance.`,
           startParams.openingHours ||
           startParams.hoursText ||
           "";
+        const finalAllowTransfer = startParams.allowTransfer || "";
         const finalCollectVehicleInfo = startParams.collectVehicleInfo || "";
         const finalPricingSummary = startParams.pricingSummary || "";
         const finalServicesSummary = startParams.servicesSummary || "";
@@ -5824,6 +5838,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalGarageClosedText === "string") garageClosedText = String(finalGarageClosedText || "").trim();
         if (typeof finalGarageHoursText === "string") garageHoursText = String(finalGarageHoursText || "").trim();
         if (typeof finalClosedDaysText === "string") closedDaysText = String(finalClosedDaysText || "").trim();
+        if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (typeof finalCollectVehicleInfo === "string" && finalCollectVehicleInfo.trim()) collectVehicleInfo = finalCollectVehicleInfo.trim().toLowerCase() === "true";
         if (typeof finalPricingSummary === "string") pricingSummary = String(finalPricingSummary || "").trim();
         if (typeof finalServicesSummary === "string") servicesSummary = String(finalServicesSummary || "").trim();
