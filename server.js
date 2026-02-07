@@ -719,6 +719,8 @@ wss.on("connection", (ws, req) => {
   let collectVehicleInfo = false;
   let pricingSummary = "";
   let servicesSummary = "";
+  let servicesRequiringStockSummary = "";
+  let servicesIncludesSummary = "";
   let faqsSummary = "";
   let ingestSeq = 0;
   let ingestChain = Promise.resolve();
@@ -3702,6 +3704,18 @@ IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu D
           ? `Services disponibles au garage (utilise ces infos pour répondre aux questions): ${servicesSummary}`
           : "";
 
+        let servicesStockAndIncludesLine = "";
+        if (appointmentMode === "internal") {
+          const parts = [];
+          if (servicesRequiringStockSummary && servicesRequiringStockSummary.trim()) {
+            parts.push(`Prestations nécessitant vérification stock avant confirmation du RDV (tu ne confirmes PAS le RDV toi-même pour celles-ci, tu prends une demande et dis que le garage rappellera pour confirmer stock et devis): ${servicesRequiringStockSummary}.`);
+          }
+          if (servicesIncludesSummary && servicesIncludesSummary.trim()) {
+            parts.push(`Prestations incluses (à utiliser pour éviter les doublons): ${servicesIncludesSummary} Si le client demande plusieurs prestations et qu'une prestation en comprend une autre, dis-lui qu'une seule prestation suffit (ex: "La révision comprend déjà le diagnostic, une révision suffit.").`);
+          }
+          if (parts.length > 0) servicesStockAndIncludesLine = parts.join("\n");
+        }
+
         const faqsLine = faqsSummary
           ? `Questions fréquentes (utilise ces réponses si le client pose une question similaire): ${faqsSummary}`
           : "";
@@ -3881,7 +3895,7 @@ ${hoursInfoLine ? `${hoursInfoLine}\n` : ""}
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${closedInfoLine}
 ${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
-${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLE ABSOLUE - GUIDAGE PROACTIF (À RESPECTER EN PRIORITÉ):
+${servicesLine ? `${servicesLine}\n` : ""}${servicesStockAndIncludesLine ? `${servicesStockAndIncludesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${clientInfoLine ? `${clientInfoLine}\n\n` : ""}${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLE ABSOLUE - GUIDAGE PROACTIF (À RESPECTER EN PRIORITÉ):
 - INTERDICTION ABSOLUE: Tu ne dois JAMAIS t'arrêter après avoir mentionné les causes possibles d'un problème. Tu DOIS TOUJOURS continuer dans la même réponse avec UNE question.
 - QUAND LE CLIENT DÉCRIT UN PROBLÈME: Tu DOIS dans la même réponse: (1) reconnaître le problème, (2) mentionner brièvement 1-2 causes possibles, (3) poser UNE SEULE question pour recueillir des informations utiles (depuis quand, autres symptômes, contexte). NE PROPOSE PAS de rendez-vous dans cette première réponse. Attends d'abord la réponse du client.
 - CRITIQUE - UNE QUESTION À LA FOIS: Tu poses UNE SEULE question à la fois et tu attends la réponse du client avant de continuer. Ne pose JAMAIS plusieurs questions d'affilée (ex: "Depuis quand ? Et avez-vous remarqué..."). Ne propose JAMAIS un rendez-vous immédiatement après avoir posé une question. Attends d'abord la réponse du client.
@@ -4050,9 +4064,11 @@ RÈGLES RDV:
 - Si mode rendez-vous = demande: tu notes la demande, tu ne confirmes jamais.
 - Si mode rendez-vous = aucun: tu prends un message, tu ne proposes pas de RDV.
 - Si mode rendez-vous = interne et garage fermé: tu dis qu'une personne rappellera, sans proposer de créneau.
+- MULTI-PRESTATIONS: Le client peut demander une ou plusieurs prestations (ex: diagnostic, parallélisme et équilibrage). Tu les notes toutes et tu confirmes la liste. Si une prestation en comprend une autre (voir "Prestations incluses" ci-dessus), dis au client qu'une seule suffit (ex: "La révision comprend déjà le diagnostic, une révision suffit.").
+- STOCK / DEVIS: Si la section "Prestations nécessitant vérification stock" est présente et que le client demande au moins une de ces prestations (seule ou avec d'autres), tu NE confirmes PAS le rendez-vous toi-même. Tu prends une DEMANDE et tu dis: "Pour cette prestation nous devons vérifier la disponibilité des pièces. Le garage vous rappellera pour confirmer le créneau et vous donner un devis. Quel jour vous conviendrait le mieux ?" Puis jour et créneau (matin/après-midi) et plaque comme d'habitude, mais en précisant que c'est une demande et que le garage rappellera.
 - Si mode rendez-vous = interne et que la ligne "Créneaux disponibles (planning du garage)" est présente dans les instructions:
   * Tu proposes 1 à 3 créneaux parmi ceux listés, et tu demandes lequel convient.
-  * Tu confirmes seulement après validation explicite du client.
+  * Tu confirmes seulement après validation explicite du client (sauf si une prestation demande vérification stock: dans ce cas demande uniquement, pas de confirmation).
 
 TARIFS:
 - Si un tarif est renseigné, tu le donnes et tu précises si le prix peut varier selon le véhicule.
@@ -4142,7 +4158,7 @@ ${hoursInfoLine ? `${hoursInfoLine}\n` : ""}
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${closedInfoLine}
 ${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
-${servicesLine ? `${servicesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${newClientInfoLine}\n\n${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLES D'ÉCOUTE:
+${servicesLine ? `${servicesLine}\n` : ""}${servicesStockAndIncludesLine ? `${servicesStockAndIncludesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${newClientInfoLine}\n\n${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLES D'ÉCOUTE:
 - Tu écoutes et tu réponds à CE QUE le client dit (pas de scénarios pré-écrits).
 - Si le client dit "non", tu t'arrêtes et tu confirmes: "D'accord, pas de souci." puis tu proposes une alternative.
 - Si c'est ambigu, tu poses UNE question simple de clarification.
@@ -5833,6 +5849,8 @@ But: être naturel et mettre le client en confiance.`,
         const finalCollectVehicleInfo = startParams.collectVehicleInfo || "";
         const finalPricingSummary = startParams.pricingSummary || "";
         const finalServicesSummary = startParams.servicesSummary || "";
+        const finalServicesRequiringStockSummary = startParams.servicesRequiringStockSummary || "";
+        const finalServicesIncludesSummary = startParams.servicesIncludesSummary || "";
         const finalFaqsSummary = startParams.faqsSummary || "";
         
         console.log("🎬 Stream start:", {
@@ -5871,6 +5889,8 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalCollectVehicleInfo === "string" && finalCollectVehicleInfo.trim()) collectVehicleInfo = finalCollectVehicleInfo.trim().toLowerCase() === "true";
         if (typeof finalPricingSummary === "string") pricingSummary = String(finalPricingSummary || "").trim();
         if (typeof finalServicesSummary === "string") servicesSummary = String(finalServicesSummary || "").trim();
+        if (typeof finalServicesRequiringStockSummary === "string") servicesRequiringStockSummary = String(finalServicesRequiringStockSummary || "").trim();
+        if (typeof finalServicesIncludesSummary === "string") servicesIncludesSummary = String(finalServicesIncludesSummary || "").trim();
         if (typeof finalFaqsSummary === "string") faqsSummary = String(finalFaqsSummary || "").trim();
 
         // Récupérer les infos client (nom, rendez-vous) pour l'IA
