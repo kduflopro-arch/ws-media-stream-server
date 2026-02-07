@@ -635,7 +635,7 @@ wss.on("connection", (ws, req) => {
   const REALTIME_USER_STT_SPEECH_THRESHOLD = Number(process.env.REALTIME_USER_STT_SPEECH_THRESHOLD ?? "1500");
   const REALTIME_USER_STT_SPEECH_FRAMES = Number(process.env.REALTIME_USER_STT_SPEECH_FRAMES ?? "6");
   const REALTIME_USER_STT_SILENCE_THRESHOLD = Number(process.env.REALTIME_USER_STT_SILENCE_THRESHOLD ?? "650");
-  const REALTIME_USER_STT_SILENCE_FRAMES = Number(process.env.REALTIME_USER_STT_SILENCE_FRAMES ?? "22");
+  const REALTIME_USER_STT_SILENCE_FRAMES = Number(process.env.REALTIME_USER_STT_SILENCE_FRAMES ?? "32"); // ~640ms: laisser le client finir sa phrase avant de répondre
   const REALTIME_USER_STT_MIN_AUDIO_MS = Number(process.env.REALTIME_USER_STT_MIN_AUDIO_MS ?? "500");
   let rtSttSpeechFrames = 0;
   let rtSttSilenceFrames = 0;
@@ -704,6 +704,7 @@ wss.on("connection", (ws, req) => {
   let consentGiven = false; // Track si le consentement a déjà été donné
   let lastUserTextForConsent = null; // Dernier texte client avant réponse IA (pour forcer rappel consentement si ni oui ni non)
   let lastAssistantText = ""; // Dernier message assistant (pour ne pas confondre refus rappel avec refus consentement)
+  let callbackRefusedByClient = false; // Client a refusé d'être rappelé (envoyé au finalize pour badge "Pas rappel")
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
@@ -787,6 +788,7 @@ wss.on("connection", (ws, req) => {
           appointmentMode: appointmentMode || null,
           reason,
           consent_refused: reason === "consent_refused",
+          callback_refused_rappele: callbackRefusedByClient,
           plate_confirmed_by_client: plateConfirmedByClient,
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
           consent_granted: consentGiven,
@@ -1221,10 +1223,9 @@ wss.on("connection", (ws, req) => {
   // Valeurs par défaut plus tolérantes (meilleure compréhension si voix faible)
   const STT_SPEECH_THRESHOLD = Number(process.env.STT_SPEECH_THRESHOLD ?? "1500");
   const STT_SPEECH_FRAMES = Number(process.env.STT_SPEECH_FRAMES ?? "6"); // ~120ms
-  // IMPORTANT: trop agressif => coupe la phrase dès une micro-pause.
-  // On baisse le seuil de "silence" et on augmente la durée de silence requise.
+  // IMPORTANT: trop agressif => coupe la phrase dès une micro-pause. Augmenter le silence pour laisser finir.
   const STT_SILENCE_THRESHOLD = Number(process.env.STT_SILENCE_THRESHOLD ?? "650");
-  const STT_SILENCE_FRAMES = Number(process.env.STT_SILENCE_FRAMES ?? "24"); // ~480ms
+  const STT_SILENCE_FRAMES = Number(process.env.STT_SILENCE_FRAMES ?? "30"); // ~600ms: laisser le client finir sa phrase
   const STT_MIN_AUDIO_MS = Number(process.env.STT_MIN_AUDIO_MS ?? "550");
   const HISTORY_MAX_TURNS = Number(process.env.HISTORY_MAX_TURNS ?? "8");
   const BACKCHANNEL_ENABLED = (process.env.BACKCHANNEL_ENABLED ?? "true").toLowerCase() === "true";
@@ -3367,7 +3368,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible (recommandé si l'utilisateur doit répéter); 900–1200: plus strict
   const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "10"); // Augmenté de 6 à 10 (~200ms au lieu de 120ms)
   const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "450");
-  const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? (PIPELINE_MODE === "realtime" ? "28" : "20")); // ~560ms en realtime
+  const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? (PIPELINE_MODE === "realtime" ? "38" : "20")); // ~760ms en realtime: laisser finir la phrase
   let inputSpeechFrames = 0;
   let inputSilenceFrames = 0;
   let inputActive = false; // on est en train d'envoyer une "prise de parole" à OpenAI
@@ -5576,6 +5577,7 @@ But: être naturel et mettre le client en confiance.`,
               const lastLower = String(lastAssistantText || "").toLowerCase();
               const lastWasCallbackQuestion = /\b(rappeler|rappel)\b/.test(lastLower) && (lastLower.includes("souhaitez") || lastLower.includes("voulez") || lastLower.includes("?"));
               if (lastWasCallbackQuestion) {
+                callbackRefusedByClient = true; // Pour finalize → callback_type "none" et badge "Pas rappel"
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rappel (pas l'enregistrement), on laisse l'IA conclure.", { userText: userText?.substring(0, 40) });
               } else {
                 console.log("🛑 Client refuse l'enregistrement (transcription), message de refus puis raccrochage.", { userText });
