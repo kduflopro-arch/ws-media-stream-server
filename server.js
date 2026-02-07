@@ -3829,9 +3829,7 @@ IMPORTANT - GESTION DES RENDEZ-VOUS:
      - IMPORTANT: Remplace [TARIF] par le tarif réel du diagnostic depuis la section "Tarifs du garage" ci-dessus. Si le tarif n'est pas renseigné, dis "Le tarif sera établi lors du diagnostic" ou "Le tarif est sur devis".
   2. Si le client répond positivement à "Vous voulez prendre rendez-vous ?" (oui, oui je veux, oui s'il vous plaît, etc.): Prends sa demande en demandant D'ABORD "Quel jour vous conviendrait le mieux ?", puis "Plutôt le matin ou l'après-midi ?". ENSUITE seulement demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?"). Ordre obligatoire: jour → créneau (matin/après-midi) → plaque.
      - ⚠️ "Ok" ou "d'accord" seuls après ton explication = acquiescement à l'explication, PAS acceptation de RDV. Demande alors: "Souhaitez-vous que je vous prenne un rendez-vous ?" et attends une réponse claire.
-  3. Si le client refuse (non, pas maintenant, non merci, etc.): Demande "Avez-vous besoin d'autre chose ?" (ATTENDS LA RÉPONSE)
-     - Si oui: Continue à l'aider
-     - Si non: Dis "D'accord, nous sommes disponibles si vous avez besoin. Au revoir et bonne journée !"
+  3. Si le client refuse (non, pas maintenant, non merci, etc.): Tu ARRÊTES immédiatement toute prise de RDV. Tu NE demandes PAS le jour, PAS le créneau, tu NE prends AUCUNE demande de rendez-vous. Tu dis: "D'accord, pas de rendez-vous. Souhaitez-vous que le garage vous rappelle ?" (ATTENDS LA RÉPONSE). Puis "Avez-vous besoin d'autre chose ?". Si le client dit non aux deux: "Au revoir et bonne journée !"
 - RÈGLE FIN D'APPEL: Avant de dire au revoir ou toute formule de fin (bonne journée, merci, etc.), tu DOIS avoir demandé "Avez-vous besoin d'autre chose ?" et le client doit avoir répondu non ou ne plus rien demander. Ne dis jamais au revoir sans avoir posé cette question avant.
 - EXEMPLE OBLIGATOIRE DE STRUCTURE: "D'accord, un problème de voyant de batterie qui reste allumé peut venir d'un problème de batterie ou du système de charge. Depuis quand avez-vous remarqué ce voyant ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Merci. Avez-vous remarqué d'autres symptômes, comme des difficultés au démarrage ou des phares qui faiblissent ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Je vous propose de venir faire un diagnostic au garage pour ce problème. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" (ATTENDS LA RÉPONSE) Puis selon la réponse: prendre le rendez-vous OU demander si besoin d'autre chose OU dire au revoir.
 - EXEMPLE INTERDIT (NE PAS FAIRE): "Un problème de charge pourrait venir de la batterie ou du système de charge." (SANS QUESTION - INTERDIT)
@@ -3910,9 +3908,7 @@ ${servicesLine ? `${servicesLine}\n` : ""}${servicesStockAndIncludesLine ? `${se
      - CRITIQUE: Après avoir posé cette question, tu DOIS ATTENDRE la réponse du client. Ne propose PAS de créneau, ne demande PAS de préférences, ne continue PAS. Attends UNIQUEMENT la réponse (oui/non).
   2. Si le client répond positivement à "Vous voulez prendre rendez-vous ?" (oui, oui je veux, oui s'il vous plaît, etc.): Prends sa demande en demandant D'ABORD "Quel jour vous conviendrait le mieux ?", puis "Plutôt le matin ou l'après-midi ?". ENSUITE seulement demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?"). Ordre obligatoire: jour → créneau (matin/après-midi) → plaque.
      - ⚠️ CRITIQUE: "Ok" ou "d'accord" SEULS après une explication technique = acquiescement à l'explication, PAS acceptation de rendez-vous. Demande alors: "Souhaitez-vous que je vous prenne un rendez-vous pour ce diagnostic ?" et attends une réponse claire. Ne lance PAS la prise de rendez-vous sur un simple "ok".
-  3. Si le client refuse (non, pas maintenant, non merci, etc.): Demande "Avez-vous besoin d'autre chose ?" (ATTENDS LA RÉPONSE)
-     - Si oui: Continue à l'aider
-     - Si non: Dis "D'accord, nous sommes disponibles si vous avez besoin. Au revoir et bonne journée !"
+  3. Si le client refuse (non, pas maintenant, non merci, etc.): Tu ARRÊTES toute prise de RDV. Ne demande PAS le jour ni le créneau. Dis: "D'accord, pas de rendez-vous. Souhaitez-vous que le garage vous rappelle ?" (ATTENDS LA RÉPONSE). Puis "Avez-vous besoin d'autre chose ?". Si non aux deux: "Au revoir et bonne journée !"
 - EXEMPLE OBLIGATOIRE DE STRUCTURE DE RÉPONSE: "D'accord, un problème de voyant de batterie qui reste allumé peut venir d'un problème de batterie ou du système de charge. Depuis quand avez-vous remarqué ce voyant ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Merci. Avez-vous remarqué d'autres symptômes, comme des difficultés au démarrage ou des phares qui faiblissent ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Je vous propose de venir faire un diagnostic au garage pour ce problème. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" (ATTENDS LA RÉPONSE) Puis selon la réponse: prendre le rendez-vous OU demander si besoin d'autre chose OU dire au revoir.
 - TU GUIDES LE CLIENT, PAS L'INVERSE: Tu poses UNE question à la fois, tu attends la réponse, puis tu continues. Ne laisse JAMAIS le client sans suite concrète, mais ne pose pas plusieurs questions d'affilée.
 - RÈGLE DE FIN DE RÉPONSE: Si tu mentionnes des causes possibles, ta réponse DOIT se terminer par une question. Exemples de questions à poser: "Depuis quand avez-vous remarqué ce problème ?", "Avez-vous remarqué d'autres symptômes ?", "Quand est-ce que cela se produit ?", "Le voyant est-il allumé en permanence ?"
@@ -3961,9 +3957,7 @@ DIAGNOSTIC GUIDÉ (si le client ne sait pas exactement):
      - IMPORTANT: Remplace [TARIF] par le tarif réel du diagnostic depuis la section "Tarifs du garage" ci-dessus. Si le tarif n'est pas renseigné, dis "Le tarif sera établi lors du diagnostic" ou "Le tarif est sur devis".
   2. Si le client répond positivement à "Vous voulez prendre rendez-vous ?" (oui, oui je veux, oui s'il vous plaît, etc.): Prends sa demande en demandant D'ABORD "Quel jour vous conviendrait le mieux ?", puis "Plutôt le matin ou l'après-midi ?". ENSUITE seulement demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?"). Ordre obligatoire: jour → créneau (matin/après-midi) → plaque.
      - ⚠️ "Ok" ou "d'accord" seuls après ton explication = acquiescement, PAS accord pour le RDV. Demande: "Souhaitez-vous que je vous prenne un rendez-vous ?" et attends une réponse claire.
-  3. Si le client refuse (non, pas maintenant, non merci, etc.): Demande "Avez-vous besoin d'autre chose ?" (ATTENDS LA RÉPONSE)
-     - Si oui: Continue à l'aider
-     - Si non: Dis "D'accord, nous sommes disponibles si vous avez besoin. Au revoir et bonne journée !"
+  3. Si le client refuse (non, pas maintenant, non merci, etc.): Tu ARRÊTES toute prise de RDV. Ne demande PAS le jour ni le créneau. Dis: "D'accord, pas de rendez-vous. Souhaitez-vous que le garage vous rappelle ?" (ATTENDS LA RÉPONSE). Puis "Avez-vous besoin d'autre chose ?". Si non aux deux: "Au revoir et bonne journée !"
 - EXEMPLE OBLIGATOIRE: "D'accord, un problème de voyant de batterie qui reste allumé peut venir d'un problème de batterie ou du système de charge. Depuis quand avez-vous remarqué ce voyant ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Merci. Avez-vous remarqué d'autres symptômes, comme des difficultés au démarrage ou des phares qui faiblissent ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Je vous propose de venir faire un diagnostic au garage pour ce problème. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" (ATTENDS LA RÉPONSE) Puis selon la réponse: prendre le rendez-vous OU demander si besoin d'autre chose OU dire au revoir.
 - EXEMPLE INTERDIT (NE PAS FAIRE): "Un problème de charge pourrait venir de la batterie ou du système de charge." (SANS QUESTION - INTERDIT)
 - EXEMPLE CORRECT (OBLIGATOIRE): "Un problème de charge pourrait venir de la batterie ou du système de charge. Depuis quand avez-vous remarqué ce problème ?"
@@ -4068,7 +4062,8 @@ ${infoOnlyRappelRule}
 
 RÈGLES RDV:
 - Ne lance JAMAIS une demande de rendez-vous (et ne dis JAMAIS "Quel jour ?") si le client n'a pas explicitement accepté (répondu oui à "Vous voulez prendre rendez-vous ?" ou "Souhaitez-vous prendre rendez-vous ?").
-- Après "Avez-vous besoin d'autre chose ?", une réponse du client (oui, non, autre) ne vaut PAS consentement pour un RDV. Tu DOIS poser explicitement "Souhaitez-vous prendre rendez-vous ?" et attendre un OUI clair avant de demander le jour ou le créneau. Si le client dit non au RDV, "je fera le nécessaire", "pas de rendez-vous" ou équivalent, tu NE prends PAS de rendez-vous.
+- Dès que le client répond NON ou "non merci" à la question de prise de rendez-vous, tu ARRÊTES tout: tu NE demandes PAS le jour, PAS le créneau, tu NE prends AUCUNE demande de rendez-vous. Tu enchaînes avec "D'accord, pas de rendez-vous. Souhaitez-vous que le garage vous rappelle ?" puis "Avez-vous besoin d'autre chose ?".
+- Après "Avez-vous besoin d'autre chose ?", une réponse du client ne vaut PAS consentement pour un RDV. Tu DOIS poser "Souhaitez-vous prendre rendez-vous ?" et attendre un OUI clair avant de demander le jour ou le créneau.
 - Si mode rendez-vous = demande: tu notes la demande, tu ne confirmes jamais.
 - Si mode rendez-vous = aucun: tu prends un message, tu ne proposes pas de RDV.
 - Si mode rendez-vous = interne et garage fermé: tu dis qu'une personne rappellera, sans proposer de créneau.
@@ -5601,14 +5596,15 @@ But: être naturel et mettre le client en confiance.`,
             }
             // #endregion
             if (refusesConsent && consentRequired && !consentGiven) {
-              // Ne pas confondre refus RAPPEL ou refus RDV avec refus d'enregistrement : si la dernière question portait sur le rappel ou le RDV, le "non" = pas de rappel / pas de RDV
+              // Ne pas confondre refus RAPPEL ou refus RDV avec refus d'enregistrement : si la dernière question portait sur le rappel, le RDV ou le flux RDV (jour/créneau), le "non" = pas de rappel / pas de RDV
               const lastLower = String(lastAssistantText || "").toLowerCase();
               const lastWasCallbackQuestion = /\b(rappeler|rappel)\b/.test(lastLower) && (lastLower.includes("souhaitez") || lastLower.includes("voulez") || lastLower.includes("?"));
               const lastWasRdvQuestion = (/\b(prendre\s*)?(rendez-?vous|rdv)\b/.test(lastLower) || lastLower.includes("rendez-vous")) && (lastLower.includes("voulez") || lastLower.includes("souhaitez") || lastLower.includes("prendre") || lastLower.includes("?"));
+              const lastWasInRdvFlow = /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi|plaque\s*(est|d[''])?\s*\[?/.test(lastLower) && (lastLower.includes("?") || lastLower.includes("convient"));
               if (lastWasCallbackQuestion) {
                 callbackRefusedByClient = true; // Pour finalize → callback_type "none" et badge "Pas rappel"
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rappel (pas l'enregistrement), on laisse l'IA conclure.", { userText: userText?.substring(0, 40) });
-              } else if (lastWasRdvQuestion) {
+              } else if (lastWasRdvQuestion || lastWasInRdvFlow) {
                 rdvRefusedByClient = true; // Pour finalize → rdv_requested false, pas de point RDV
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rendez-vous (pas l'enregistrement), on laisse l'IA conclure.", { userText: userText?.substring(0, 40) });
               } else {
@@ -5616,11 +5612,12 @@ But: être naturel et mettre le client en confiance.`,
                 playConsentRefusalAndHangup();
               }
             } else if (consentGiven && refusesConsent) {
-              // Consentement déjà donné : si le client dit "non" et la dernière question était RDV ou rappel, enregistrer le refus
+              // Consentement déjà donné : si le client dit "non" et la dernière question était RDV, rappel, ou en plein flux RDV (jour/créneau/plaque), enregistrer le refus
               const lastLower = String(lastAssistantText || "").toLowerCase();
               const lastWasRdvQuestion = (/\b(prendre\s*)?(rendez-?vous|rdv)\b/.test(lastLower) || lastLower.includes("rendez-vous")) && (lastLower.includes("voulez") || lastLower.includes("souhaitez") || lastLower.includes("prendre") || lastLower.includes("?"));
+              const lastWasInRdvFlow = /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi|plaque\s*(est|d[''])?\s*\[?/.test(lastLower) && (lastLower.includes("?") || lastLower.includes("convient"));
               const lastWasCallbackQuestion = /\b(rappeler|rappel)\b/.test(lastLower) && (lastLower.includes("souhaitez") || lastLower.includes("voulez") || lastLower.includes("?"));
-              if (lastWasRdvQuestion) {
+              if (lastWasRdvQuestion || lastWasInRdvFlow) {
                 rdvRefusedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rendez-vous.", { userText: userText?.substring(0, 40) });
               }
