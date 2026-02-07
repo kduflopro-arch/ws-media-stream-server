@@ -2767,6 +2767,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Normaliser TOUS les espaces (y compris Unicode nbsp, etc.) en espace normal
     t = t.replace(/[\s\u00a0\u2000-\u200b\u202f\u205f\u3000]+/g, " ");
     t = t.replace(/\.([A-ZÀÂÆÇÉÈÊËÎÏÔÙÛÜŸ])/g, ". $1");
+    // Espaces manquants: "le11" -> "le 11", "à8" -> "à 8" (modèle génère parfois sans espace)
+    t = t.replace(/\ble(\d{1,2})\b/g, "le $1");
+    t = t.replace(/(\s|^)à(\d{1,2})(?=\s|$|[a-zàâçéèêëîïôûùüÿœ])/gi, (_, before, num) => (before || "") + "à " + num);
     // CORRECTION FRANÇAIS (ordre: plus long d'abord) — mots coupés/collés par le modèle → français correct pour Minimax
     t = t.replace(/lors\s+du\s+de\s+vis/gi, "lors du devis");
     t = t.replace(/du\s+de\s+vis/gi, "du devis");
@@ -3755,13 +3758,14 @@ Rendez-vous à venir:
 ${appointmentsText}
 ${interdictionPlaque}
 
-IMPORTANT - SALUTATION:
-- Tu DOIS saluer le client avec respect en utilisant le titre approprié ET le NOM DE FAMILLE uniquement (pas le prénom ni le nom complet): "${salutationText}" (ex: "Bonjour ${title} ${salutationName}" ou "Bonjour ${salutationName}" si genre indéterminé).
-- Utilise UNIQUEMENT le nom de famille (${salutationName}) dans la salutation, PAS le prénom, PAS le nom complet.
-- Utilise "${title}" si le genre est défini (${gender || "non défini"}), sinon utilise simplement le nom de famille.
+IMPORTANT - SALUTATION (À RESPECTER STRICTEMENT):
+- Si le genre est "homme", tu DOIS dire exactement: "Bonjour Monsieur ${salutationName || "..."}." (avec le nom de famille uniquement).
+- Si le genre est "femme", tu DOIS dire exactement: "Bonjour Madame ${salutationName || "..."}." (avec le nom de famille uniquement).
+- Si le genre est indéterminé ou absent, dis: "Bonjour ${salutationName || "..."}." (nom de famille uniquement).
+- Ne dis JAMAIS seulement "Bonjour [nom]" sans Monsieur/Madame quand le genre est défini (homme ou femme). Exemple obligatoire: "${salutationText || "Bonjour " + (salutationName || "client")}" → utilise cette forme.
 
 IMPORTANT - MENTION DES RENDEZ-VOUS EN DÉBUT D'APPEL:
-- Si le client a des rendez-vous à venir listés ci-dessus (section "Rendez-vous à venir"), APRÈS la salutation tu DOIS en une phrase courte mentionner le statut : si c'est une "demande en attente de confirmation par le garage", dis par ex. "Je vois que vous avez une demande de rendez-vous en attente pour le [date/heure]." ; si c'est un "rendez-vous enregistré", dis par ex. "Je vois que vous avez un rendez-vous enregistré pour le [date] à [heure]." Puis demande "En quoi puis-je vous aider ?" Ne saute pas cette étape : le client doit savoir que tu as accès à son dossier et au statut de son RDV.
+- Si le client a des rendez-vous à venir listés ci-dessus (section "Rendez-vous à venir"), APRÈS la salutation tu DOIS en une phrase courte mentionner le statut : si c'est une "demande en attente de confirmation par le garage", dis par ex. "Je vois que vous avez une demande de rendez-vous en attente pour le [date] à [heure]." ; si c'est un "rendez-vous enregistré", dis par ex. "Je vois que vous avez un rendez-vous enregistré pour le [date] à [heure]." Puis demande "En quoi puis-je vous aider ?" Ne saute pas cette étape : le client doit savoir que tu as accès à son dossier et au statut de son RDV. IMPORTANT: Toujours mettre un espace après "le" (ex: "le 11 février") et après "à" (ex: "à 8 heures"). Écris "le 11" jamais "le11", et "à 8" jamais "à8".
 
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - Tu DOIS D'ABORD comprendre le besoin du client (diagnostic, problème, rendez-vous, etc.) AVANT de parler de plaque.
