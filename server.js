@@ -1555,7 +1555,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // #region agent log - MINIMAX_GUARD_CHECK
     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:1178',message:'MINIMAX_GUARD_CHECK',data:{enabled:PREMIUM_TTS_ENABLED,provider:PREMIUM_TTS_PROVIDER,bypassUntil:premiumTtsBypassUntilMs,now:Date.now(),hasMinimaxKey:!!MINIMAX_API_KEY,hasMinimaxGroup:!!MINIMAX_GROUP_ID},timestamp:Date.now(),sessionId:'debug-session',runId:'pre-fix',hypothesisId:'MINIMAX_GUARD'})}).catch(()=>{});
     // #endregion
-    const selectedVoiceIdPreview = assistantVoice === "male"
+    const useMalePreview = assistantVoice === "male" || assistantVoice === "minimax_male";
+    const selectedVoiceIdPreview = useMalePreview
       ? (MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT)
       : (MINIMAX_VOICE_ID_FEMALE || MINIMAX_VOICE_ID_DEFAULT);
     if (LOG_VERBOSE) console.log("🔊 [Minimax] guards:", { enabled: PREMIUM_TTS_ENABLED, provider: PREMIUM_TTS_PROVIDER, hasMinimaxKey: !!MINIMAX_API_KEY, hasVoice: !!(selectedVoiceIdPreview && selectedVoiceIdPreview.trim()) });
@@ -1576,10 +1577,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       return;
     }
-    if (PREMIUM_TTS_PROVIDER !== "minimax") {
+    const useMinimaxForThisVoice = PREMIUM_TTS_PROVIDER === "minimax" || assistantVoice === "minimax_male";
+    if (!useMinimaxForThisVoice) {
       if (LOG_TTS) {
-        console.log(`[TTS-MINIMAX] SORTIE: PREMIUM_TTS_PROVIDER=${PREMIUM_TTS_PROVIDER} !== minimax`);
-        if (LOG_VERBOSE) console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_PROVIDER=${PREMIUM_TTS_PROVIDER} !== minimax`);
+        console.log(`[TTS-MINIMAX] SORTIE: provider=${PREMIUM_TTS_PROVIDER}, voice=${assistantVoice} (Minimax utilisé si voix=minimax_male)`);
+        if (LOG_VERBOSE) console.log(`🚨 speakWithMinimaxNow SORTIE: PREMIUM_TTS_PROVIDER=${PREMIUM_TTS_PROVIDER} !== minimax et assistantVoice !== minimax_male`);
       }
       return;
     }
@@ -1588,12 +1590,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.warn(`🔊 Minimax SORTIE: bypass actif (reste ~${remainingMin} min). Pas de TTS jusqu'à la fin du bypass.`);
       return;
     }
-    const selectedVoiceId =
-      assistantVoice === "male"
-        ? (MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT)
-        : (MINIMAX_VOICE_ID_FEMALE || MINIMAX_VOICE_ID_DEFAULT);
+    const useMaleVoice = assistantVoice === "male" || assistantVoice === "minimax_male";
+    const selectedVoiceId = useMaleVoice
+      ? (MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT)
+      : (MINIMAX_VOICE_ID_FEMALE || MINIMAX_VOICE_ID_DEFAULT);
     if (!MINIMAX_API_KEY || !selectedVoiceId || !String(selectedVoiceId).trim()) {
-      console.error("❌ PREMIUM_TTS activé mais MINIMAX_API_KEY ou MINIMAX_VOICE_ID manquants. Définir MINIMAX_VOICE_ID (ex: French_Female_News Anchor) sur Render.");
+      console.error("❌ PREMIUM_TTS activé mais MINIMAX_API_KEY ou MINIMAX_VOICE_ID manquants. Définir MINIMAX_VOICE_ID (ex: French_Female_News Anchor) et MINIMAX_VOICE_ID_MALE sur Render.");
       premiumTtsLastError = "Configuration Minimax incomplète (clé ou voix manquante)";
       premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000; // 5 min de bypass
       return;
@@ -2614,7 +2616,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         lastProcessedText = job.text;
         const preview = job.text.substring(0, 70) + (job.text.length > 70 ? "…" : "");
         try {
-          if (PREMIUM_TTS_PROVIDER === "minimax") {
+          const useMinimax = PREMIUM_TTS_PROVIDER === "minimax" || assistantVoice === "minimax_male";
+          if (useMinimax) {
             if (LOG_VERBOSE) console.log(`🔊 drain calling speakWithMinimaxNow: "${preview}"`);
             await speakWithMinimaxNow(job.text, { interrupt: false });
           } else if (PREMIUM_TTS_PROVIDER === "elevenlabs") {
