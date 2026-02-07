@@ -4035,10 +4035,14 @@ RÈGLE: Pose ces questions NATURELLEMENT, une à la fois. Quand tu proposes un R
         const vehicleInfoRule = `- Tu NE demandes PAS le modèle de véhicule (marque/modèle/année). Tu demandes UNIQUEMENT la plaque d'immatriculation si nécessaire.`;
 
         const infoOnlyRappelRule = `
-DÉFINITION - APPEL INFO: Un appel "info" est quand le client appelle pour poser des questions (peu importe la question : horaires, tarifs, adresse, délais, etc.) SANS prendre de rendez-vous.
+DÉFINITION - APPEL INFO: Un appel "info" est quand le client appelle pour des questions (horaires, tarifs, adresse, etc.) SANS prendre de rendez-vous.
 
-APPEL POUR INFO - RÈGLE OBLIGATOIRE (transfert désactivé OU transfert activé mais garage ne répond pas):
-- Quand le client appelle UNIQUEMENT pour une information (horaires, tarifs, adresse, ou toute autre question), SANS demander de rendez-vous : après avoir répondu à sa question, tu DOIS demander : "Souhaitez-vous que le garage vous rappelle ?" ou "Souhaitez-vous être rappelé par le garage ?". À partir de sa réponse on définit : info/rappel (callback) si oui, info/pas de rappel si non. Puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". NE PAS oublier la proposition de rappel : c'est OBLIGATOIRE pour les appels info, que le transfert soit désactivé ou que le garage n'ait pas répondu.
+QUAND TU DOIS DEMANDER "Souhaitez-vous que le garage vous rappelle ?" (OBLIGATOIRE) — et UNIQUEMENT dans ces cas :
+1) Le client appelle UNIQUEMENT pour une information (sans demander de RDV) : après avoir répondu, tu DOIS demander : "Souhaitez-vous que le garage vous rappelle ?" ou "Souhaitez-vous être rappelé par le garage ?". Puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?".
+2) Le client REFUSE une prise de rendez-vous (ex. "non merci", "pas de RDV") : tu DOIS demander : "Souhaitez-vous que le garage vous rappelle ?" avant de clôturer.
+3) Le client souhaite être transféré vers le garage (si option activée) et le garage ne répond pas (ou le transfert est prévu) : tu proposes le rappel : "Souhaitez-vous que le garage vous rappelle ?".
+
+NE PAS demander le rappel dans les autres situations (ex. après un RDV déjà pris, etc.). À la réponse du client (oui/non) on enregistre : info/rappel demandé si oui, info/pas de rappel si non.
 `;
 
         const hardConstraints =
