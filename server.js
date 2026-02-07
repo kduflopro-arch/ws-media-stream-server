@@ -705,6 +705,7 @@ wss.on("connection", (ws, req) => {
   let lastUserTextForConsent = null; // Dernier texte client avant réponse IA (pour forcer rappel consentement si ni oui ni non)
   let lastAssistantText = ""; // Dernier message assistant (pour ne pas confondre refus rappel avec refus consentement)
   let callbackRefusedByClient = false; // Client a refusé d'être rappelé (envoyé au finalize pour badge "Pas rappel")
+  let rdvRefusedByClient = false; // Client a refusé de prendre rendez-vous (envoyé au finalize → rdv_requested false)
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
@@ -791,6 +792,7 @@ wss.on("connection", (ws, req) => {
           reason,
           consent_refused: reason === "consent_refused",
           callback_refused_rappele: callbackRefusedByClient,
+          rdv_refused: rdvRefusedByClient,
           plate_confirmed_by_client: plateConfirmedByClient,
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
           consent_granted: consentGiven,
@@ -5598,15 +5600,32 @@ But: être naturel et mettre le client en confiance.`,
             }
             // #endregion
             if (refusesConsent && consentRequired && !consentGiven) {
-              // Ne pas confondre refus de RAPPEL avec refus d'enregistrement : si la dernière question de l'assistant portait sur le rappel, le "non" du client = pas de rappel
+              // Ne pas confondre refus RAPPEL ou refus RDV avec refus d'enregistrement : si la dernière question portait sur le rappel ou le RDV, le "non" = pas de rappel / pas de RDV
               const lastLower = String(lastAssistantText || "").toLowerCase();
               const lastWasCallbackQuestion = /\b(rappeler|rappel)\b/.test(lastLower) && (lastLower.includes("souhaitez") || lastLower.includes("voulez") || lastLower.includes("?"));
+              const lastWasRdvQuestion = (/\b(prendre\s*)?(rendez-?vous|rdv)\b/.test(lastLower) || lastLower.includes("rendez-vous")) && (lastLower.includes("voulez") || lastLower.includes("souhaitez") || lastLower.includes("prendre") || lastLower.includes("?"));
               if (lastWasCallbackQuestion) {
                 callbackRefusedByClient = true; // Pour finalize → callback_type "none" et badge "Pas rappel"
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rappel (pas l'enregistrement), on laisse l'IA conclure.", { userText: userText?.substring(0, 40) });
+              } else if (lastWasRdvQuestion) {
+                rdvRefusedByClient = true; // Pour finalize → rdv_requested false, pas de point RDV
+                if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rendez-vous (pas l'enregistrement), on laisse l'IA conclure.", { userText: userText?.substring(0, 40) });
               } else {
                 console.log("🛑 Client refuse l'enregistrement (transcription), message de refus puis raccrochage.", { userText });
                 playConsentRefusalAndHangup();
+              }
+            } else if (consentGiven && refusesConsent) {
+              // Consentement déjà donné : si le client dit "non" et la dernière question était RDV ou rappel, enregistrer le refus
+              const lastLower = String(lastAssistantText || "").toLowerCase();
+              const lastWasRdvQuestion = (/\b(prendre\s*)?(rendez-?vous|rdv)\b/.test(lastLower) || lastLower.includes("rendez-vous")) && (lastLower.includes("voulez") || lastLower.includes("souhaitez") || lastLower.includes("prendre") || lastLower.includes("?"));
+              const lastWasCallbackQuestion = /\b(rappeler|rappel)\b/.test(lastLower) && (lastLower.includes("souhaitez") || lastLower.includes("voulez") || lastLower.includes("?"));
+              if (lastWasRdvQuestion) {
+                rdvRefusedByClient = true;
+                if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rendez-vous.", { userText: userText?.substring(0, 40) });
+              }
+              if (lastWasCallbackQuestion) {
+                callbackRefusedByClient = true;
+                if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rappel.", { userText: userText?.substring(0, 40) });
               }
             } else if (acceptsConsent && consentRequired && !consentGiven) {
               console.log("✅ Client accepte le consentement, ne plus redemander:", { userText });
