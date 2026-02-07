@@ -4067,7 +4067,8 @@ ${infoOnlyRappelRule}
 - INTERDICTION: Ne dis JAMAIS "Quel jour vous conviendrait le mieux ?" ou "Quel créneau ?" si le client n'a pas d'abord dit explicitement qu'il veut prendre rendez-vous. Une simple demande d'horaires n'est PAS une demande de RDV.
 
 RÈGLES RDV:
-- Ne lance JAMAIS une demande de rendez-vous (et ne dis JAMAIS "Quel jour ?") si le client n'a pas explicitement accepté (répondu oui à "Vous voulez prendre rendez-vous ?").
+- Ne lance JAMAIS une demande de rendez-vous (et ne dis JAMAIS "Quel jour ?") si le client n'a pas explicitement accepté (répondu oui à "Vous voulez prendre rendez-vous ?" ou "Souhaitez-vous prendre rendez-vous ?").
+- Après "Avez-vous besoin d'autre chose ?", une réponse du client (oui, non, autre) ne vaut PAS consentement pour un RDV. Tu DOIS poser explicitement "Souhaitez-vous prendre rendez-vous ?" et attendre un OUI clair avant de demander le jour ou le créneau. Si le client dit non au RDV, "je fera le nécessaire", "pas de rendez-vous" ou équivalent, tu NE prends PAS de rendez-vous.
 - Si mode rendez-vous = demande: tu notes la demande, tu ne confirmes jamais.
 - Si mode rendez-vous = aucun: tu prends un message, tu ne proposes pas de RDV.
 - Si mode rendez-vous = interne et garage fermé: tu dis qu'une personne rappellera, sans proposer de créneau.
