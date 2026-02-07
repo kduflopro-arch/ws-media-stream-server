@@ -703,6 +703,7 @@ wss.on("connection", (ws, req) => {
   let consentRequired = true;
   let consentGiven = false; // Track si le consentement a déjà été donné
   let lastUserTextForConsent = null; // Dernier texte client avant réponse IA (pour forcer rappel consentement si ni oui ni non)
+  let lastAssistantText = ""; // Dernier message assistant (pour ne pas confondre refus rappel avec refus consentement)
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
@@ -2201,12 +2202,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
   function looksLikeAssistantResponseToRefusal(text) {
     const t = String(text || "").toLowerCase();
+    // Ne pas traiter comme refus d'enregistrement si la réponse parle de rappel (contexte "pas de rappel")
+    if (/\brappel(er|é)?\b/.test(t) || t.includes("être rappelé") || t.includes("pas de rappel")) return false;
     // Réponse explicite au refus d'enregistrement
     if (t.includes("pas enregistré") || t.includes("ne sera pas enregistré")) return true;
     // IA dit que l'enregistrement est désactivé / pas de souci (contexte refus)
     if (t.includes("enregistrement") && (t.includes("désactivé") || t.includes("pas enregistré"))) return true;
     if (t.includes("pas de souci") && t.includes("enregistrement")) return true;
-    // Réponse courtoise de clôture (ex: "D'accord, pas de souci. Au revoir et bonne journée.")
+    // Réponse courtoise de clôture (ex: "D'accord, pas de souci. Au revoir et bonne journée.") — seulement si le dernier message assistant n'était pas une question sur le rappel
+    const lastLower = String(lastAssistantText || "").toLowerCase();
+    const lastWasCallbackQuestion = /\b(rappeler|rappel)\b/.test(lastLower) && (lastLower.includes("souhaitez") || lastLower.includes("voulez") || lastLower.includes("?"));
+    if (lastWasCallbackQuestion) return false;
     if (t.length < 400 && t.includes("pas de souci") && (t.includes("au revoir") || t.includes("bonne journée") || t.includes("nous sommes là") || t.includes("besoin d'aide"))) return true;
     return false;
   }
@@ -3116,6 +3122,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       
       return timeExpression;
     });
+    // Espace manquant entre "environ" et un chiffre (ex: "environ35 minutes" → "environ 35 minutes")
+    t = t.replace(/\benviron(\d)/gi, "environ $1");
     // Format "environ X€" / "environX€" → "(environ X €)" pour prononciation naturelle (entre parenthèses)
     t = t.replace(/\benviron\s*(\d{1,4})\s*€/gi, "(environ $1 €)");
     // IMPORTANT: Traiter les montants AVANT de coller les chiffres séparés
@@ -4052,7 +4060,7 @@ ${vehicleInfoRule}
 
         const closingGuidelines =
           `Fin d'appel:
-- Avant de conclure, dis: "Donnez juste votre numéro de téléphone à l'accueil pour faciliter votre arrivée au garage."
+- Si le client a pris rendez-vous ou a demandé un rappel pour confirmer un RDV: dis "Donnez juste votre numéro de téléphone à l'accueil pour faciliter votre arrivée au garage." Si l'appel était UNIQUEMENT pour une information (pas de RDV pris ni demandé): NE PAS dire cette phrase.
 - En mode demande RDV: rappelle que le garage vous rappelle pour confirmer.
 - RÈGLE ORDRE FIN: Termine TOUJOURS ta dernière phrase par "Au revoir et bonne journée !" à la toute fin. Si le garage est fermé, dis d'abord l'info (À noter, le garage est actuellement fermé ; une personne vous rappellera pour confirmer.), puis termine par "Au revoir et bonne journée !". Ne dis jamais "Au revoir" avant cette info quand le garage est fermé.
 ${garageClosed
@@ -4688,6 +4696,7 @@ But: être naturel et mettre le client en confiance.`,
               }
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
+              lastAssistantText = doneText;
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               // MAIS seulement si c'est pour un autre véhicule (pas si le client confirme la plaque existante)
               const low = String(doneText || "").toLowerCase();
@@ -5171,6 +5180,7 @@ But: être naturel et mettre le client en confiance.`,
               }
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
+              lastAssistantText = doneText; // Pour distinguer refus rappel vs refus consentement au prochain tour
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               // MAIS seulement si ce n'est pas une confirmation de plaque existante
               const low = String(doneText || "").toLowerCase();
@@ -5562,8 +5572,15 @@ But: être naturel et mettre le client en confiance.`,
             }
             // #endregion
             if (refusesConsent && consentRequired && !consentGiven) {
-              console.log("🛑 Client refuse l'enregistrement (transcription), message de refus puis raccrochage.", { userText });
-              playConsentRefusalAndHangup();
+              // Ne pas confondre refus de RAPPEL avec refus d'enregistrement : si la dernière question de l'assistant portait sur le rappel, le "non" du client = pas de rappel
+              const lastLower = String(lastAssistantText || "").toLowerCase();
+              const lastWasCallbackQuestion = /\b(rappeler|rappel)\b/.test(lastLower) && (lastLower.includes("souhaitez") || lastLower.includes("voulez") || lastLower.includes("?"));
+              if (lastWasCallbackQuestion) {
+                if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rappel (pas l'enregistrement), on laisse l'IA conclure.", { userText: userText?.substring(0, 40) });
+              } else {
+                console.log("🛑 Client refuse l'enregistrement (transcription), message de refus puis raccrochage.", { userText });
+                playConsentRefusalAndHangup();
+              }
             } else if (acceptsConsent && consentRequired && !consentGiven) {
               console.log("✅ Client accepte le consentement, ne plus redemander:", { userText });
               consentGiven = true;
