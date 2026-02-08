@@ -88,8 +88,11 @@ const CALL_ANALYSIS_SCHEMA = {
       required: ["gender", "genderConfidence", "genderEvidence", "ageGroup", "emotionalState", "notes", "vehicleMileage", "problemDuration", "problemConditions", "preferredTimeSlots", "constraints", "knowledgeLevel", "communicationStyle", "urgencyReason", "previousGarageExperience"],
       additionalProperties: false,
     },
+    appointmentConfirmedDate: { type: "string" },
+    appointmentConfirmedTime: { type: "string" },
+    appointmentConfirmedService: { type: "string" },
   },
-  required: ["symptoms", "summary", "aiConclusion", "probableCauses", "urgency", "appointmentRecommendation", "clientInsights"],
+  required: ["symptoms", "summary", "aiConclusion", "probableCauses", "urgency", "appointmentRecommendation", "clientInsights", "appointmentConfirmedDate", "appointmentConfirmedTime", "appointmentConfirmedService"],
   additionalProperties: false,
 };
 
@@ -114,7 +117,7 @@ async function handleRunAnalysis(callId, res) {
   const { data: call, error: callError } = await supabase
     .schema("autoguru")
     .from("calls")
-    .select("id, garage_id, consent, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion")
+    .select("id, garage_id, consent, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion, from_number, created_at, service_requested")
     .eq("id", callId)
     .maybeSingle();
 
@@ -145,8 +148,9 @@ async function handleRunAnalysis(callId, res) {
       appointmentMode = settings.appointment_mode;
     }
   }
+  const callDateIso = call.created_at ? new Date(call.created_at).toISOString().slice(0, 10) : null;
   const rdvInstruction = appointmentMode === "internal"
-    ? " Pour le résumé (champ summary) : si un rendez-vous est convenu, écris 'Un rendez-vous est pris pour [jour/créneau]'. Réponds en fr."
+    ? ` Pour le résumé (champ summary) : si un rendez-vous est convenu, écris 'Un rendez-vous est pris pour [jour/créneau]'. RÈGLE OBLIGATOIRE — Rendez-vous qualifié : dès qu'un RDV a été convenu (le client a accepté un créneau), remplis impérativement appointmentConfirmedDate (YYYY-MM-DD, utilise la date d'appel pour l'année), appointmentConfirmedTime (HH:MM, ex. 8h30 → 08:30), appointmentConfirmedService (prestation). Si aucun RDV pris, mets "" pour ces trois champs.${callDateIso ? ` Date de l'appel (pour l'année): ${callDateIso}.` : ""} Réponds en fr.`
     : " Pour le résumé (champ summary) : si le client souhaite un rendez-vous, écris 'Demande de rendez-vous pour [jour/créneau]' (le garage confirmera). Ne jamais écrire 'Un rendez-vous est pris'. Réponds en fr.";
 
   const hasSummary = (call.call_summary ?? "").trim().length > 0;
@@ -175,7 +179,7 @@ async function handleRunAnalysis(callId, res) {
   }
 
   const model = process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
-  const userInput = `Transcription: ${transcript}\nSymptômes déclarés: ${(call.symptom_summary ?? "non précisé")}\n`;
+  const userInput = `Transcription: ${transcript}\nSymptômes déclarés: ${(call.symptom_summary ?? "non précisé")}\n${callDateIso ? `Date de l'appel (utilise cette année pour les dates du type "mercredi 11 février"): ${callDateIso}\n` : ""}`;
 
   try {
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -244,22 +248,72 @@ async function handleRunAnalysis(callId, res) {
       ...(typeof analysis.clientInsights === "object" && analysis.clientInsights ? analysis.clientInsights : {}),
     };
 
+    // Mode internal: RDV convenu → enregistrer sur l'appel et créer l'entrée calendrier (champs structurés + secours via résumé)
+    let aptDate = (analysis.appointmentConfirmedDate ?? "").trim();
+    let aptTime = (analysis.appointmentConfirmedTime ?? "").trim();
+    let aptService = (analysis.appointmentConfirmedService ?? "").trim() || call.service_requested || null;
+    let validDate = !!aptDate && /^\d{4}-\d{2}-\d{2}$/.test(aptDate);
+    let validTime = !!aptTime && /^\d{1,2}:\d{2}(:\d{2})?$/.test(aptTime.replace(/\s/g, ""));
+    let timeNorm = null;
+    if (validTime && aptTime) {
+      const parts = aptTime.replace(/\s/g, "").split(":");
+      if (parts.length >= 2) {
+        const h = (parts[0] || "00").padStart(2, "0");
+        const m = (parts[1] || "00").padStart(2, "0");
+        timeNorm = `${h}:${m}`;
+      }
+    }
+    if (appointmentMode === "internal" && call.garage_id && call.created_at && (!validDate || !timeNorm)) {
+      const summaryForRdv = `${summaryText ?? ""} ${conclusionText ?? ""}`;
+      const rdvPris = /\b(pris\s+rendez-?vous|rendez-?vous\s+(est\s+)?(pris|fixé|convenu)|rdv\s+(pour|à|le))\b/i.test(summaryForRdv) || /\b(mercredi|mardi|jeudi|vendredi|lundi|samedi|dimanche)\s+\d{1,2}\s+(février|janvier|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)/i.test(summaryForRdv);
+      if (rdvPris) {
+        const year = new Date(call.created_at).getFullYear();
+        const mois = { janvier: 1, février: 2, mars: 3, avril: 4, mai: 5, juin: 6, juillet: 7, août: 8, septembre: 9, octobre: 10, novembre: 11, décembre: 12 };
+        const dateMatch = summaryForRdv.match(/(\d{1,2})\s+(février|janvier|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)/i);
+        const timeMatch = summaryForRdv.match(/(\d{1,2})\s*h(?:eures?)?\s*(?:et\s+)?(?:demie|(\d{2}))/i) || summaryForRdv.match(/(\d{1,2})\s*[h:]\s*(\d{2})/i) || summaryForRdv.match(/à\s*(\d{1,2})\s*h/i);
+        if (dateMatch && !validDate && dateMatch[2]) {
+          const day = parseInt(dateMatch[1], 10);
+          const month = mois[dateMatch[2].toLowerCase()];
+          if (day >= 1 && day <= 31 && month) {
+            aptDate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            validDate = true;
+          }
+        }
+        if (timeMatch && !timeNorm) {
+          const h = parseInt(timeMatch[1], 10);
+          const m = timeMatch[2] != null ? parseInt(timeMatch[2], 10) : (summaryForRdv.toLowerCase().includes("demie") ? 30 : 0);
+          if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            timeNorm = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+          }
+        }
+      }
+    }
+
+    const updatePayload = {
+      status: "done",
+      updated_at: new Date().toISOString(),
+      call_summary: summaryText,
+      ai_conclusion: conclusionText,
+      probable_causes: filteredProbableCauses,
+      urgency_level: validUrgency,
+      symptom_summary: Array.isArray(analysis.symptoms)
+        ? analysis.symptoms.filter(Boolean).slice(0, 8).join(" ; ")
+        : null,
+      symptoms: Array.isArray(analysis.symptoms) ? analysis.symptoms : null,
+      client_insights: clientInsights,
+    };
+    if (appointmentMode === "internal" && call.garage_id && validDate && timeNorm) {
+      updatePayload.appointment_confirmed = {
+        appointment_date: aptDate,
+        appointment_time: timeNorm,
+        service_requested: aptService,
+      };
+    }
+
     const { data: updatedRow, error: updateError } = await supabase
       .schema("autoguru")
       .from("calls")
-      .update({
-        status: "done",
-        updated_at: new Date().toISOString(),
-        call_summary: summaryText,
-        ai_conclusion: conclusionText,
-        probable_causes: filteredProbableCauses,
-        urgency_level: validUrgency,
-        symptom_summary: Array.isArray(analysis.symptoms)
-          ? analysis.symptoms.filter(Boolean).slice(0, 8).join(" ; ")
-          : null,
-        symptoms: Array.isArray(analysis.symptoms) ? analysis.symptoms : null,
-        client_insights: clientInsights,
-      })
+      .update(updatePayload)
       .eq("id", callId)
       .select("id, call_summary, ai_conclusion")
       .single();
@@ -267,6 +321,29 @@ async function handleRunAnalysis(callId, res) {
     if (updateError) {
       console.error("[run-analysis] Erreur mise à jour:", updateError);
       return send(500, { error: "db_update_failed", message: updateError.message });
+    }
+
+    if (appointmentMode === "internal" && call.garage_id && validDate && timeNorm) {
+      const phoneNumber = (call.from_number ?? "").toString().replace(/\s+/g, "").trim() || "";
+      const { error: insertErr } = await supabase
+        .schema("autoguru")
+        .from("appointments")
+        .insert({
+          garage_id: call.garage_id,
+          call_id: callId,
+          phone_number: phoneNumber || "inconnu",
+          client_name: "Client",
+          appointment_date: aptDate,
+          appointment_time: timeNorm,
+          service_requested: aptService,
+          status: "scheduled",
+          is_ai_created: true,
+        });
+      if (insertErr) {
+        console.error("[run-analysis] Création RDV calendrier:", insertErr);
+      } else {
+        console.log("[run-analysis] RDV créé dans le calendrier pour appel:", callId, aptDate, timeNorm);
+      }
     }
 
     const writtenSummaryLen = (updatedRow?.call_summary ?? "").length;
@@ -3688,6 +3765,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               })
               .join(" ; ");
             availableAppointmentSlotsLine = `Créneaux disponibles (planning du garage): ${pretty}. Tu DOIS proposer UNIQUEMENT des créneaux de cette liste, en utilisant EXACTEMENT cette formulation (jour + date + heure). Matin = avant 12h, après-midi = 12h et après. Ne dis JAMAIS "il n'y a pas de créneau disponible" sans avoir vérifié TOUS les créneaux de la liste pour le jour et le créneau (matin/après-midi) demandés. Ne invente jamais une date ni un jour de la semaine.`;
+          } else {
+            // Calendrier vide ou API sans créneaux : ne pas faire dire à l'IA "pas de créneau" ou "ce jour n'est pas possible"
+            availableAppointmentSlotsLine = "Calendrier du garage libre (aucun créneau déjà réservé). Tu DOIS proposer des créneaux selon les horaires d'ouverture du garage (section Horaires d'ouverture ci-dessus). Utilise la date du jour (section [Référence interne] Aujourd'hui...) pour proposer des dates concrètes (ex: mercredi 11 février à 8h30, jeudi 12 février le matin). Ne dis JAMAIS que le garage est fermé un jour d'ouverture ni qu'il n'y a pas de créneau disponible. Quand le client dit un jour (ex: jeudi, vendredi), accepte ce jour et propose un créneau (ex: 8h30 ou 9h) sur ce jour.";
           }
         }
 
