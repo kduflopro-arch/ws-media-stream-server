@@ -2781,6 +2781,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Normaliser TOUS les espaces (y compris Unicode nbsp, etc.) en espace normal
     t = t.replace(/[\s\u00a0\u2000-\u200b\u202f\u205f\u3000]+/g, " ");
     t = t.replace(/\.([A-ZÀÂÆÇÉÈÊËÎÏÔÙÛÜŸ])/g, ". $1");
+    // Espace obligatoire après une virgule (demie,9 -> demie, 9)
+    t = t.replace(/,([a-zàâæçéèêëîïôùûü0-9])/gi, ", $1");
+    // "pour" + chiffre sans espace (pour9 -> pour 9)
+    t = t.replace(/\bpour(\d{1,2})(?=\s|$|h|heures?)/gi, "pour $1");
     // Espaces manquants entre déterminant/chiffre et mot+chiffre (dates): "le11" -> "le 11", "mercredi11" -> "mercredi 11"
     t = t.replace(/(^|[\s\.,;:!?])le(\d{1,2})(?=[\s\.,;:!?]|$|[a-zàâæçéèêëîïôùûü])/gi, (_, before, num) => (before || "") + "le " + num);
     t = t.replace(/(^|[\s\.,;:!?])à(\d{1,2})(?=[\s\.,;:!?]|$|h|heures)/gi, (_, before, num) => (before || "") + "à " + num);
@@ -3242,7 +3246,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const compact = String(numbers).replace(/\s+/g, "");
       const num = Number(compact);
       if (num >= 0 && num <= 9999) {
-        const numbersInWords = numberToFrenchWordsTts(num);
+        // TTS plaque: avec tirets pour une lecture claire (trois-cent-quarante-six)
+        const numbersInWords = numberToFrenchWordsTts(num).replace(/\s+/g, "-");
         return `${letters1} ${numbersInWords} ${letters2}`;
       }
       return `${letters1} ${numbers} ${letters2}`;
@@ -3863,11 +3868,11 @@ PRISE DE RENDEZ-VOUS EN MODE INTERNE (IA PREND RDV) — À RESPECTER STRICTEMENT
 1) SÉQUENCE OBLIGATOIRE quand le client a dit OUI à "Vous voulez prendre rendez-vous ?":
    (a) Demande le jour de préférence: "Quel jour vous conviendrait le mieux ?"
    (b) Puis demande matin ou après-midi: "Plutôt le matin ou l'après-midi ?"
-   (c) Ensuite propose des CRÉNEAUX LIBRES (uniquement ceux de la liste "Créneaux disponibles") en communiquant la DATE exacte et l'HEURE exacte. RÈGLE CRITIQUE: si le client a indiqué un JOUR et un CRÉNEAU (matin ou après-midi), tu DOIS proposer UNIQUEMENT des créneaux qui correspondent à ce jour ET à ce créneau (matin = avant 12h, après-midi = 12h et après). Parcours TOUTE la liste pour trouver au moins un créneau correspondant avant de dire qu'aucun n'est disponible. Si le client n'a pas de préférence (jour ou matin/après-midi), propose le créneau le plus proche selon la liste (disponibilité du garage).
+   (c) Ensuite propose des CRÉNEAUX LIBRES (uniquement ceux de la liste "Créneaux disponibles"). RÈGLE CRITIQUE — TOUJOURS indiquer la DATE en premier: dis d'abord "Pour [jour] [date] matin/après-midi," puis les heures (ex: "Pour mercredi 11 février matin, je peux vous proposer à huit heures et demie, 9 heures ou neuf heures et demie. Quel créneau vous convient ?"). Ne propose jamais les heures seules sans avoir dit le jour et la date. RÈGLE CRITIQUE: si le client a indiqué un JOUR et un CRÉNEAU (matin ou après-midi), tu DOIS proposer UNIQUEMENT des créneaux qui correspondent à ce jour ET à ce créneau (matin = avant 12h, après-midi = 12h et après). Parcours TOUTE la liste pour trouver au moins un créneau correspondant avant de dire qu'aucun n'est disponible. Si le client n'a pas de préférence (jour ou matin/après-midi), propose le créneau le plus proche selon la liste (disponibilité du garage).
 2) SI LE CLIENT REFUSE UN CRÉNEAU PROPOSÉ: propose un AUTRE créneau de la liste qui respecte toujours sa préférence (même jour si indiqué, même créneau matin/après-midi si indiqué). Ne dis pas qu'il n'y a plus de créneau sans avoir proposé d'autres options de la liste.
 3) SI LE CLIENT PROPOSE UNE DATE OU UNE HEURE (ex: "jeudi 10h", "samedi après-midi", "demain matin"):
    - Vérifie dans la liste "Créneaux disponibles" si ce créneau figure (même jour, même plage horaire). Utilise la date du jour (section "Aujourd'hui nous sommes...") pour interpréter "demain", "après-demain", etc.
-   - Si le créneau est DANS la liste (libre): confirme le rendez-vous ("Parfait, je vous note [date] à [heure] pour [prestation]. Un SMS de confirmation vous sera envoyé."), puis passe à la confirmation de la plaque si nécessaire.
+   - Si le créneau est DANS la liste (libre): confirme le rendez-vous en répétant EXACTEMENT la date et l'heure que le client a choisies ("Parfait, je vous note [date complète] à [heure exacte dite par le client] pour [prestation]. Un SMS de confirmation vous sera envoyé."). CRITIQUE: note l'heure que le client a DITE (ex: s'il a dit "huit heures et demie" tu notes 8h30 et tu dis "à huit heures et demie", pas "à 9h"). Puis passe à la confirmation de la plaque si nécessaire.
    - Si le créneau N'EST PAS dans la liste (indisponible): propose d'autres créneaux de la liste qui correspondent à sa préférence (ex: pour "samedi après-midi", propose tous les créneaux samedi après-midi de la liste). Ne dis jamais "il n'y a pas de créneau" sans avoir proposé des alternatives de la liste.
 4) VARIANTES UTILES:
    - Client dit "demain" ou "demain matin": traduis avec la date du jour, propose un créneau du lendemain s'il est dans la liste; sinon propose des alternatives de la liste.
