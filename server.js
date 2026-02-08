@@ -3666,16 +3666,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           const slots = await fetchAvailableAppointmentSlots();
           if (slots.length > 0) {
             const pretty = slots
-              .slice(0, 3)
+              .slice(0, 5)
               .map((s) => {
-                const d = new Date(`${s.date}T00:00:00`);
+                const d = new Date(s.date + "T12:00:00");
                 const dateStr = d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
                 return `${dateStr} à ${s.time}`;
               })
               .join(" ; ");
-            availableAppointmentSlotsLine = `Créneaux disponibles (planning du garage): ${pretty}.`;
+            availableAppointmentSlotsLine = `Créneaux disponibles (planning du garage): ${pretty}. Tu DOIS proposer UNIQUEMENT des créneaux de cette liste, en utilisant EXACTEMENT cette formulation (jour + date + heure). Ne invente jamais une date ni un jour de la semaine : vérifie que le jour correspond à la date (ex: le 8 février 2025 est un dimanche, pas un samedi).`;
           }
         }
+
+        const nowForPrompt = new Date();
+        const todayDateLine = `[Référence interne] Aujourd'hui nous sommes ${nowForPrompt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}. Utilise cette date pour raisonner (demain, créneaux, etc.) et pour indiquer le bon jour de la semaine quand tu donnes une date au client. Ne dis JAMAIS cette phrase au client au début de l'appel. Ne donne la date du jour au client QUE s'il demande explicitement (ex: "quelle date sommes-nous ?", "c'est quel jour aujourd'hui ?", "on est le combien ?").`;
 
         const hoursPolicyLine = `Horaires: l'assistant répond 24h/24 et 7j/7 pour vous aider. Le garage, lui, est ouvert selon les horaires d'ouverture ci-dessous (information).`;
         const hoursInfoLine = garageHoursText
@@ -3843,6 +3846,27 @@ IMPORTANT - GESTION DES RENDEZ-VOUS:
   * Si mode rendez-vous = "demande" ou "aucun": tu notes la demande d'annulation et dis: "J'ai bien noté votre demande d'annulation. Le garage vous rappellera pour confirmer."
 - Si le client demande s'il a un rendez-vous: informe-le des rendez-vous à venir listés ci-dessus.
 - Si le client ne mentionne pas modification/annulation, procède normalement (diagnostic, nouveau RDV, etc.).
+- RÈGLE - JOUR INDIQUÉ PAR LE CLIENT: Quand tu as demandé "Quel jour vous conviendrait le mieux ?" et que le client indique un jour (ex: "jeudi", "vendredi"), ce jour fait partie des jours d'ouverture. Tu DOIS l'accepter et passer à l'étape suivante (créneau matin/après-midi ou proposition d'un créneau précis de la liste). Ne répète PAS la liste des jours d'ouverture (ex: "le garage est ouvert entre mercredi et samedi"). Dis par ex. "Parfait, jeudi. Plutôt le matin ou l'après-midi ?" ou si tu as des créneaux précis dans "Créneaux disponibles", propose-en un ou deux qui correspondent au jour dit.
+- En mode interne avec "Créneaux disponibles": propose de préférence des créneaux de cette liste (date + heure exactes). Quand le client dit un jour, identifie dans la liste le créneau qui correspond (ex: client dit "jeudi" → "Je vous propose jeudi 6 février à 10h, ça vous convient ?").
+
+PRISE DE RENDEZ-VOUS EN MODE INTERNE (IA PREND RDV) — À RESPECTER STRICTEMENT:
+1) SÉQUENCE OBLIGATOIRE quand le client a dit OUI à "Vous voulez prendre rendez-vous ?":
+   (a) Demande le jour de préférence: "Quel jour vous conviendrait le mieux ?"
+   (b) Puis demande matin ou après-midi: "Plutôt le matin ou l'après-midi ?"
+   (c) Ensuite propose des CRÉNEAUX LIBRES (uniquement ceux de la liste "Créneaux disponibles") en communiquant la DATE exacte et l'HEURE exacte (ex: "Je vous propose jeudi 6 février à 10h, ou vendredi 7 février à 14h. Lequel vous convient ?"). Si le client n'a pas proposé de date ni d'heure, tu choisis parmi les créneaux disponibles pour le jour et le créneau (matin/après-midi) qu'il a indiqués.
+2) SI LE CLIENT PROPOSE UNE DATE OU UNE HEURE (ex: "jeudi 10h", "lundi après-midi", "demain matin"):
+   - Vérifie dans la liste "Créneaux disponibles" si ce créneau figure (même jour, même plage horaire). Utilise la date du jour (section "Aujourd'hui nous sommes...") pour interpréter "demain", "après-demain", etc.
+   - Si le créneau est DANS la liste (libre): confirme le rendez-vous ("Parfait, je vous note [date] à [heure] pour [prestation]. Un SMS de confirmation vous sera envoyé."), puis passe à la confirmation de la plaque si nécessaire.
+   - Si le créneau N'EST PAS dans la liste (indisponible): dis "Ce créneau n'est pas disponible. Je peux vous proposer [créneau 1] ou [créneau 2], selon la liste. Lequel vous convient ?"
+3) VARIANTES UTILES:
+   - Client dit "demain" ou "demain matin": traduis avec la date du jour, propose un créneau du lendemain s'il est dans la liste; sinon propose des alternatives de la liste.
+   - Client dit "lundi 10h" (ou un jour + heure): vérifie si "lundi [date] à 10h" (ou 10:00) figure dans "Créneaux disponibles"; si oui confirme et annonce le SMS de confirmation; sinon propose d'autres créneaux de la liste.
+   - Client dit "la semaine prochaine": demande "Quel jour de la semaine prochaine ?" ou propose les créneaux de la liste qui sont la semaine prochaine.
+   - Client dit seulement "le matin" sans jour: demande "Quel jour vous conviendrait pour le matin ?"
+   - Client dit "le plus tôt possible": propose le premier créneau de la liste "Créneaux disponibles".
+   - Client dit une date précise sans heure (ex: "jeudi 6 février"): vérifie les créneaux de ce jour dans la liste; propose un ou deux (ex: "Le 6 février je peux vous proposer 10h ou 14h. Lequel vous convient ?").
+   - Après toute confirmation de RDV (créneau validé par le client): annonce qu'un SMS de confirmation sera envoyé, puis enchaîne avec la confirmation de la plaque si nécessaire (voir règles plaque ci-dessus).
+4) Respecte les autres réglages IA: prestations nécessitant vérification stock (tu ne confirmes pas le RDV toi-même, tu prends une demande), consentement explicite du client avant de confirmer, ordre jour → créneau (matin/après-midi) → proposition date+heure → plaque.
 
 Tu dois DÉTECTER automatiquement si le client mentionne "modifier", "changer", "déplacer" pour un rendez-vous, ou "annuler", "annulation" pour un rendez-vous.`;
         };
@@ -3891,6 +3915,7 @@ TON ET STYLE CONVERSATIONNEL (TRÈS IMPORTANT):
 Objectif: comprendre précisément le besoin, rassurer, puis proposer la suite adaptée.
 ${modeLine}
 ${consentLine}
+${todayDateLine}
 ${hoursPolicyLine}
 ${hoursInfoLine ? `${hoursInfoLine}\n` : ""}
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
@@ -4071,9 +4096,10 @@ RÈGLES RDV:
 - Si mode rendez-vous = interne et garage fermé: tu dis qu'une personne rappellera, sans proposer de créneau.
 - MULTI-PRESTATIONS: Le client peut demander une ou plusieurs prestations (ex: diagnostic, parallélisme et équilibrage). Tu les notes toutes et tu confirmes la liste. Si une prestation en comprend une autre (voir "Prestations incluses" ci-dessus), dis au client qu'une seule suffit (ex: "La révision comprend déjà le diagnostic, une révision suffit.").
 - STOCK / DEVIS: Si la section "Prestations nécessitant vérification stock" est présente et que le client demande au moins une de ces prestations (seule ou avec d'autres), tu NE confirmes PAS le rendez-vous toi-même. Tu prends une DEMANDE et tu dis: "Pour cette prestation nous devons vérifier la disponibilité des pièces. Le garage vous rappellera pour confirmer le créneau et vous donner un devis. Quel jour vous conviendrait le mieux ?" Puis jour et créneau (matin/après-midi) et plaque comme d'habitude, mais en précisant que c'est une demande et que le garage rappellera.
-- Si mode rendez-vous = interne et que la ligne "Créneaux disponibles (planning du garage)" est présente dans les instructions:
-  * Tu proposes 1 à 3 créneaux parmi ceux listés, et tu demandes lequel convient.
-  * Tu confirmes seulement après validation explicite du client (sauf si une prestation demande vérification stock: dans ce cas demande uniquement, pas de confirmation).
+- Si mode rendez-vous = interne et que la ligne "Créneaux disponibles (planning du garage)" est présente:
+  * SÉQUENCE: demande "Quel jour vous conviendrait le mieux ?" → "Plutôt le matin ou l'après-midi ?" → propose des créneaux libres de la liste en donnant la DATE et l'HEURE exactes (ex: "Je vous propose jeudi 6 février à 10h, ou vendredi 7 à 14h. Lequel vous convient ?").
+  * Si le client propose une date ou une heure: vérifie si ce créneau est dans la liste; si oui confirme le RDV et annonce l'envoi d'un SMS de confirmation; si non propose des créneaux disponibles.
+  * Tu confirmes le RDV seulement après validation explicite du client. Après confirmation, annonce qu'un SMS de confirmation sera envoyé. (Prestation nécessitant vérification stock: tu prends une demande, pas de confirmation directe.)
 
 TARIFS:
 - Si un tarif est renseigné, tu le donnes et tu précises si le prix peut varier selon le véhicule.
@@ -4158,6 +4184,7 @@ Tu réponds à des appels téléphoniques (style oral, naturel, vivant).
 Objectif: comprendre précisément le besoin, rassurer, puis proposer la suite adaptée.
 ${modeLine}
 ${consentLine}
+${todayDateLine}
 ${hoursPolicyLine}
 ${hoursInfoLine ? `${hoursInfoLine}\n` : ""}
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
