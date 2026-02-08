@@ -2781,9 +2781,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Normaliser TOUS les espaces (y compris Unicode nbsp, etc.) en espace normal
     t = t.replace(/[\s\u00a0\u2000-\u200b\u202f\u205f\u3000]+/g, " ");
     t = t.replace(/\.([A-ZÀÂÆÇÉÈÊËÎÏÔÙÛÜŸ])/g, ". $1");
-    // Espaces manquants: "le11" -> "le 11", "à8" -> "à 8" (modèle génère parfois sans espace)
-    t = t.replace(/\ble(\d{1,2})\b/g, "le $1");
-    t = t.replace(/(\s|^)à(\d{1,2})(?=\s|$|[a-zàâçéèêëîïôûùüÿœ])/gi, (_, before, num) => (before || "") + "à " + num);
+    // Espaces manquants entre déterminant et chiffre (dates/heures): "le11" -> "le 11", "à8" -> "à 8", "du6" -> "du 6"
+    t = t.replace(/(^|[\s\.,;:!?])le(\d{1,2})(?=[\s\.,;:!?]|$|[a-zàâæçéèêëîïôùûü])/gi, (_, before, num) => (before || "") + "le " + num);
+    t = t.replace(/(^|[\s\.,;:!?])à(\d{1,2})(?=[\s\.,;:!?]|$|h|heures)/gi, (_, before, num) => (before || "") + "à " + num);
+    t = t.replace(/(^|[\s\.,;:!?])du(\d{1,2})(?=[\s\.,;:!?]|$|[a-zàâæçéèêëîïôùûü])/gi, (_, before, num) => (before || "") + "du " + num);
+    t = t.replace(/(^|[\s\.,;:!?])la(\d{1,2})(?=[\s\.,;:!?]|$|[a-zàâæçéèêëîïôùûü])/gi, (_, before, num) => (before || "") + "la " + num);
     // CORRECTION FRANÇAIS (ordre: plus long d'abord) — mots coupés/collés par le modèle → français correct pour Minimax
     t = t.replace(/lors\s+du\s+de\s+vis/gi, "lors du devis");
     t = t.replace(/du\s+de\s+vis/gi, "du devis");
@@ -3660,20 +3662,22 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2584',message:'PROMPT SYSTÈME CONSENTEMENT',data:{consentRequired,consentGiven,consentLine:consentLine.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
         // #endregion
 
-        // En mode "internal", on peut proposer de vrais créneaux: on précharge 2-3 suggestions.
+        // En mode "internal", on précharge tous les créneaux renvoyés par l'API (plusieurs jours, matin et après-midi).
         availableAppointmentSlotsLine = "";
         if (appointmentMode === "internal") {
           const slots = await fetchAvailableAppointmentSlots();
           if (slots.length > 0) {
             const pretty = slots
-              .slice(0, 5)
+              .slice(0, 12)
               .map((s) => {
                 const d = new Date(s.date + "T12:00:00");
                 const dateStr = d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-                return `${dateStr} à ${s.time}`;
+                const hourNum = parseInt(s.time.slice(0, 2), 10);
+                const period = hourNum < 12 ? " (matin)" : " (après-midi)";
+                return `${dateStr} à ${s.time}${period}`;
               })
               .join(" ; ");
-            availableAppointmentSlotsLine = `Créneaux disponibles (planning du garage): ${pretty}. Tu DOIS proposer UNIQUEMENT des créneaux de cette liste, en utilisant EXACTEMENT cette formulation (jour + date + heure). Ne invente jamais une date ni un jour de la semaine : vérifie que le jour correspond à la date (ex: le 8 février 2025 est un dimanche, pas un samedi).`;
+            availableAppointmentSlotsLine = `Créneaux disponibles (planning du garage): ${pretty}. Tu DOIS proposer UNIQUEMENT des créneaux de cette liste, en utilisant EXACTEMENT cette formulation (jour + date + heure). Matin = avant 12h, après-midi = 12h et après. Ne dis JAMAIS "il n'y a pas de créneau disponible" sans avoir vérifié TOUS les créneaux de la liste pour le jour et le créneau (matin/après-midi) demandés. Ne invente jamais une date ni un jour de la semaine.`;
           }
         }
 
@@ -3796,7 +3800,7 @@ IMPORTANT - SALUTATION (À RESPECTER STRICTEMENT):
 - Ne dis JAMAIS seulement "Bonjour [nom]" sans Monsieur/Madame quand le genre est défini (homme ou femme). Exemple obligatoire: "${salutationText || "Bonjour " + (salutationName || "client")}" → utilise cette forme.
 
 IMPORTANT - MENTION DES RENDEZ-VOUS EN DÉBUT D'APPEL:
-- Si le client a des rendez-vous à venir listés ci-dessus (section "Rendez-vous à venir"), APRÈS la salutation tu DOIS en une phrase courte mentionner le statut : si c'est une "demande en attente de confirmation par le garage", dis par ex. "Je vois que vous avez une demande de rendez-vous en attente pour le [date] à [heure]." ; si c'est un "rendez-vous enregistré", dis par ex. "Je vois que vous avez un rendez-vous enregistré pour le [date] à [heure]." Puis demande "En quoi puis-je vous aider ?" Ne saute pas cette étape : le client doit savoir que tu as accès à son dossier et au statut de son RDV. IMPORTANT: Toujours mettre un espace après "le" (ex: "le 11 février") et après "à" (ex: "à 8 heures"). Écris "le 11" jamais "le11", et "à 8" jamais "à8".
+- Si le client a des rendez-vous à venir listés ci-dessus (section "Rendez-vous à venir"), APRÈS la salutation tu DOIS en une phrase courte mentionner le statut : si c'est une "demande en attente de confirmation par le garage", dis par ex. "Je vois que vous avez une demande de rendez-vous en attente pour le [date] à [heure]." ; si c'est un "rendez-vous enregistré", dis par ex. "Je vois que vous avez un rendez-vous enregistré pour le [date] à [heure]." Puis demande "En quoi puis-je vous aider ?" Ne saute pas cette étape : le client doit savoir que tu as accès à son dossier et au statut de son RDV. ORTHOGRAPHE OBLIGATOIRE — espace entre déterminant et chiffre: écris toujours "le 11" (jamais le11), "à 8" (jamais à8), "du 6" (jamais du6). Exemples corrects: "le 11 février", "à 8 heures", "du 6 mars".
 
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - RÈGLE PRIORITAIRE - ANNULATION OU MODIFICATION DE RDV: Si le client appelle UNIQUEMENT pour annuler ou modifier un rendez-vous (il dit "annuler", "annulation", "modifier", "changer", "déplacer" son rendez-vous), tu NE demandes PAS la plaque d'immatriculation. Tu ne proposes pas d'envoyer un message pour la plaque. Tu traites la demande d'annulation ou de modification, puis tu proposes "Avez-vous besoin d'autre chose ?". La plaque n'est pas utile pour une annulation ou une modification de rendez-vous.
@@ -3818,6 +3822,7 @@ IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 
 IMPORTANT - COMPRÉHENSION ET CONFIRMATION:
 - Heure et créneau: quand le client dit "10h", "dix heures", "le matin à 10h", "vers 10h", comprends 10h00. "Jeudi matin" + "10h" = jeudi matin à 10h.
+- ORTHOGRAPHE: quand tu écris une date ou une heure, mets TOUJOURS un espace après "le", "à", "du": "le 11 février", "à 8 heures", "du 6 mars" (jamais le11, à8, du6).
 - Si tu n'es pas sûr d'avoir bien compris (jour, heure, créneau), reformule UNE FOIS pour confirmer: "Donc je note jeudi matin vers 10h, c'est bien ça ?" avant de passer à la plaque.
 - Si le client a dû répéter (ex. l'heure), considère que tu as compris et confirme: "Parfait, je note 10h." puis enchaîne (ex. confirmation de la plaque si applicable).
 
@@ -3853,20 +3858,22 @@ PRISE DE RENDEZ-VOUS EN MODE INTERNE (IA PREND RDV) — À RESPECTER STRICTEMENT
 1) SÉQUENCE OBLIGATOIRE quand le client a dit OUI à "Vous voulez prendre rendez-vous ?":
    (a) Demande le jour de préférence: "Quel jour vous conviendrait le mieux ?"
    (b) Puis demande matin ou après-midi: "Plutôt le matin ou l'après-midi ?"
-   (c) Ensuite propose des CRÉNEAUX LIBRES (uniquement ceux de la liste "Créneaux disponibles") en communiquant la DATE exacte et l'HEURE exacte (ex: "Je vous propose jeudi 6 février à 10h, ou vendredi 7 février à 14h. Lequel vous convient ?"). Si le client n'a pas proposé de date ni d'heure, tu choisis parmi les créneaux disponibles pour le jour et le créneau (matin/après-midi) qu'il a indiqués.
-2) SI LE CLIENT PROPOSE UNE DATE OU UNE HEURE (ex: "jeudi 10h", "lundi après-midi", "demain matin"):
+   (c) Ensuite propose des CRÉNEAUX LIBRES (uniquement ceux de la liste "Créneaux disponibles") en communiquant la DATE exacte et l'HEURE exacte. RÈGLE CRITIQUE: si le client a indiqué un JOUR et un CRÉNEAU (matin ou après-midi), tu DOIS proposer UNIQUEMENT des créneaux qui correspondent à ce jour ET à ce créneau (matin = avant 12h, après-midi = 12h et après). Parcours TOUTE la liste pour trouver au moins un créneau correspondant avant de dire qu'aucun n'est disponible. Si le client n'a pas de préférence (jour ou matin/après-midi), propose le créneau le plus proche selon la liste (disponibilité du garage).
+2) SI LE CLIENT REFUSE UN CRÉNEAU PROPOSÉ: propose un AUTRE créneau de la liste qui respecte toujours sa préférence (même jour si indiqué, même créneau matin/après-midi si indiqué). Ne dis pas qu'il n'y a plus de créneau sans avoir proposé d'autres options de la liste.
+3) SI LE CLIENT PROPOSE UNE DATE OU UNE HEURE (ex: "jeudi 10h", "samedi après-midi", "demain matin"):
    - Vérifie dans la liste "Créneaux disponibles" si ce créneau figure (même jour, même plage horaire). Utilise la date du jour (section "Aujourd'hui nous sommes...") pour interpréter "demain", "après-demain", etc.
    - Si le créneau est DANS la liste (libre): confirme le rendez-vous ("Parfait, je vous note [date] à [heure] pour [prestation]. Un SMS de confirmation vous sera envoyé."), puis passe à la confirmation de la plaque si nécessaire.
-   - Si le créneau N'EST PAS dans la liste (indisponible): dis "Ce créneau n'est pas disponible. Je peux vous proposer [créneau 1] ou [créneau 2], selon la liste. Lequel vous convient ?"
-3) VARIANTES UTILES:
+   - Si le créneau N'EST PAS dans la liste (indisponible): propose d'autres créneaux de la liste qui correspondent à sa préférence (ex: pour "samedi après-midi", propose tous les créneaux samedi après-midi de la liste). Ne dis jamais "il n'y a pas de créneau" sans avoir proposé des alternatives de la liste.
+4) VARIANTES UTILES:
    - Client dit "demain" ou "demain matin": traduis avec la date du jour, propose un créneau du lendemain s'il est dans la liste; sinon propose des alternatives de la liste.
    - Client dit "lundi 10h" (ou un jour + heure): vérifie si "lundi [date] à 10h" (ou 10:00) figure dans "Créneaux disponibles"; si oui confirme et annonce le SMS de confirmation; sinon propose d'autres créneaux de la liste.
    - Client dit "la semaine prochaine": demande "Quel jour de la semaine prochaine ?" ou propose les créneaux de la liste qui sont la semaine prochaine.
    - Client dit seulement "le matin" sans jour: demande "Quel jour vous conviendrait pour le matin ?"
    - Client dit "le plus tôt possible": propose le premier créneau de la liste "Créneaux disponibles".
+   - Client dit un jour + "après-midi" (ex: "samedi après-midi"): cherche dans la liste TOUS les créneaux ce jour-là marqués "(après-midi)" (12h et après); propose-en au moins un ou deux. Si aucun pour ce jour dans la liste, propose des créneaux d'un autre jour après-midi au lieu de dire qu'il n'y a rien.
    - Client dit une date précise sans heure (ex: "jeudi 6 février"): vérifie les créneaux de ce jour dans la liste; propose un ou deux (ex: "Le 6 février je peux vous proposer 10h ou 14h. Lequel vous convient ?").
    - Après toute confirmation de RDV (créneau validé par le client): annonce qu'un SMS de confirmation sera envoyé, puis enchaîne avec la confirmation de la plaque si nécessaire (voir règles plaque ci-dessus).
-4) Respecte les autres réglages IA: prestations nécessitant vérification stock (tu ne confirmes pas le RDV toi-même, tu prends une demande), consentement explicite du client avant de confirmer, ordre jour → créneau (matin/après-midi) → proposition date+heure → plaque.
+5) Respecte les autres réglages IA: prestations nécessitant vérification stock (tu ne confirmes pas le RDV toi-même, tu prends une demande), consentement explicite du client avant de confirmer, ordre jour → créneau (matin/après-midi) → proposition date+heure → plaque.
 
 Tu dois DÉTECTER automatiquement si le client mentionne "modifier", "changer", "déplacer" pour un rendez-vous, ou "annuler", "annulation" pour un rendez-vous.`;
         };
