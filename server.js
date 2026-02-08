@@ -2554,9 +2554,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       ws.__processingTexts.delete(normalizedForCompare);
     }, 60_000);
     
-    // Log explicite du texte qui va être prononcé (l'utilisateur pourra le copier facilement)
+    // Log explicite du texte qui va être prononcé (version normalisée = ce que le TTS recevra)
     // IMPORTANT: Ce log est généré APRÈS toutes les vérifications anti-répétition pour éviter les doublons dans les logs
-    console.log(`[AI-SAYS] ${textToSpeak}`);
+    console.log(`[AI-SAYS] ${normalizeFrenchTtsText(textToSpeak)}`);
     
     premiumTtsQueue.push({ text: textToSpeak, interrupt, onComplete: onComplete || null });
     premiumTtsLastText = textToSpeak;
@@ -2781,11 +2781,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Normaliser TOUS les espaces (y compris Unicode nbsp, etc.) en espace normal
     t = t.replace(/[\s\u00a0\u2000-\u200b\u202f\u205f\u3000]+/g, " ");
     t = t.replace(/\.([A-ZÀÂÆÇÉÈÊËÎÏÔÙÛÜŸ])/g, ". $1");
-    // Espaces manquants entre déterminant et chiffre (dates/heures): "le11" -> "le 11", "à8" -> "à 8", "du6" -> "du 6"
+    // Espaces manquants entre déterminant/chiffre et mot+chiffre (dates): "le11" -> "le 11", "mercredi11" -> "mercredi 11"
     t = t.replace(/(^|[\s\.,;:!?])le(\d{1,2})(?=[\s\.,;:!?]|$|[a-zàâæçéèêëîïôùûü])/gi, (_, before, num) => (before || "") + "le " + num);
     t = t.replace(/(^|[\s\.,;:!?])à(\d{1,2})(?=[\s\.,;:!?]|$|h|heures)/gi, (_, before, num) => (before || "") + "à " + num);
     t = t.replace(/(^|[\s\.,;:!?])du(\d{1,2})(?=[\s\.,;:!?]|$|[a-zàâæçéèêëîïôùûü])/gi, (_, before, num) => (before || "") + "du " + num);
     t = t.replace(/(^|[\s\.,;:!?])la(\d{1,2})(?=[\s\.,;:!?]|$|[a-zàâæçéèêëîïôùûü])/gi, (_, before, num) => (before || "") + "la " + num);
+    // Jours de la semaine + chiffre sans espace: "mercredi11" -> "mercredi 11", "samedi7" -> "samedi 7"
+    t = t.replace(/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)(\d{1,2})(?=\s|$|[a-zàâæçéèêëîïôùûü])/gi, "$1 $2");
+    // Mois + chiffre sans espace (ex: "février11")
+    t = t.replace(/\b(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)(\d{1,2})(?=\s|$|[a-zàâæçéèêëîïôùûü])/gi, "$1 $2");
+    // Règle générale: après tout déterminant (ou mot similaire), un espace est obligatoire avant lettre ou chiffre
+    // "le11" -> "le 11", "laclient" -> "la client", "ces3" -> "ces 3", "à8" -> "à 8", etc.
+    t = t.replace(/\b(les|la|le|des|une|un|du|de la|ces|cette|cet|ce|mes|ma|mon|tes|ta|ton|ses|sa|son|nos|notre|vos|votre|leurs|leur|quelles|quelle|quels|quel|aux|au|à)([a-zàâæçéèêëîïôùûüœÿA-Z0-9])/gi, (_, det, next) => det + " " + next);
     // CORRECTION FRANÇAIS (ordre: plus long d'abord) — mots coupés/collés par le modèle → français correct pour Minimax
     t = t.replace(/lors\s+du\s+de\s+vis/gi, "lors du devis");
     t = t.replace(/du\s+de\s+vis/gi, "du devis");
@@ -3800,7 +3807,7 @@ IMPORTANT - SALUTATION (À RESPECTER STRICTEMENT):
 - Ne dis JAMAIS seulement "Bonjour [nom]" sans Monsieur/Madame quand le genre est défini (homme ou femme). Exemple obligatoire: "${salutationText || "Bonjour " + (salutationName || "client")}" → utilise cette forme.
 
 IMPORTANT - MENTION DES RENDEZ-VOUS EN DÉBUT D'APPEL:
-- Si le client a des rendez-vous à venir listés ci-dessus (section "Rendez-vous à venir"), APRÈS la salutation tu DOIS en une phrase courte mentionner le statut : si c'est une "demande en attente de confirmation par le garage", dis par ex. "Je vois que vous avez une demande de rendez-vous en attente pour le [date] à [heure]." ; si c'est un "rendez-vous enregistré", dis par ex. "Je vois que vous avez un rendez-vous enregistré pour le [date] à [heure]." Puis demande "En quoi puis-je vous aider ?" Ne saute pas cette étape : le client doit savoir que tu as accès à son dossier et au statut de son RDV. ORTHOGRAPHE OBLIGATOIRE — espace entre déterminant et chiffre: écris toujours "le 11" (jamais le11), "à 8" (jamais à8), "du 6" (jamais du6). Exemples corrects: "le 11 février", "à 8 heures", "du 6 mars".
+- Si le client a des rendez-vous à venir listés ci-dessus (section "Rendez-vous à venir"), APRÈS la salutation tu DOIS en une phrase courte mentionner le statut : si c'est une "demande en attente de confirmation par le garage", dis par ex. "Je vois que vous avez une demande de rendez-vous en attente pour le [date] à [heure]." ; si c'est un "rendez-vous enregistré", dis par ex. "Je vois que vous avez un rendez-vous enregistré pour le [date] à [heure]." Puis demande "En quoi puis-je vous aider ?" Ne saute pas cette étape : le client doit savoir que tu as accès à son dossier et au statut de son RDV. ORTHOGRAPHE OBLIGATOIRE — espace avant tout chiffre dans une date/heure: "le 11", "à 8", "du 6", "mercredi 11" (jamais le11, à8, du6, mercredi11). Exemples: "le 11 février", "mercredi 11 février", "à 8 heures".
 
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - RÈGLE PRIORITAIRE - ANNULATION OU MODIFICATION DE RDV: Si le client appelle UNIQUEMENT pour annuler ou modifier un rendez-vous (il dit "annuler", "annulation", "modifier", "changer", "déplacer" son rendez-vous), tu NE demandes PAS la plaque d'immatriculation. Tu ne proposes pas d'envoyer un message pour la plaque. Tu traites la demande d'annulation ou de modification, puis tu proposes "Avez-vous besoin d'autre chose ?". La plaque n'est pas utile pour une annulation ou une modification de rendez-vous.
@@ -3822,7 +3829,7 @@ IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 
 IMPORTANT - COMPRÉHENSION ET CONFIRMATION:
 - Heure et créneau: quand le client dit "10h", "dix heures", "le matin à 10h", "vers 10h", comprends 10h00. "Jeudi matin" + "10h" = jeudi matin à 10h.
-- ORTHOGRAPHE: quand tu écris une date ou une heure, mets TOUJOURS un espace après "le", "à", "du": "le 11 février", "à 8 heures", "du 6 mars" (jamais le11, à8, du6).
+- ORTHOGRAPHE: après CHAQUE déterminant (le, la, les, un, une, du, ce, cette, à, au, etc.), un espace est OBLIGATOIRE avant le mot ou le chiffre qui suit. Exemples: "le 11 février", "la client", "à 8 heures", "mercredi 11" (jamais le11, laclient, à8, mercredi11).
 - Si tu n'es pas sûr d'avoir bien compris (jour, heure, créneau), reformule UNE FOIS pour confirmer: "Donc je note jeudi matin vers 10h, c'est bien ça ?" avant de passer à la plaque.
 - Si le client a dû répéter (ex. l'heure), considère que tu as compris et confirme: "Parfait, je note 10h." puis enchaîne (ex. confirmation de la plaque si applicable).
 
