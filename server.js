@@ -5668,10 +5668,24 @@ But: être naturel et mettre le client en confiance.`,
               || /\b(oui\s+)?(je\s+l['']?accepte)\b/i.test(userText);
             const userAffirmative = isAffirmativeFr(userTextNorm);
             const userNegative = isNegativeFr(userTextNorm);
-            const lastLowerIntent = String(lastAssistantText || "").toLowerCase();
-            const lastWasCallbackQuestionIntent = /\b(rappeler|rappel)\b/.test(lastLowerIntent) && (lastLowerIntent.includes("souhaitez") || lastLowerIntent.includes("voulez") || lastLowerIntent.includes("?"));
-            const lastWasRdvQuestionIntent = (/\b(prendre\s*)?(rendez-?vous|rdv)\b/.test(lastLowerIntent) || lastLowerIntent.includes("rendez-vous")) && (lastLowerIntent.includes("voulez") || lastLowerIntent.includes("souhaitez") || lastLowerIntent.includes("prendre") || lastLowerIntent.includes("?"));
-            const lastWasInRdvFlowIntent = /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi|plaque\s*(est|d[''])?\s*\[?/.test(lastLowerIntent) && (lastLowerIntent.includes("?") || lastLowerIntent.includes("convient"));
+            const detectLastQuestionIntent = (assistantText) => {
+              const raw = String(assistantText || "");
+              const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
+              const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase();
+              const asksCallback = /\b(rappel|rappeler|rappelé|recontact|recontacter)\b/.test(target);
+              const asksRdv = /\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target);
+              if (asksCallback && !asksRdv) return "callback";
+              if (asksRdv && !asksCallback) return "rdv";
+              if (asksCallback && asksRdv) {
+                // Quand les deux thèmes apparaissent, l'intention de la dernière question est prioritaire.
+                return target.lastIndexOf("rappel") >= target.lastIndexOf("rendez-vous") ? "callback" : "rdv";
+              }
+              return "unknown";
+            };
+            const lastIntent = detectLastQuestionIntent(lastAssistantText);
+            const lastWasCallbackQuestionIntent = lastIntent === "callback";
+            const lastWasRdvQuestionIntent = lastIntent === "rdv";
+            const lastWasInRdvFlowIntent = lastIntent === "rdv";
             if (userAffirmative) {
               if (lastWasCallbackQuestionIntent) {
                 callbackAcceptedByClient = true;
@@ -5701,10 +5715,10 @@ But: être naturel et mettre le client en confiance.`,
             // #endregion
             if (refusesConsent && consentRequired && !consentGiven) {
               // Ne pas confondre refus RAPPEL ou refus RDV avec refus d'enregistrement : si la dernière question portait sur le rappel, le RDV ou le flux RDV (jour/créneau), le "non" = pas de rappel / pas de RDV
-              const lastLower = String(lastAssistantText || "").toLowerCase();
-              const lastWasCallbackQuestion = /\b(rappeler|rappel)\b/.test(lastLower) && (lastLower.includes("souhaitez") || lastLower.includes("voulez") || lastLower.includes("?"));
-              const lastWasRdvQuestion = (/\b(prendre\s*)?(rendez-?vous|rdv)\b/.test(lastLower) || lastLower.includes("rendez-vous")) && (lastLower.includes("voulez") || lastLower.includes("souhaitez") || lastLower.includes("prendre") || lastLower.includes("?"));
-              const lastWasInRdvFlow = /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi|plaque\s*(est|d[''])?\s*\[?/.test(lastLower) && (lastLower.includes("?") || lastLower.includes("convient"));
+              const lastIntentForConsent = detectLastQuestionIntent(lastAssistantText);
+              const lastWasCallbackQuestion = lastIntentForConsent === "callback";
+              const lastWasRdvQuestion = lastIntentForConsent === "rdv";
+              const lastWasInRdvFlow = lastIntentForConsent === "rdv";
               if (lastWasCallbackQuestion) {
                 callbackRefusedByClient = true; // Pour finalize → callback_type "none" et badge "Pas rappel"
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rappel (pas l'enregistrement), on laisse l'IA conclure.", { userText: userText?.substring(0, 40) });
@@ -5717,10 +5731,10 @@ But: être naturel et mettre le client en confiance.`,
               }
             } else if (consentGiven && refusesConsent) {
               // Consentement déjà donné : si le client dit "non" et la dernière question était RDV, rappel, ou en plein flux RDV (jour/créneau/plaque), enregistrer le refus
-              const lastLower = String(lastAssistantText || "").toLowerCase();
-              const lastWasRdvQuestion = (/\b(prendre\s*)?(rendez-?vous|rdv)\b/.test(lastLower) || lastLower.includes("rendez-vous")) && (lastLower.includes("voulez") || lastLower.includes("souhaitez") || lastLower.includes("prendre") || lastLower.includes("?"));
-              const lastWasInRdvFlow = /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi|plaque\s*(est|d[''])?\s*\[?/.test(lastLower) && (lastLower.includes("?") || lastLower.includes("convient"));
-              const lastWasCallbackQuestion = /\b(rappeler|rappel)\b/.test(lastLower) && (lastLower.includes("souhaitez") || lastLower.includes("voulez") || lastLower.includes("?"));
+              const lastIntentAfterConsent = detectLastQuestionIntent(lastAssistantText);
+              const lastWasRdvQuestion = lastIntentAfterConsent === "rdv";
+              const lastWasInRdvFlow = lastIntentAfterConsent === "rdv";
+              const lastWasCallbackQuestion = lastIntentAfterConsent === "callback";
               if (lastWasRdvQuestion || lastWasInRdvFlow) {
                 rdvRefusedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rendez-vous.", { userText: userText?.substring(0, 40) });
