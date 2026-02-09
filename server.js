@@ -718,7 +718,9 @@ wss.on("connection", (ws, req) => {
   let lastUserTextForConsent = null; // Dernier texte client avant réponse IA (pour forcer rappel consentement si ni oui ni non)
   let lastAssistantText = ""; // Dernier message assistant (pour ne pas confondre refus rappel avec refus consentement)
   let callbackRefusedByClient = false; // Client a refusé d'être rappelé (envoyé au finalize pour badge "Pas rappel")
+  let callbackAcceptedByClient = false; // Client a accepté explicitement d'être rappelé
   let rdvRefusedByClient = false; // Client a refusé de prendre rendez-vous (envoyé au finalize → rdv_requested false)
+  let rdvAcceptedByClient = false; // Client a accepté explicitement la prise de rendez-vous
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
@@ -805,7 +807,9 @@ wss.on("connection", (ws, req) => {
           reason,
           consent_refused: reason === "consent_refused",
           callback_refused_rappele: callbackRefusedByClient,
+          callback_accepted_rappele: callbackAcceptedByClient,
           rdv_refused: rdvRefusedByClient,
+          rdv_accepted: rdvAcceptedByClient,
           plate_confirmed_by_client: plateConfirmedByClient,
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
           consent_granted: consentGiven,
@@ -3363,6 +3367,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return `${compact}${space}euros`;
     });
     
+    // Prononciation plus claire des fourchettes de prix
+    t = t.replace(/\bentre\s+(\d{1,4})\s+et\s+(\d{1,4})\s+euros?\b/gi, (_, a, b) => `de ${a} euros à ${b} euros`);
+
     // Correction prononciation "est-ce que" pour Minimax
     t = t.replace(/\best-ce que\b/gi, "est ce que");
     t = t.replace(/\best ce que\b/gi, "est ce que");
@@ -5681,8 +5688,34 @@ But: être naturel et mettre le client en confiance.`,
               || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|je l'accepte|voilà|voila|je suis d'accord)\b/i.test(userText)
               || /\b(oui\s+)?(je\s+suis\s+d['']?accord|j['']?accepte)\b/i.test(userText)
               || /\b(oui\s+)?(je\s+l['']?accepte)\b/i.test(userText);
+            const userAffirmative = isAffirmativeFr(userTextNorm);
+            const userNegative = isNegativeFr(userTextNorm);
+            const lastLowerIntent = String(lastAssistantText || "").toLowerCase();
+            const lastWasCallbackQuestionIntent = /\b(rappeler|rappel)\b/.test(lastLowerIntent) && (lastLowerIntent.includes("souhaitez") || lastLowerIntent.includes("voulez") || lastLowerIntent.includes("?"));
+            const lastWasRdvQuestionIntent = (/\b(prendre\s*)?(rendez-?vous|rdv)\b/.test(lastLowerIntent) || lastLowerIntent.includes("rendez-vous")) && (lastLowerIntent.includes("voulez") || lastLowerIntent.includes("souhaitez") || lastLowerIntent.includes("prendre") || lastLowerIntent.includes("?"));
+            const lastWasInRdvFlowIntent = /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi|plaque\s*(est|d[''])?\s*\[?/.test(lastLowerIntent) && (lastLowerIntent.includes("?") || lastLowerIntent.includes("convient"));
+            if (userAffirmative) {
+              if (lastWasCallbackQuestionIntent) {
+                callbackAcceptedByClient = true;
+                callbackRefusedByClient = false;
+              }
+              if (lastWasRdvQuestionIntent || lastWasInRdvFlowIntent) {
+                rdvAcceptedByClient = true;
+                rdvRefusedByClient = false;
+              }
+            }
+            if (userNegative) {
+              if (lastWasCallbackQuestionIntent) {
+                callbackRefusedByClient = true;
+                callbackAcceptedByClient = false;
+              }
+              if (lastWasRdvQuestionIntent || lastWasInRdvFlowIntent) {
+                rdvRefusedByClient = true;
+                rdvAcceptedByClient = false;
+              }
+            }
             // Ne pas inclure "nan" dans le refus : souvent mal reconnu pour "oui" au téléphone
-            const refusesConsent = userText.match(/\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(userTextNorm);
+            const refusesConsent = (userNegative || userText.match(/\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i)) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(userTextNorm);
             // #region agent log
             if (acceptsConsent && consentRequired && !consentGiven) {
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3912',message:'CONSENT ACCEPTÉ',data:{userText,transcript,consentRequired,consentGiven},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
