@@ -2794,6 +2794,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // Normaliser TOUS les espaces (y compris Unicode nbsp, etc.) en espace normal
     t = t.replace(/[\s\u00a0\u2000-\u200b\u202f\u205f\u3000]+/g, " ");
     t = t.replace(/\.([A-ZÀÂÆÇÉÈÊËÎÏÔÙÛÜŸ])/g, ". $1");
+    // TTS français: nombres en mots → tirets pour la liaison (ex. "cent quatre vingt dix" → "cent-quatre-vingt-dix")
+    // Ordre: plus long d'abord pour éviter sous-matchs
+    t = t.replace(/\bcent\s+quatre\s+vingt\s+dix\b/gi, "cent-quatre-vingt-dix");
+    t = t.replace(/\bcent\s+quatre\s+vingt\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf)\b/gi, "cent-quatre-vingt-$1");
+    t = t.replace(/\bcent\s+quatre\s+vingt\b/gi, "cent-quatre-vingt");
+    t = t.replace(/\bcent\s+(soixante|cinquante|quarante|trente|vingt)\s+(dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf)\b/gi, (_, tens, units) => `cent-${tens}-${units}`);
+    t = t.replace(/\bquatre\s+vingt\s+dix\b/gi, "quatre-vingt-dix");
+    t = t.replace(/\bquatre\s+vingt\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf)\b/gi, "quatre-vingt-$1");
+    t = t.replace(/\bquatre\s+vingt\b/gi, "quatre-vingt");
+    t = t.replace(/\bsoixante\s+dix\s+(neuf|huit|sept|six|cinq|quatre|trois|deux|un)\b/gi, (_, u) => `soixante-dix-${u}`);
+    t = t.replace(/\bsoixante\s+(onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf)\b/gi, (_, u) => `soixante-${u}`);
+    t = t.replace(/\bsoixante\s+dix\b/gi, "soixante-dix");
     // Espace obligatoire après une virgule (demie,9 -> demie, 9)
     t = t.replace(/,([a-zàâæçéèêëîïôùûü0-9])/gi, ", $1");
     // "pour" + chiffre sans espace (pour9 -> pour 9)
@@ -3158,6 +3170,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\benviron(\d)/gi, "environ $1");
     // Format "environ X€" / "environX€" → "(environ X €)" pour prononciation naturelle (entre parenthèses)
     t = t.replace(/\benviron\s*(\d{1,4})\s*€/gi, "(environ $1 €)");
+    // Montants en mots → chiffres devant "euros"/"€" (ex. "cent-quatre-vingt-dix euros" → "190 euros") pour une lecture TTS claire. Toujours en chiffres, jamais en lettres.
+    t = t.replace(/\bcent\s+quatre\s+vingt\s+dix\s+(?:€|euros?)\b/gi, "190 euros");
+    const euroPhraseToDigit = { "cent-quatre-vingt-dix": 190, "cent-quatre-vingt": 180, "quatre-vingt-dix": 90, "quatre-vingt": 80, "soixante-dix": 70 };
+    for (const [phrase, num] of Object.entries(euroPhraseToDigit)) {
+      t = t.replace(new RegExp(`\\b${phrase.replace(/-/g, "\\-")}\\s+(?:€|euros?)\\b`, "gi"), `${num} euros`);
+    }
+    // Fourchettes: garder les chiffres (ne pas reconvertir en mots) pour "entre X et Y euros" / "de X à Y euros"
+    t = t.replace(/\bentre\s+(\d{1,4})\s+et\s+(\d{1,4})\s+(?:€|euros?)\b/gi, (_, a, b) => `entre ${a} et ${b} euros`);
+    t = t.replace(/\bde\s+(\d{1,4})\s+à\s+(\d{1,4})\s+(?:€|euros?)\b/gi, (_, a, b) => `de ${a} à ${b} euros`);
     // IMPORTANT: Traiter les montants AVANT de coller les chiffres séparés
     // PRIORITÉ 0: Cas "de 1 2 euros" ou "le prix est de 1 2 euros" (avec chiffres séparés + "de" avant)
     t = t.replace(/\b(de|à|est|sont|tarif|prix|coût|montant|facture)\s+(\d(?:\s+\d){1,4})\s+(?:€|euros?)\b/gi, (_, prefix, n) => {
@@ -3191,7 +3212,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // IMPORTANT: Matcher même sans espace entre le nombre et "euros"
     t = t.replace(/\b(\d{1,4})euros?\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
     // PRIORITÉ 5: Normalisation des montants en euros avec espace (ex: "12 euros" -> "douze euros")
+    // Exception: garder les chiffres dans "entre X et Y euros" / "de X à Y euros" (ex. "entre 50 et 190 euros")
     t = t.replace(/\b(\d{1,4})\s+(?:€|euros?)\b/gi, (_, n) => {
+      const inRange = /\b(entre\s+\d+\s+et|de\s+\d+\s+à)\s+\d+\s+euros?/i.test(t) && (t.includes(` et ${n} euros`) || t.includes(` à ${n} euros`));
+      if (inRange) return `${n} euros`;
       const result = `${numberToFrenchWordsTts(n)} euros`;
       // #region agent log
       if (originalText.includes('euros') || originalText.includes('€')) {
@@ -3312,6 +3336,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // CORRECTION: Aussi matcher les nombres collés directement avant "euros" (ex: "12euros")
     t = t.replace(/\b(\d{1,2}(?:\s+\d){0,3})(\s*)(?:€|euros?)\b/gi, (_, n, space) => {
       const compact = String(n).replace(/\s+/g, "");
+      // Garder les chiffres dans les fourchettes "entre X et Y euros" / "de X à Y euros"
+      const inRange = /\b(entre\s+\d+\s+et|de\s+\d+\s+à)\s+\d+\s+euros?/i.test(t) && (t.includes(` et ${compact} euros`) || t.includes(` à ${compact} euros`));
+      if (inRange) return `${compact}${space}euros`;
       // #region agent log
       if (compact === "12" || originalText.match(/\b1\s*2\s*euros?|\b12\s*euros?/i)) {
         fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2191',message:'SÉCURITÉ FINALE matched (12 euros)',data:{originalText,number:n,compact,currentText:t.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
@@ -3675,7 +3702,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           appointmentMode === "none"
             ? "Mode rendez-vous: aucun (tu ne proposes pas de RDV, tu prends un message)."
             : appointmentMode === "internal"
-              ? `Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes UNIQUEMENT après validation explicite du client). RÈGLE ABSOLUE - HORAIRES/INFO UNIQUEMENT: Si le client demande UNIQUEMENT les horaires d'ouverture, les tarifs ou une simple information (sans avoir dit qu'il veut un rendez-vous), tu réponds à sa question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Tu NE dis JAMAIS "Quel jour vous conviendrait le mieux ?" dans ce cas — c'est INTERDIT. "Quel jour vous conviendrait le mieux ?" se dit UNIQUEMENT quand le client vient de répondre OUI à "Vous voulez prendre rendez-vous ?". EXEMPLE INTERDIT: Client "Quels sont les horaires ?" → tu DONNES les horaires puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Tu ne confirmes le rendez-vous QUE si le client donne son consentement explicite. CRITIQUE: Si le client décrit un problème, tu DOIS D'ABORD poser des questions (depuis quand, autres symptômes) AVANT de proposer un diagnostic et de demander "Vous voulez prendre rendez-vous ?".${garageClosed ? " IMPORTANT: Si le garage est fermé, tu NE peux PAS prendre de rendez-vous. Tu dis que le garage est fermé et que quelqu'un rappellera." : ""}`
+              ? `Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes UNIQUEMENT après validation explicite du client). RÈGLE ABSOLUE - HORAIRES/INFO UNIQUEMENT: Si le client demande UNIQUEMENT les horaires d'ouverture, les tarifs ou une simple information (sans avoir dit qu'il veut un rendez-vous), tu réponds à sa question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Tu NE dis JAMAIS "Quel jour vous conviendrait le mieux ?" ni ne donnes les horaires d'ouverture dans ce cas — sauf si le client a demandé les horaires. EXEMPLE: Client "Quel est le tarif d'une vidange ?" → tu donnes UNIQUEMENT le tarif (ex. "entre 50 et 190 euros selon le véhicule"), puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Tu NE donnes PAS les horaires d'ouverture ni ne demandes de jour/crénneau. EXEMPLE: Client "Quels sont les horaires ?" → tu DONNES les horaires puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". "Quel jour vous conviendrait le mieux ?" se dit UNIQUEMENT quand le client vient de répondre OUI à "Vous voulez prendre rendez-vous ?". Tu ne confirmes le rendez-vous QUE si le client donne son consentement explicite. CRITIQUE: Si le client décrit un problème, tu DOIS D'ABORD poser des questions (depuis quand, autres symptômes) AVANT de proposer un diagnostic et de demander "Vous voulez prendre rendez-vous ?".${garageClosed ? " IMPORTANT: Si le garage est fermé, tu NE peux PAS prendre de rendez-vous. Tu dis que le garage est fermé et que quelqu'un rappellera." : ""}`
               : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande et le garage rappelle pour confirmer).";
 
         const consentLine =
@@ -3829,7 +3856,7 @@ IMPORTANT - SALUTATION (À RESPECTER STRICTEMENT):
 - Ne dis JAMAIS seulement "Bonjour [nom]" sans Monsieur/Madame quand le genre est défini (homme ou femme). Exemple obligatoire: "${salutationText || "Bonjour " + (salutationName || "client")}" → utilise cette forme.
 
 IMPORTANT - MENTION DES RENDEZ-VOUS EN DÉBUT D'APPEL:
-- Si le client a des rendez-vous à venir listés ci-dessus (section "Rendez-vous à venir"), APRÈS la salutation tu DOIS en une phrase courte mentionner le statut : si c'est une "demande en attente de confirmation par le garage", dis par ex. "Je vois que vous avez une demande de rendez-vous en attente pour le [date] à [heure]." ; si c'est un "rendez-vous enregistré", dis par ex. "Je vois que vous avez un rendez-vous enregistré pour le [date] à [heure]." Puis demande "En quoi puis-je vous aider ?" Ne saute pas cette étape : le client doit savoir que tu as accès à son dossier et au statut de son RDV. ORTHOGRAPHE (dates/heures seulement): espace avant le chiffre: "le 11 février", "à 8 heures", "mercredi 11" (jamais le11, à8, mercredi11). Fourchettes de prix: "entre 50 et 190 euros", "de 80 à 150 euros" (toujours un espace avant et après les chiffres). Ne pas couper les mots (tarif, mais, cent, samedi, Monsieur, noms).
+- Si le client a des rendez-vous à venir listés ci-dessus (section "Rendez-vous à venir"), APRÈS la salutation tu DOIS en une phrase courte mentionner le statut : si c'est une "demande en attente de confirmation par le garage", dis par ex. "Je vois que vous avez une demande de rendez-vous en attente pour le [date] à [heure]." ; si c'est un "rendez-vous enregistré", dis par ex. "Je vois que vous avez un rendez-vous enregistré pour le [date] à [heure]." Puis demande "En quoi puis-je vous aider ?" Ne saute pas cette étape : le client doit savoir que tu as accès à son dossier et au statut de son RDV. ORTHOGRAPHE (dates/heures seulement): espace avant le chiffre: "le 11 février", "à 8 heures", "mercredi 11" (jamais le11, à8, mercredi11). Fourchettes de prix: TOUJOURS en chiffres, jamais en lettres — "entre 50 et 190 euros", "de 80 à 150 euros" (jamais "cent quatre vingt dix euros"). Espace avant et après les chiffres. Ne pas couper les mots (tarif, mais, cent, samedi, Monsieur, noms).
 
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - RÈGLE PRIORITAIRE - ANNULATION OU MODIFICATION DE RDV: Si le client appelle UNIQUEMENT pour annuler ou modifier un rendez-vous (il dit "annuler", "annulation", "modifier", "changer", "déplacer" son rendez-vous), tu NE demandes PAS la plaque d'immatriculation. Tu ne proposes pas d'envoyer un message pour la plaque. Tu traites la demande d'annulation ou de modification, puis tu proposes "Avez-vous besoin d'autre chose ?". La plaque n'est pas utile pour une annulation ou une modification de rendez-vous.
@@ -3851,7 +3878,7 @@ IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 
 IMPORTANT - COMPRÉHENSION ET CONFIRMATION:
 - Heure et créneau: quand le client dit "10h", "dix heures", "le matin à 10h", "vers 10h", comprends 10h00. "Jeudi matin" + "10h" = jeudi matin à 10h.
-- ORTHOGRAPHE (dates et heures uniquement): espace avant le chiffre dans les dates/heures: "le 11 février", "à 8 heures", "du 6 mars", "mercredi 11 février" (jamais le11, à8, du6, mercredi11). Fourchettes de prix: "entre 50 et 190 euros", "de 80 à 150 euros" (toujours un espace avant et après les chiffres). Ne pas ajouter d'espace au milieu des mots (tarif, mais, cent, samedi, Monsieur, noms de famille, etc.).
+- ORTHOGRAPHE (dates et heures uniquement): espace avant le chiffre dans les dates/heures: "le 11 février", "à 8 heures", "du 6 mars", "mercredi 11 février" (jamais le11, à8, du6, mercredi11). Fourchettes de prix: TOUJOURS en chiffres — "entre 50 et 190 euros", "de 80 à 150 euros" (jamais en lettres). Espace avant et après les chiffres. Ne pas ajouter d'espace au milieu des mots (tarif, mais, cent, samedi, Monsieur, noms de famille, etc.).
 - Si tu n'es pas sûr d'avoir bien compris (jour, heure, créneau), reformule UNE FOIS pour confirmer: "Donc je note jeudi matin vers 10h, c'est bien ça ?" avant de passer à la plaque.
 - Si le client a dû répéter (ex. l'heure), considère que tu as compris et confirme: "Parfait, je note 10h." puis enchaîne (ex. confirmation de la plaque si applicable).
 
