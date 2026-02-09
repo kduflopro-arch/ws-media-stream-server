@@ -3340,30 +3340,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     // CORRECTION: Aussi matcher les nombres collés directement avant "euros" (ex: "12euros")
     t = t.replace(/\b(\d{1,2}(?:\s+\d){0,3})(\s*)(?:€|euros?)\b/gi, (_, n, space) => {
       const compact = String(n).replace(/\s+/g, "");
-      // Garder les chiffres dans les fourchettes "entre X et Y euros" / "de X à Y euros"
-      const inRange = /\b(entre\s+\d+\s+et|de\s+\d+\s+à)\s+\d+\s+euros?/i.test(t) && (t.includes(` et ${compact} euros`) || t.includes(` à ${compact} euros`));
-      if (inRange) return `${compact}${space}euros`;
-      // #region agent log
-      if (compact === "12" || originalText.match(/\b1\s*2\s*euros?|\b12\s*euros?/i)) {
-        fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:2191',message:'SÉCURITÉ FINALE matched (12 euros)',data:{originalText,number:n,compact,currentText:t.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
-      }
-      // #endregion
-      // Ne convertir que si c'est un nombre valide et si ce n'est pas déjà "douze", "treize", etc.
-      if (compact.length <= 4) {
-        const num = Number(compact);
-        if (num >= 0 && num <= 9999) {
-          const wordForm = numberToFrenchWordsTts(num);
-          // CORRECTION: Toujours convertir "12" en "douze" même si "douze" est déjà présent ailleurs
-          // La vérification précédente empêchait la conversion si "douze" était ailleurs dans le texte
-          if (compact === "12") {
-            return `${wordForm} euros`;
-          }
-          // Pour les autres nombres, vérifier si le mot n'est pas déjà présent (pour éviter les doublons)
-          if (!t.includes(`${wordForm} euros`)) {
-            return `${wordForm} euros`;
-          }
-        }
-      }
+      // Prix: toujours en chiffres pour éviter les prononciations instables ("cinquantecent ...")
+      // et garder une diction claire en téléphonie.
       return `${compact}${space}euros`;
     });
     
