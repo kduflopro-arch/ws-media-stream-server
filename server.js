@@ -91,8 +91,10 @@ const CALL_ANALYSIS_SCHEMA = {
     appointmentConfirmedDate: { type: "string" },
     appointmentConfirmedTime: { type: "string" },
     appointmentConfirmedService: { type: "string" },
+    callOutcome: { type: "string" },
+    rdvIncompleteReason: { type: "string" },
   },
-  required: ["symptoms", "summary", "aiConclusion", "probableCauses", "urgency", "appointmentRecommendation", "clientInsights", "appointmentConfirmedDate", "appointmentConfirmedTime", "appointmentConfirmedService"],
+  required: ["symptoms", "summary", "aiConclusion", "probableCauses", "urgency", "appointmentRecommendation", "clientInsights", "appointmentConfirmedDate", "appointmentConfirmedTime", "appointmentConfirmedService", "callOutcome", "rdvIncompleteReason"],
   additionalProperties: false,
 };
 
@@ -150,7 +152,7 @@ async function handleRunAnalysis(callId, res) {
     // "internal" retiré : tout traité en "request"
   }
   const callDateIso = call.created_at ? new Date(call.created_at).toISOString().slice(0, 10) : null;
-  const rdvInstruction = " Pour le résumé (champ summary) : si le client souhaite un rendez-vous, écris 'Demande de rendez-vous pour [jour/créneau]' (le garage confirmera). Ne jamais écrire 'Un rendez-vous est pris'. Réponds en fr.";
+  const rdvInstruction = " Pour le résumé (champ summary) : si le client souhaite un rendez-vous, écris 'Demande de rendez-vous pour [jour/créneau]' (le garage confirmera). Ne jamais écrire 'Un rendez-vous est pris'. RÈGLE APPEL NON ABOUTI : Si le client a demandé un rendez-vous (ou a accepté la proposition de l'IA de prendre un RDV) mais a raccroché avant d'avoir indiqué un jour ou une préférence de créneau (matin/après-midi), tu DOIS remplir callOutcome = 'rdv_incomplete' et rdvIncompleteReason avec une phrase courte (ex: 'Le client a raccroché avant d'indiquer ses préférences de date pour le rendez-vous.'). Dans ce cas, inclus cette raison dans le résumé (summary) et dans la conclusion (aiConclusion). Si le client a seulement demandé des informations (pas de demande de RDV), ou s'il a bien indiqué un jour/créneau avant la fin de l'appel, mets callOutcome = 'completed' et rdvIncompleteReason = ''. Réponds en fr.";
 
   const hasSummary = (call.call_summary ?? "").trim().length > 0;
   const hasConclusion = (call.ai_conclusion ?? "").trim().length > 0;
@@ -247,6 +249,10 @@ async function handleRunAnalysis(callId, res) {
       ...(typeof analysis.clientInsights === "object" && analysis.clientInsights ? analysis.clientInsights : {}),
     };
 
+    const callOutcome = (analysis.callOutcome ?? "").trim();
+    const rdvIncompleteReason = (analysis.rdvIncompleteReason ?? "").trim();
+    const isRdvIncomplete = callOutcome === "rdv_incomplete" && rdvIncompleteReason;
+
     const updatePayload = {
       status: "done",
       updated_at: new Date().toISOString(),
@@ -259,6 +265,8 @@ async function handleRunAnalysis(callId, res) {
         : null,
       symptoms: Array.isArray(analysis.symptoms) ? analysis.symptoms : null,
       client_insights: clientInsights,
+      call_outcome: isRdvIncomplete ? "rdv_incomplete" : "completed",
+      rdv_incomplete_reason: isRdvIncomplete ? rdvIncompleteReason : null,
     };
 
     const { data: updatedRow, error: updateError } = await supabase
