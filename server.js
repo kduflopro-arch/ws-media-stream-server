@@ -144,14 +144,13 @@ async function handleRunAnalysis(callId, res) {
       .select("appointment_mode")
       .eq("garage_id", call.garage_id)
       .maybeSingle();
-    if (settings?.appointment_mode && ["none", "request", "internal"].includes(settings.appointment_mode)) {
+    if (settings?.appointment_mode === "none" || settings?.appointment_mode === "request") {
       appointmentMode = settings.appointment_mode;
     }
+    // "internal" retiré : tout traité en "request"
   }
   const callDateIso = call.created_at ? new Date(call.created_at).toISOString().slice(0, 10) : null;
-  const rdvInstruction = appointmentMode === "internal"
-    ? ` Pour le résumé (champ summary) : si un rendez-vous est convenu, écris 'Un rendez-vous est pris pour [jour/créneau]'. RÈGLE OBLIGATOIRE — Rendez-vous qualifié : dès qu'un RDV a été convenu (le client a accepté un créneau), remplis impérativement appointmentConfirmedDate (YYYY-MM-DD, utilise la date d'appel pour l'année), appointmentConfirmedTime (HH:MM, ex. 8h30 → 08:30), appointmentConfirmedService (prestation). Si aucun RDV pris, mets "" pour ces trois champs.${callDateIso ? ` Date de l'appel (pour l'année): ${callDateIso}.` : ""} Réponds en fr.`
-    : " Pour le résumé (champ summary) : si le client souhaite un rendez-vous, écris 'Demande de rendez-vous pour [jour/créneau]' (le garage confirmera). Ne jamais écrire 'Un rendez-vous est pris'. Réponds en fr.";
+  const rdvInstruction = " Pour le résumé (champ summary) : si le client souhaite un rendez-vous, écris 'Demande de rendez-vous pour [jour/créneau]' (le garage confirmera). Ne jamais écrire 'Un rendez-vous est pris'. Réponds en fr.";
 
   const hasSummary = (call.call_summary ?? "").trim().length > 0;
   const hasConclusion = (call.ai_conclusion ?? "").trim().length > 0;
@@ -248,47 +247,6 @@ async function handleRunAnalysis(callId, res) {
       ...(typeof analysis.clientInsights === "object" && analysis.clientInsights ? analysis.clientInsights : {}),
     };
 
-    // Mode internal: RDV convenu → enregistrer sur l'appel et créer l'entrée calendrier (champs structurés + secours via résumé)
-    let aptDate = (analysis.appointmentConfirmedDate ?? "").trim();
-    let aptTime = (analysis.appointmentConfirmedTime ?? "").trim();
-    let aptService = (analysis.appointmentConfirmedService ?? "").trim() || call.service_requested || null;
-    let validDate = !!aptDate && /^\d{4}-\d{2}-\d{2}$/.test(aptDate);
-    let validTime = !!aptTime && /^\d{1,2}:\d{2}(:\d{2})?$/.test(aptTime.replace(/\s/g, ""));
-    let timeNorm = null;
-    if (validTime && aptTime) {
-      const parts = aptTime.replace(/\s/g, "").split(":");
-      if (parts.length >= 2) {
-        const h = (parts[0] || "00").padStart(2, "0");
-        const m = (parts[1] || "00").padStart(2, "0");
-        timeNorm = `${h}:${m}`;
-      }
-    }
-    if (appointmentMode === "internal" && call.garage_id && call.created_at && (!validDate || !timeNorm)) {
-      const summaryForRdv = `${summaryText ?? ""} ${conclusionText ?? ""}`;
-      const rdvPris = /\b(pris\s+rendez-?vous|rendez-?vous\s+(est\s+)?(pris|fixé|convenu)|rdv\s+(pour|à|le))\b/i.test(summaryForRdv) || /\b(mercredi|mardi|jeudi|vendredi|lundi|samedi|dimanche)\s+\d{1,2}\s+(février|janvier|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)/i.test(summaryForRdv);
-      if (rdvPris) {
-        const year = new Date(call.created_at).getFullYear();
-        const mois = { janvier: 1, février: 2, mars: 3, avril: 4, mai: 5, juin: 6, juillet: 7, août: 8, septembre: 9, octobre: 10, novembre: 11, décembre: 12 };
-        const dateMatch = summaryForRdv.match(/(\d{1,2})\s+(février|janvier|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)/i);
-        const timeMatch = summaryForRdv.match(/(\d{1,2})\s*h(?:eures?)?\s*(?:et\s+)?(?:demie|(\d{2}))/i) || summaryForRdv.match(/(\d{1,2})\s*[h:]\s*(\d{2})/i) || summaryForRdv.match(/à\s*(\d{1,2})\s*h/i);
-        if (dateMatch && !validDate && dateMatch[2]) {
-          const day = parseInt(dateMatch[1], 10);
-          const month = mois[dateMatch[2].toLowerCase()];
-          if (day >= 1 && day <= 31 && month) {
-            aptDate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-            validDate = true;
-          }
-        }
-        if (timeMatch && !timeNorm) {
-          const h = parseInt(timeMatch[1], 10);
-          const m = timeMatch[2] != null ? parseInt(timeMatch[2], 10) : (summaryForRdv.toLowerCase().includes("demie") ? 30 : 0);
-          if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
-            timeNorm = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-          }
-        }
-      }
-    }
-
     const updatePayload = {
       status: "done",
       updated_at: new Date().toISOString(),
@@ -302,13 +260,6 @@ async function handleRunAnalysis(callId, res) {
       symptoms: Array.isArray(analysis.symptoms) ? analysis.symptoms : null,
       client_insights: clientInsights,
     };
-    if (appointmentMode === "internal" && call.garage_id && validDate && timeNorm) {
-      updatePayload.appointment_confirmed = {
-        appointment_date: aptDate,
-        appointment_time: timeNorm,
-        service_requested: aptService,
-      };
-    }
 
     const { data: updatedRow, error: updateError } = await supabase
       .schema("autoguru")
@@ -321,29 +272,6 @@ async function handleRunAnalysis(callId, res) {
     if (updateError) {
       console.error("[run-analysis] Erreur mise à jour:", updateError);
       return send(500, { error: "db_update_failed", message: updateError.message });
-    }
-
-    if (appointmentMode === "internal" && call.garage_id && validDate && timeNorm) {
-      const phoneNumber = (call.from_number ?? "").toString().replace(/\s+/g, "").trim() || "";
-      const { error: insertErr } = await supabase
-        .schema("autoguru")
-        .from("appointments")
-        .insert({
-          garage_id: call.garage_id,
-          call_id: callId,
-          phone_number: phoneNumber || "inconnu",
-          client_name: "Client",
-          appointment_date: aptDate,
-          appointment_time: timeNorm,
-          service_requested: aptService,
-          status: "scheduled",
-          is_ai_created: true,
-        });
-      if (insertErr) {
-        console.error("[run-analysis] Création RDV calendrier:", insertErr);
-      } else {
-        console.log("[run-analysis] RDV créé dans le calendrier pour appel:", callId, aptDate, timeNorm);
-      }
     }
 
     const writtenSummaryLen = (updatedRow?.call_summary ?? "").length;
@@ -6028,7 +5956,10 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalAssistantVoice === "string" && finalAssistantVoice.trim()) assistantVoice = finalAssistantVoice.trim().toLowerCase();
         if (typeof finalGarageTone === "string") garageTone = finalGarageTone.trim();
         if (typeof finalConsentRequired === "string" && finalConsentRequired.trim()) consentRequired = finalConsentRequired.trim().toLowerCase() === "true";
-        if (typeof finalAppointmentMode === "string" && finalAppointmentMode.trim()) appointmentMode = finalAppointmentMode.trim();
+        if (typeof finalAppointmentMode === "string" && finalAppointmentMode.trim()) {
+          const raw = finalAppointmentMode.trim();
+          appointmentMode = raw === "internal" ? "request" : raw;
+        }
         if (typeof finalGarageClosed === "string" && finalGarageClosed.trim()) garageClosed = finalGarageClosed.trim().toLowerCase() === "true";
         if (typeof finalGarageClosedReason === "string") garageClosedReason = String(finalGarageClosedReason || "").trim();
         if (typeof finalGarageClosedText === "string") garageClosedText = String(finalGarageClosedText || "").trim();
