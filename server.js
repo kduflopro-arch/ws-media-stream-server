@@ -5221,6 +5221,17 @@ But: être naturel et mettre le client en confiance.`,
                       devisAcceptedByClient = true;
                       if (LOG_VERBOSE) console.log("ℹ️ Client a accepté une demande de devis (depuis conversation.item.done).", { userText: userText.substring(0, 40) });
                     }
+                    // Secours: IA a demandé la plaque pour le devis et le client a donné/confirmé sa plaque
+                    if (!devisAcceptedByClient && lastAssistantText) {
+                      const lastLow = String(lastAssistantText).toLowerCase();
+                      const assistantAskedPlateForDevis = /\bdevis\b/.test(lastLow) && (/\bplaque\b/.test(lastLow) || /\bimmatriculation\b/.test(lastLow));
+                      const userGavePlate = /[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i.test(ut);
+                      const userConfirmedShort = /^(euh\s+|ben\s+)?(oui|ouais|ouai|ok|voilà|voila|c'est ça|c'est bon)(\s+merci)?\.?$/i.test(ut) || /\b(oui|ouais|ouai|c'est ça|c'est correct|c'est bien)\b/i.test(ut);
+                      if (assistantAskedPlateForDevis && (userGavePlate || userConfirmedShort)) {
+                        devisAcceptedByClient = true;
+                        if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (plaque pour devis, depuis conversation.item.done).", { userText: userText.substring(0, 40) });
+                      }
+                    }
                   }
                 } catch (e) {
                   console.error("❌ Erreur extraction texte user depuis conversation.item.done:", e);
@@ -5803,6 +5814,17 @@ But: être naturel et mettre le client en confiance.`,
             if (lastWasDevisQuestionIntent && (rdvExplicitPositive || userAffirmative || looksLikeAffirmativeForCallback)) {
               devisAcceptedByClient = true;
               if (LOG_VERBOSE) console.log("ℹ️ Client a accepté une demande de devis.", { userText: userText?.substring(0, 40) });
+            }
+            // Secours: si l'IA a demandé la plaque pour le devis et que le client donne/confirme sa plaque → devis demandé
+            if (!devisAcceptedByClient && lastAssistantText) {
+              const lastLow = lastAssistantText.toLowerCase();
+              const assistantAskedPlateForDevis = /\bdevis\b/.test(lastLow) && (/\bplaque\b/.test(lastLow) || /\bimmatriculation\b/.test(lastLow));
+              const userGavePlate = /[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i.test(userTextNorm);
+              const userConfirmedShort = /^(euh\s+|ben\s+)?(oui|ouais|ouai|ok|voilà|voila|c'est ça|c'est bon)(\s+merci)?\.?$/i.test(userTextNorm) || /\b(oui|ouais|ouai|c'est ça|c'est correct|c'est bien)\b/i.test(userTextNorm);
+              if (assistantAskedPlateForDevis && (userGavePlate || userConfirmedShort)) {
+                devisAcceptedByClient = true;
+                if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (plaque donnée/confirmée pour le devis).", { userText: userText?.substring(0, 40) });
+              }
             }
             // Ne pas inclure "nan" dans le refus : souvent mal reconnu pour "oui" au téléphone
             const refusesConsent = (userNegative || userText.match(/\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i)) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(userTextNorm);
