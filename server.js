@@ -5686,24 +5686,27 @@ But: être naturel et mettre le client en confiance.`,
             const lastWasCallbackQuestionIntent = lastIntent === "callback";
             const lastWasRdvQuestionIntent = lastIntent === "rdv";
             const lastWasInRdvFlowIntent = lastIntent === "rdv";
-            if (userAffirmative) {
-              if (lastWasCallbackQuestionIntent) {
+            const callbackExplicitPositive = /\b(oui|ouais|ok|d['’]?accord|je veux|oui je veux|volontiers|avec plaisir|rappeler moi|rappellez moi|rappeler)\b/i.test(userTextNorm);
+            const callbackExplicitNegative = /\b(non|pas besoin|pas de rappel|ne me rappelez pas|je ne veux pas être rappel[ée]?)\b/i.test(userTextNorm);
+            const rdvExplicitPositive = /\b(oui|ouais|ok|d['’]?accord|je veux|prendre rendez-vous|un rendez-vous)\b/i.test(userTextNorm);
+            const rdvExplicitNegative = /\b(non|pas de rendez-vous|pas maintenant|je ne veux pas de rendez-vous)\b/i.test(userTextNorm);
+
+            if (lastWasCallbackQuestionIntent) {
+              if (callbackExplicitNegative || (userNegative && !userAffirmative)) {
+                callbackRefusedByClient = true;
+                callbackAcceptedByClient = false;
+              } else if (callbackExplicitPositive || (userAffirmative && !userNegative) || (userAffirmative && userNegative && /\boui\b/i.test(userTextNorm))) {
                 callbackAcceptedByClient = true;
                 callbackRefusedByClient = false;
               }
-              if (lastWasRdvQuestionIntent || lastWasInRdvFlowIntent) {
-                rdvAcceptedByClient = true;
-                rdvRefusedByClient = false;
-              }
             }
-            if (userNegative) {
-              if (lastWasCallbackQuestionIntent) {
-                callbackRefusedByClient = true;
-                callbackAcceptedByClient = false;
-              }
-              if (lastWasRdvQuestionIntent || lastWasInRdvFlowIntent) {
+            if (lastWasRdvQuestionIntent || lastWasInRdvFlowIntent) {
+              if (rdvExplicitNegative || (userNegative && !userAffirmative)) {
                 rdvRefusedByClient = true;
                 rdvAcceptedByClient = false;
+              } else if (rdvExplicitPositive || (userAffirmative && !userNegative)) {
+                rdvAcceptedByClient = true;
+                rdvRefusedByClient = false;
               }
             }
             // Ne pas inclure "nan" dans le refus : souvent mal reconnu pour "oui" au téléphone
