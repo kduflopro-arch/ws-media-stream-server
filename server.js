@@ -754,7 +754,8 @@ wss.on("connection", (ws, req) => {
     const asksRdv = (/\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target)) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("?"));
     const asksDevisLast = /\b(devis)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("demande")) && target.includes("?");
     const asksDevisAnywhere = /\b(devis)\b/.test(rawLower) && (rawLower.includes("souhaitez") || rawLower.includes("voulez") || rawLower.includes("demande")) && (rawLower.includes("demande de devis") || rawLower.includes("faire une demande"));
-    const asksDevis = asksDevisLast || asksDevisAnywhere;
+    const asksDevisEtablir = /\bdevis\b/.test(rawLower) && (rawLower.includes("établir") || rawLower.includes("etablir")) && (rawLower.includes("plaque") || rawLower.includes("immatriculation"));
+    const asksDevis = asksDevisLast || asksDevisAnywhere || asksDevisEtablir;
     const intent = asksDevis ? "devis" : asksCallback && !asksRdv ? "callback" : asksRdv && !asksCallback ? "rdv" : null;
     if (!intent) return;
     recentAssistantQuestionIntents.push({ intent, ts: nowMs() });
@@ -771,6 +772,18 @@ wss.on("connection", (ws, req) => {
       break;
     }
     return "unknown";
+  }
+  /** Retourne true si le message assistant indique que la demande de devis a été prise (toutes formulations). */
+  function isAssistantConfirmingDevis(assistantText) {
+    const t = String(assistantText || "").toLowerCase();
+    if (!/\bdevis\b/.test(t)) return false;
+    if (t.includes("je note ça pour le devis") || t.includes("je note ca pour le devis")) return true;
+    if (t.includes("préparera le devis") || t.includes("preparera le devis")) return true;
+    if (t.includes("recontactera") || (t.includes("rappellera") && t.includes("devis"))) return true;
+    if ((t.includes("je note la demande") || t.includes("j'ai noté") || t.includes("j'ai note") || t.includes("note la demande") || t.includes("note votre demande")) && t.includes("devis")) return true;
+    if ((t.includes("demande de devis") || t.includes("demande devis")) && (t.includes("noté") || t.includes("note") || t.includes("prise") || t.includes("pris"))) return true;
+    if (t.includes("bien noté") && t.includes("devis")) return true;
+    return false;
   }
 
   function maybeSpeakCallbackAck() {
@@ -840,7 +853,7 @@ wss.on("connection", (ws, req) => {
       if (RUN_ANALYSIS_DELAY_MS > 0) {
         await new Promise((r) => setTimeout(r, RUN_ANALYSIS_DELAY_MS));
       }
-      console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason);
+      console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4863,9 +4876,7 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText;
               recordAssistantQuestionIntent(doneText);
-              // Si l'IA confirme que le devis est noté → devis accepté (badge "Devis demandé")
-              const lowDevisConv = String(doneText || "").toLowerCase();
-              if (/\bdevis\b/.test(lowDevisConv) && (lowDevisConv.includes("je note ça pour le devis") || lowDevisConv.includes("je note ca pour le devis") || lowDevisConv.includes("préparera le devis") || lowDevisConv.includes("preparera le devis") || (lowDevisConv.includes("recontactera") && lowDevisConv.includes("devis")))) {
+              if (isAssistantConfirmingDevis(doneText)) {
                 devisAcceptedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté, conversation.item.done).", { text: doneText.substring(0, 60) });
               }
@@ -5382,9 +5393,7 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText; // Pour distinguer refus rappel vs refus consentement au prochain tour
               recordAssistantQuestionIntent(doneText);
-              // Si l'IA confirme que le devis est noté ("Super, je note ça pour le devis", "le garage préparera le devis") → devis accepté
-              const lowDevis = String(doneText || "").toLowerCase();
-              if (/\bdevis\b/.test(lowDevis) && (lowDevis.includes("je note ça pour le devis") || lowDevis.includes("je note ca pour le devis") || lowDevis.includes("préparera le devis") || lowDevis.includes("preparera le devis") || (lowDevis.includes("recontactera") && lowDevis.includes("devis")))) {
+              if (isAssistantConfirmingDevis(doneText)) {
                 devisAcceptedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté).", { text: doneText.substring(0, 60) });
               }
