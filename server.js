@@ -5739,14 +5739,17 @@ But: être naturel et mettre le client en confiance.`,
             const rdvExplicitPositive = /\b(oui|ouais|ok|d['’]?accord|je veux|prendre rendez-vous|un rendez-vous)\b/i.test(userTextNorm);
             const rdvExplicitNegative = /\b(non|pas de rendez-vous|pas maintenant|je ne veux pas de rendez-vous)\b/i.test(userTextNorm);
 
+            // Rappel : traiter l'acceptation EN PREMIER pour éviter que "oui" mal transcrit soit pris pour un refus
+            const looksLikeAffirmativeForCallback = /\b(oui|ouais|ouai|ok|d['']?accord|volontiers|avec plaisir)\b/i.test(userTextNorm);
+            const looksLikeRefuseForCallback = /\b(non|pas besoin|pas de rappel|ne me rappelez pas)\b/i.test(userTextNorm) && !/\b(oui|ouais|ouai)\b/i.test(userTextNorm);
             if (lastWasCallbackQuestionIntent) {
-              if (callbackExplicitNegative || (userNegative && !userAffirmative)) {
-                callbackRefusedByClient = true;
-                callbackAcceptedByClient = false;
-                maybeSpeakCallbackAck();
-              } else if (callbackExplicitPositive || (userAffirmative && !userNegative) || (userAffirmative && userNegative && /\boui\b/i.test(userTextNorm))) {
+              if (callbackExplicitPositive || (userAffirmative && !userNegative) || looksLikeAffirmativeForCallback) {
                 callbackAcceptedByClient = true;
                 callbackRefusedByClient = false;
+                maybeSpeakCallbackAck();
+              } else if ((callbackExplicitNegative || (userNegative && !userAffirmative)) && looksLikeRefuseForCallback) {
+                callbackRefusedByClient = true;
+                callbackAcceptedByClient = false;
                 maybeSpeakCallbackAck();
               }
             }
@@ -5785,18 +5788,19 @@ But: être naturel et mettre le client en confiance.`,
                 playConsentRefusalAndHangup();
               }
             } else if (consentGiven && refusesConsent) {
-              // Consentement déjà donné : si le client dit "non" et la dernière question était RDV, rappel, ou en plein flux RDV (jour/créneau/plaque), enregistrer le refus
+              // Consentement déjà donné : si le client dit "non" et la dernière question était RDV ou rappel, enregistrer le refus
               const lastIntentAfterConsent = detectLastQuestionIntent(lastAssistantText);
               const recentIntentAfterConsent = getMostRecentAssistantIntent(25000);
               const effectiveIntentAfterConsent = lastIntentAfterConsent !== "unknown" ? lastIntentAfterConsent : recentIntentAfterConsent;
               const lastWasRdvQuestion = effectiveIntentAfterConsent === "rdv";
               const lastWasInRdvFlow = effectiveIntentAfterConsent === "rdv";
               const lastWasCallbackQuestion = effectiveIntentAfterConsent === "callback";
+              const transcriptLooksRefuse = /\b(non|pas besoin|pas de rappel)\b/i.test(userTextNorm) && !/\b(oui|ouais|ouai)\b/i.test(userTextNorm);
               if (lastWasRdvQuestion || lastWasInRdvFlow) {
                 rdvRefusedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rendez-vous.", { userText: userText?.substring(0, 40) });
               }
-              if (lastWasCallbackQuestion) {
+              if (lastWasCallbackQuestion && transcriptLooksRefuse) {
                 callbackRefusedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rappel.", { userText: userText?.substring(0, 40) });
               }
