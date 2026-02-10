@@ -723,6 +723,7 @@ wss.on("connection", (ws, req) => {
   let callbackAcceptedByClient = false; // Client a accepté explicitement d'être rappelé
   let rdvRefusedByClient = false; // Client a refusé de prendre rendez-vous (envoyé au finalize → rdv_requested false)
   let rdvAcceptedByClient = false; // Client a accepté explicitement la prise de rendez-vous
+  let devisAcceptedByClient = false; // Client a accepté une demande de devis (envoyé au finalize → badge "Devis demandé")
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
@@ -750,7 +751,8 @@ wss.on("connection", (ws, req) => {
     const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase();
     const asksCallback = /\b(rappel|rappeler|rappelé|recontact|recontacter)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("?"));
     const asksRdv = (/\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target)) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("?"));
-    const intent = asksCallback && !asksRdv ? "callback" : asksRdv && !asksCallback ? "rdv" : null;
+    const asksDevis = /\b(devis)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("demande")) && target.includes("?");
+    const intent = asksDevis ? "devis" : asksCallback && !asksRdv ? "callback" : asksRdv && !asksCallback ? "rdv" : null;
     if (!intent) return;
     recentAssistantQuestionIntents.push({ intent, ts: nowMs() });
     // garder uniquement les plus récents (mémoire courte)
@@ -849,6 +851,7 @@ wss.on("connection", (ws, req) => {
           consent_refused: reason === "consent_refused",
           callback_refused_rappele: callbackRefusedByClient,
           callback_accepted_rappele: callbackAcceptedByClient,
+          devis_requested: devisAcceptedByClient,
           rdv_refused: rdvRefusedByClient,
           rdv_accepted: rdvAcceptedByClient,
           plate_confirmed_by_client: plateConfirmedByClient,
@@ -4027,7 +4030,7 @@ ${servicesLine ? `${servicesLine}\n` : ""}${servicesStockAndIncludesLine ? `${se
 - EXEMPLE OBLIGATOIRE DE STRUCTURE DE RÉPONSE: "D'accord, un problème de voyant de batterie qui reste allumé peut venir d'un problème de batterie ou du système de charge. Depuis quand avez-vous remarqué ce voyant ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Merci. Avez-vous remarqué d'autres symptômes, comme des difficultés au démarrage ou des phares qui faiblissent ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Je vous propose de venir faire un diagnostic au garage pour ce problème. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" (ATTENDS LA RÉPONSE) Puis selon la réponse: prendre le rendez-vous OU demander si besoin d'autre chose OU dire au revoir.
 - TU GUIDES LE CLIENT, PAS L'INVERSE: Tu poses UNE question à la fois, tu attends la réponse, puis tu continues. Ne laisse JAMAIS le client sans suite concrète, mais ne pose pas plusieurs questions d'affilée.
 - RÈGLE DE FIN DE RÉPONSE: Si tu mentionnes des causes possibles, ta réponse DOIT se terminer par une question. Exemples de questions à poser: "Depuis quand avez-vous remarqué ce problème ?", "Avez-vous remarqué d'autres symptômes ?", "Quand est-ce que cela se produit ?", "Le voyant est-il allumé en permanence ?"
-- RÈGLE RAPPEL INFO (OBLIGATOIRE): Si l'appel est une demande d'information (tarif, horaires, renseignement) et qu'aucun rendez-vous n'est pris, tu DOIS demander avant la fin: "Souhaitez-vous que le garage vous rappelle ?" puis "Avez-vous besoin d'autre chose ?".
+- RÈGLE RAPPEL INFO (OBLIGATOIRE): Si le client demande SEULEMENT des informations (tarif, horaires, renseignement) et qu'aucun rendez-vous n'est pris, tu DOIS TOUJOURS demander avant de clôturer: "Souhaitez-vous que le garage vous rappelle ?" (attendre la réponse), puis "Avez-vous besoin d'autre chose ?". Tu ne dis JAMAIS "Au revoir" sans avoir posé la question de rappel dans ce cas.
 - CONFIRMATION OBLIGATOIRE APRÈS LA RÉPONSE AU RAPPEL:
   - Si le client répond NON (ou réponse négative): tu DOIS dire EXACTEMENT: "Ok, je note : pas de rappel par le garage." puis "Avez-vous besoin d'autre chose ?".
   - Si le client répond OUI (ou réponse positive): tu DOIS dire EXACTEMENT: "Ok, je note : le garage vous rappellera." puis "Avez-vous besoin d'autre chose ?".
@@ -4085,7 +4088,9 @@ INTENTION RDV (TRÈS IMPORTANT):
 - Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
 - Tu déclenches le mode RDV UNIQUEMENT si le client dit explicitement qu'il veut un rendez-vous ou un créneau.
 - RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (ex: "je voudrais un rdv pour une vidange", "prendre rendez-vous pour un diagnostic", "rendez-vous pour la révision", "rdv pour les freins"), tu NE poses PAS de questions de diagnostic ni "depuis quand" — tu PRENDS LE RENDEZ-VOUS DIRECTEMENT. (1) Confirme la prestation et le tarif en une phrase (depuis Tarifs du garage). (2) AVANT de demander le jour, annonce TOUJOURS les horaires d'ouverture du garage (depuis la section Horaires ci-dessus) et les jours de fermeture si présents. (3) Puis "Quel jour vous conviendrait le mieux ?", (4) puis "Plutôt le matin ou l'après-midi ?", (5) puis confirmation de la plaque. Les questions (depuis quand, symptômes) sont UNIQUEMENT quand le client décrit un problème SANS avoir demandé un rdv pour une prestation précise.
-- DEMANDE D'HORAIRES/TARIFS SEULEMENT: Si le client demande UNIQUEMENT "Quels sont les horaires ?", "Vous êtes ouverts quand ?", "C'est quoi le tarif ?", etc. (sans dire qu'il veut un RDV), tu réponds à la question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client dit NON au rendez-vous, tu DOIS ensuite demander explicitement: "Souhaitez-vous que le garage vous rappelle ?" (attendre la réponse). INTERDIT dans ce cas: "Quel jour vous conviendrait le mieux ?", "Quel jour vous arrange ?", ou toute question de créneau — le client n'a pas dit oui au rendez-vous.
+- DEMANDE D'HORAIRES/TARIFS SEULEMENT: Si le client demande UNIQUEMENT "Quels sont les horaires ?", "Vous êtes ouverts quand ?", "C'est quoi le tarif ?", etc. (sans dire qu'il veut un RDV), tu réponds à la question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client dit NON au rendez-vous, tu DOIS ensuite demander "Souhaitez-vous que le garage vous rappelle ?" (attendre la réponse). INTERDIT dans ce cas: "Quel jour vous conviendrait le mieux ?", "Quel jour vous arrange ?", ou toute question de créneau — le client n'a pas dit oui au rendez-vous.
+- INFO SUR UNE PRESTATION (tarif, en quoi consiste, etc.): Après avoir répondu, tu DOIS proposer : "Souhaitez-vous faire une demande de devis auprès du garage ?" Si OUI : demande la plaque d'immatriculation pour le devis ("Pour établir le devis, quelle est votre plaque ?"), note la demande, puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous que le garage vous rappelle ?". Si NON : "Souhaitez-vous que le garage vous rappelle ?" puis "Avez-vous besoin d'autre chose ?".
+- DEVIS EXPLICITE SANS PRIX: Si le client dit "j'aimerais avoir un devis" (ou équivalent) pour une prestation précise SANS avoir demandé le prix, NE PAS annoncer de prix. Demander sa plaque et son kilométrage pour faciliter la prise en charge, ou proposer d'envoyer un message pour qu'il indique plaque et kilométrage. Confirmer la demande de devis une fois les infos obtenues ou le message envoyé.
 - ⚠️ "Ok" / "d'accord" après une explication (ex: "ça peut venir de l'alternateur") = acquiescement à l'explication, PAS demande de rendez-vous. Demande alors: "Souhaitez-vous que je vous prenne un rendez-vous pour ce diagnostic ?" et n'enchaîne sur la prise de RDV QUE si le client répond clairement oui (ex: "oui", "oui je veux bien", "oui prenez-moi un rendez-vous").
 - ⚠️ CRITIQUE - APRÈS LE CONSENTEMENT: Après que le client donne son consentement (dit "oui", "d'accord", "ok" au sujet de l'enregistrement), tu DOIS TOUJOURS demander "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?" ou "Dites-moi, quel est le souci avec votre véhicule ?". NE PROPOSE JAMAIS de rendez-vous juste après le consentement. Le consentement est UNIQUEMENT une autorisation d'enregistrement, PAS une demande de rendez-vous.
 - Si le client donne son consentement mais ne mentionne pas de rendez-vous, tu demandes simplement "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?"
@@ -4152,12 +4157,18 @@ RÈGLE: Pose ces questions NATURELLEMENT, une à la fois. Quand tu proposes un R
         const infoOnlyRappelRule = `
 DÉFINITION - APPEL INFO: Un appel "info" est quand le client appelle pour des questions (horaires, tarifs, adresse, etc.) SANS prendre de rendez-vous.
 
+RÈGLE OBLIGATOIRE - RAPPEL EN CAS D'INFO UNIQUEMENT: Quand le client demande SEULEMENT des informations (horaires, tarif, adresse, renseignement) et qu'aucun rendez-vous n'est pris, tu DOIS TOUJOURS lui demander avant de clôturer : "Souhaitez-vous que le garage vous rappelle ?" ou "Souhaitez-vous être rappelé par le garage ?". Tu ne dois JAMAIS dire "Au revoir" ou terminer l'appel sans avoir posé cette question. C'est OBLIGATOIRE.
+
 QUAND TU DOIS DEMANDER "Souhaitez-vous que le garage vous rappelle ?" (OBLIGATOIRE) — et UNIQUEMENT dans ces cas :
-1) Le client appelle UNIQUEMENT pour une information (sans demander de RDV) : après avoir répondu, tu DOIS demander : "Souhaitez-vous que le garage vous rappelle ?" ou "Souhaitez-vous être rappelé par le garage ?". Puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?".
+1) Le client appelle UNIQUEMENT pour une information (sans demander de RDV) : après avoir répondu à sa question, tu DOIS demander : "Souhaitez-vous que le garage vous rappelle ?" ou "Souhaitez-vous être rappelé par le garage ?". Puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Tu ne clôtures PAS sans avoir posé la question de rappel.
 2) Le client REFUSE une prise de rendez-vous (ex. "non merci", "pas de RDV") : tu DOIS demander : "Souhaitez-vous que le garage vous rappelle ?" avant de clôturer.
 3) Le client souhaite être transféré vers le garage (si option activée) et le garage ne répond pas (ou le transfert est prévu) : tu proposes le rappel : "Souhaitez-vous que le garage vous rappelle ?".
 
-NE PAS demander le rappel dans les autres situations (ex. après un RDV déjà pris, etc.). À la réponse du client (oui/non) on enregistre : info/rappel demandé si oui, info/pas de rappel si non.
+NE PAS demander le rappel dans les autres situations (ex. après un RDV déjà pris, etc.). À la réponse du client (oui/non) on enregistre : Infos (point vert). Les appels info-only ont tous le point "Infos".
+
+DEMANDE DE DEVIS (OBLIGATOIRE pour info sur une prestation): Quand le client demande des informations sur une prestation (tarif, en quoi ça consiste, durée, etc.) SANS prendre rendez-vous, après avoir répondu tu DOIS proposer : "Souhaitez-vous faire une demande de devis auprès du garage ?" (attendre la réponse). Si le client répond OUI : tu DOIS demander sa plaque d'immatriculation pour le devis : "Pour établir le devis, quelle est votre plaque d'immatriculation ?" ou "Quelle est votre plaque pour le devis ?". Une fois la plaque donnée (ou confirmée si déjà connue), tu notes la demande de devis et tu dis que le garage préparera le devis et recontactera le client si besoin. Si le client répond NON à la proposition de devis, tu enchaînes avec "Souhaitez-vous que le garage vous rappelle ?" puis "Avez-vous besoin d'autre chose ?".
+
+DEVIS EXPLICITE SANS DEMANDE DE PRIX (RÈGLE ABSOLUE): Si le client dit explicitement qu'il veut un devis pour une prestation précise (ex: "j'aimerais avoir un devis pour une vidange", "je voudrais un devis pour la révision") et qu'il N'A PAS demandé le prix, tu NE DOIS PAS annoncer de prix au client (sauf s'il le demande ensuite). Tu notes la demande de devis pour la prestation indiquée, puis tu dis que pour faciliter la prise en charge du garage il vous faut sa plaque d'immatriculation et son kilométrage. Tu demandes la plaque et le kilométrage à l'oral, OU tu proposes de lui envoyer un message (SMS) pour qu'il puisse vous indiquer sa plaque et son kilométrage (ex: "Je vous envoie un message, vous pourrez nous indiquer votre plaque et votre kilométrage pour faciliter la prise en charge."). Une fois la plaque et le kilométrage obtenus (ou le message envoyé), tu confirmes que la demande de devis est bien enregistrée et que le garage le recontactera.
 `;
 
         const hardConstraints =
@@ -4174,7 +4185,7 @@ PLAQUE D'IMMATRICULATION (RÈGLE ABSOLUE):
 5) Attends un OUI clair avant d'envoyer le message.
 
 PROCÉDURE RDV (OBLIGATOIRE ET DANS CET ORDRE):
-1) Si le client demande UNIQUEMENT les horaires (ou tarifs, adresse, etc.): donne l'info puis demande "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". NE DIS PAS "Quel jour vous conviendrait le mieux ?" dans ce cas.
+1) Si le client demande UNIQUEMENT les horaires (ou tarifs, adresse, etc.): donne l'info puis demande "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client n'a pas pris de RDV, tu DOIS demander "Souhaitez-vous que le garage vous rappelle ?" avant toute clôture (obligatoire). NE DIS PAS "Quel jour vous conviendrait le mieux ?" dans ce cas.
 ${infoOnlyRappelRule}
 2) Pour un RDV: d'abord demande "Je vous propose de venir faire un diagnostic. Vous voulez prendre rendez-vous ?" (ATTENDS OUI/NON).
 3) SEULEMENT si le client a répondu OUI: alors DANS CET ORDRE (ne pas inverser): (a) "Quel jour vous conviendrait le mieux ?" → attends la réponse ; (b) "Plutôt le matin ou l'après-midi ?" → attends la réponse ; (c) ENSUITE demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?" ou envoi de message si pas de plaque). Ne demande JAMAIS la plaque avant le jour et le créneau matin/après-midi.
@@ -4309,7 +4320,9 @@ INTENTION RDV (TRÈS IMPORTANT):
 - Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
 - Tu déclenches le mode RDV UNIQUEMENT si le client dit explicitement qu'il veut un rendez-vous ou un créneau.
 - RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (ex: "je voudrais un rdv pour une vidange", "prendre rendez-vous pour un diagnostic", "rendez-vous pour la révision", "rdv pour les freins"), tu NE poses PAS de questions de diagnostic ni "depuis quand" — tu PRENDS LE RENDEZ-VOUS DIRECTEMENT. (1) Confirme la prestation et le tarif en une phrase (depuis Tarifs du garage). (2) AVANT de demander le jour, annonce TOUJOURS les horaires d'ouverture du garage (depuis la section Horaires ci-dessus) et les jours de fermeture si présents. (3) Puis "Quel jour vous conviendrait le mieux ?", (4) puis "Plutôt le matin ou l'après-midi ?", (5) puis confirmation de la plaque. Les questions (depuis quand, symptômes) sont UNIQUEMENT quand le client décrit un problème SANS avoir demandé un rdv pour une prestation précise.
-- DEMANDE D'HORAIRES/TARIFS SEULEMENT: Si le client demande UNIQUEMENT "Quels sont les horaires ?", "Vous êtes ouverts quand ?", "C'est quoi le tarif ?", etc. (sans dire qu'il veut un RDV), tu réponds à la question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client dit NON au rendez-vous, tu DOIS ensuite demander explicitement: "Souhaitez-vous que le garage vous rappelle ?" (attendre la réponse). INTERDIT dans ce cas: "Quel jour vous conviendrait le mieux ?", "Quel jour vous arrange ?", ou toute question de créneau — le client n'a pas dit oui au rendez-vous.
+- DEMANDE D'HORAIRES/TARIFS SEULEMENT: Si le client demande UNIQUEMENT "Quels sont les horaires ?", "Vous êtes ouverts quand ?", "C'est quoi le tarif ?", etc. (sans dire qu'il veut un RDV), tu réponds à la question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client dit NON au rendez-vous, tu DOIS ensuite demander "Souhaitez-vous que le garage vous rappelle ?" (attendre la réponse). INTERDIT dans ce cas: "Quel jour vous conviendrait le mieux ?", "Quel jour vous arrange ?", ou toute question de créneau — le client n'a pas dit oui au rendez-vous.
+- INFO SUR UNE PRESTATION (tarif, en quoi consiste, etc.): Après avoir répondu, tu DOIS proposer : "Souhaitez-vous faire une demande de devis auprès du garage ?" Si OUI : demande la plaque d'immatriculation pour le devis ("Pour établir le devis, quelle est votre plaque ?"), note la demande, puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous que le garage vous rappelle ?". Si NON : "Souhaitez-vous que le garage vous rappelle ?" puis "Avez-vous besoin d'autre chose ?".
+- DEVIS EXPLICITE SANS PRIX: Si le client dit "j'aimerais avoir un devis" (ou équivalent) pour une prestation précise SANS avoir demandé le prix, NE PAS annoncer de prix. Demander sa plaque et son kilométrage pour faciliter la prise en charge, ou proposer d'envoyer un message pour qu'il indique plaque et kilométrage. Confirmer la demande de devis une fois les infos obtenues ou le message envoyé.
 - ⚠️ "Ok" / "d'accord" après une explication (ex: "ça peut venir de l'alternateur") = acquiescement à l'explication, PAS demande de rendez-vous. Demande alors: "Souhaitez-vous que je vous prenne un rendez-vous pour ce diagnostic ?" et n'enchaîne sur la prise de RDV QUE si le client répond clairement oui (ex: "oui", "oui je veux bien", "oui prenez-moi un rendez-vous").
 - ⚠️ CRITIQUE - APRÈS LE CONSENTEMENT: Après que le client donne son consentement (dit "oui", "d'accord", "ok" au sujet de l'enregistrement), tu DOIS TOUJOURS demander "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?" ou "Dites-moi, quel est le souci avec votre véhicule ?". NE PROPOSE JAMAIS de rendez-vous juste après le consentement. Le consentement est UNIQUEMENT une autorisation d'enregistrement, PAS une demande de rendez-vous.
 - Si le client donne son consentement mais ne mentionne pas de rendez-vous, tu demandes simplement "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?"
@@ -5718,12 +5731,13 @@ But: être naturel et mettre le client en confiance.`,
               const raw = String(assistantText || "");
               const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
               const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase();
+              const asksDevis = /\b(devis)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("demande"));
               const asksCallback = /\b(rappel|rappeler|rappelé|recontact|recontacter)\b/.test(target);
               const asksRdv = /\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target);
+              if (asksDevis) return "devis";
               if (asksCallback && !asksRdv) return "callback";
               if (asksRdv && !asksCallback) return "rdv";
               if (asksCallback && asksRdv) {
-                // Quand les deux thèmes apparaissent, l'intention de la dernière question est prioritaire.
                 return target.lastIndexOf("rappel") >= target.lastIndexOf("rendez-vous") ? "callback" : "rdv";
               }
               return "unknown";
@@ -5732,6 +5746,7 @@ But: être naturel et mettre le client en confiance.`,
             const recentIntent = getMostRecentAssistantIntent(25000);
             const effectiveIntent = lastIntent !== "unknown" ? lastIntent : recentIntent;
             const lastWasCallbackQuestionIntent = effectiveIntent === "callback";
+            const lastWasDevisQuestionIntent = effectiveIntent === "devis";
             const lastWasRdvQuestionIntent = effectiveIntent === "rdv";
             const lastWasInRdvFlowIntent = effectiveIntent === "rdv";
             const callbackExplicitPositive = /\b(oui|ouais|ok|d['’]?accord|je veux|oui je veux|volontiers|avec plaisir|rappeler moi|rappellez moi|rappeler)\b/i.test(userTextNorm);
@@ -5761,6 +5776,10 @@ But: être naturel et mettre le client en confiance.`,
                 rdvAcceptedByClient = true;
                 rdvRefusedByClient = false;
               }
+            }
+            if (lastWasDevisQuestionIntent && (rdvExplicitPositive || userAffirmative || looksLikeAffirmativeForCallback)) {
+              devisAcceptedByClient = true;
+              if (LOG_VERBOSE) console.log("ℹ️ Client a accepté une demande de devis.", { userText: userText?.substring(0, 40) });
             }
             // Ne pas inclure "nan" dans le refus : souvent mal reconnu pour "oui" au téléphone
             const refusesConsent = (userNegative || userText.match(/\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i)) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(userTextNorm);
