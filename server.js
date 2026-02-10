@@ -4863,6 +4863,12 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText;
               recordAssistantQuestionIntent(doneText);
+              // Si l'IA confirme que le devis est noté → devis accepté (badge "Devis demandé")
+              const lowDevisConv = String(doneText || "").toLowerCase();
+              if (/\bdevis\b/.test(lowDevisConv) && (lowDevisConv.includes("je note ça pour le devis") || lowDevisConv.includes("je note ca pour le devis") || lowDevisConv.includes("préparera le devis") || lowDevisConv.includes("preparera le devis") || (lowDevisConv.includes("recontactera") && lowDevisConv.includes("devis")))) {
+                devisAcceptedByClient = true;
+                if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté, conversation.item.done).", { text: doneText.substring(0, 60) });
+              }
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               // MAIS seulement si c'est pour un autre véhicule (pas si le client confirme la plaque existante)
               const low = String(doneText || "").toLowerCase();
@@ -5376,6 +5382,12 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText; // Pour distinguer refus rappel vs refus consentement au prochain tour
               recordAssistantQuestionIntent(doneText);
+              // Si l'IA confirme que le devis est noté ("Super, je note ça pour le devis", "le garage préparera le devis") → devis accepté
+              const lowDevis = String(doneText || "").toLowerCase();
+              if (/\bdevis\b/.test(lowDevis) && (lowDevis.includes("je note ça pour le devis") || lowDevis.includes("je note ca pour le devis") || lowDevis.includes("préparera le devis") || lowDevis.includes("preparera le devis") || (lowDevis.includes("recontactera") && lowDevis.includes("devis")))) {
+                devisAcceptedByClient = true;
+                if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté).", { text: doneText.substring(0, 60) });
+              }
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               // MAIS seulement si ce n'est pas une confirmation de plaque existante
               const low = String(doneText || "").toLowerCase();
