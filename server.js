@@ -717,11 +717,14 @@ wss.on("connection", (ws, req) => {
   let consentGiven = false; // Track si le consentement a déjà été donné
   let lastUserTextForConsent = null; // Dernier texte client avant réponse IA (pour forcer rappel consentement si ni oui ni non)
   let lastAssistantText = ""; // Dernier message assistant (pour ne pas confondre refus rappel avec refus consentement)
+  // Historique court des intentions de questions posées par l'assistant (pour interpréter "oui/non" même si lastAssistantText est écrasé)
+  let recentAssistantQuestionIntents = []; // Array<{ intent: "callback"|"rdv"; ts: number }>
   let callbackRefusedByClient = false; // Client a refusé d'être rappelé (envoyé au finalize pour badge "Pas rappel")
   let callbackAcceptedByClient = false; // Client a accepté explicitement d'être rappelé
   let rdvRefusedByClient = false; // Client a refusé de prendre rendez-vous (envoyé au finalize → rdv_requested false)
   let rdvAcceptedByClient = false; // Client a accepté explicitement la prise de rendez-vous
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
+  let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   let appointmentMode = "request";
@@ -740,6 +743,44 @@ wss.on("connection", (ws, req) => {
   let faqsSummary = "";
   let ingestSeq = 0;
   let ingestChain = Promise.resolve();
+  function recordAssistantQuestionIntent(text) {
+    const raw = String(text || "");
+    if (!raw) return;
+    const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
+    const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase();
+    const asksCallback = /\b(rappel|rappeler|rappelé|recontact|recontacter)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("?"));
+    const asksRdv = (/\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target)) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("?"));
+    const intent = asksCallback && !asksRdv ? "callback" : asksRdv && !asksCallback ? "rdv" : null;
+    if (!intent) return;
+    recentAssistantQuestionIntents.push({ intent, ts: nowMs() });
+    // garder uniquement les plus récents (mémoire courte)
+    if (recentAssistantQuestionIntents.length > 10) {
+      recentAssistantQuestionIntents = recentAssistantQuestionIntents.slice(-10);
+    }
+  }
+  function getMostRecentAssistantIntent(maxAgeMs = 25000) {
+    const now = nowMs();
+    for (let i = recentAssistantQuestionIntents.length - 1; i >= 0; i--) {
+      const it = recentAssistantQuestionIntents[i];
+      if (now - (it?.ts ?? 0) <= maxAgeMs) return it.intent;
+      break;
+    }
+    return "unknown";
+  }
+
+  function maybeSpeakCallbackAck() {
+    if (callbackAckSpoken) return;
+    if (!consentGiven) return;
+    if (callbackRefusedByClient) {
+      callbackAckSpoken = true;
+      enqueuePremiumTts("Ok, je note : pas de rappel par le garage.", { interrupt: true, source: "callback_ack_refused", allowWithoutUser: false });
+      return;
+    }
+    if (callbackAcceptedByClient) {
+      callbackAckSpoken = true;
+      enqueuePremiumTts("Ok, je note : le garage vous rappellera.", { interrupt: true, source: "callback_ack_accepted", allowWithoutUser: false });
+    }
+  }
   function enqueueIngest(role, text) {
     ingestSeq += 1;
     const seq = ingestSeq;
@@ -3987,6 +4028,9 @@ ${servicesLine ? `${servicesLine}\n` : ""}${servicesStockAndIncludesLine ? `${se
 - TU GUIDES LE CLIENT, PAS L'INVERSE: Tu poses UNE question à la fois, tu attends la réponse, puis tu continues. Ne laisse JAMAIS le client sans suite concrète, mais ne pose pas plusieurs questions d'affilée.
 - RÈGLE DE FIN DE RÉPONSE: Si tu mentionnes des causes possibles, ta réponse DOIT se terminer par une question. Exemples de questions à poser: "Depuis quand avez-vous remarqué ce problème ?", "Avez-vous remarqué d'autres symptômes ?", "Quand est-ce que cela se produit ?", "Le voyant est-il allumé en permanence ?"
 - RÈGLE RAPPEL INFO (OBLIGATOIRE): Si l'appel est une demande d'information (tarif, horaires, renseignement) et qu'aucun rendez-vous n'est pris, tu DOIS demander avant la fin: "Souhaitez-vous que le garage vous rappelle ?" puis "Avez-vous besoin d'autre chose ?".
+- CONFIRMATION OBLIGATOIRE APRÈS LA RÉPONSE AU RAPPEL:
+  - Si le client répond NON (ou réponse négative): tu DOIS dire EXACTEMENT: "Ok, je note : pas de rappel par le garage." puis "Avez-vous besoin d'autre chose ?".
+  - Si le client répond OUI (ou réponse positive): tu DOIS dire EXACTEMENT: "Ok, je note : le garage vous rappellera." puis "Avez-vous besoin d'autre chose ?".
 
 RÈGLES D'ÉCOUTE ACTIVE:
 - Tu écoutes ATTENTIVEMENT et tu réponds EXACTEMENT à CE QUE le client dit (pas de scénarios pré-écrits ni de suppositions).
@@ -4799,6 +4843,7 @@ But: être naturel et mettre le client en confiance.`,
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText;
+              recordAssistantQuestionIntent(doneText);
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               // MAIS seulement si c'est pour un autre véhicule (pas si le client confirme la plaque existante)
               const low = String(doneText || "").toLowerCase();
@@ -5283,6 +5328,7 @@ But: être naturel et mettre le client en confiance.`,
               // Remonter l'IA dans AutoGuru (détails d'appel)
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText; // Pour distinguer refus rappel vs refus consentement au prochain tour
+              recordAssistantQuestionIntent(doneText);
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               // MAIS seulement si ce n'est pas une confirmation de plaque existante
               const low = String(doneText || "").toLowerCase();
@@ -5683,9 +5729,11 @@ But: être naturel et mettre le client en confiance.`,
               return "unknown";
             };
             const lastIntent = detectLastQuestionIntent(lastAssistantText);
-            const lastWasCallbackQuestionIntent = lastIntent === "callback";
-            const lastWasRdvQuestionIntent = lastIntent === "rdv";
-            const lastWasInRdvFlowIntent = lastIntent === "rdv";
+            const recentIntent = getMostRecentAssistantIntent(25000);
+            const effectiveIntent = lastIntent !== "unknown" ? lastIntent : recentIntent;
+            const lastWasCallbackQuestionIntent = effectiveIntent === "callback";
+            const lastWasRdvQuestionIntent = effectiveIntent === "rdv";
+            const lastWasInRdvFlowIntent = effectiveIntent === "rdv";
             const callbackExplicitPositive = /\b(oui|ouais|ok|d['’]?accord|je veux|oui je veux|volontiers|avec plaisir|rappeler moi|rappellez moi|rappeler)\b/i.test(userTextNorm);
             const callbackExplicitNegative = /\b(non|pas besoin|pas de rappel|ne me rappelez pas|je ne veux pas être rappel[ée]?)\b/i.test(userTextNorm);
             const rdvExplicitPositive = /\b(oui|ouais|ok|d['’]?accord|je veux|prendre rendez-vous|un rendez-vous)\b/i.test(userTextNorm);
@@ -5695,9 +5743,11 @@ But: être naturel et mettre le client en confiance.`,
               if (callbackExplicitNegative || (userNegative && !userAffirmative)) {
                 callbackRefusedByClient = true;
                 callbackAcceptedByClient = false;
+                maybeSpeakCallbackAck();
               } else if (callbackExplicitPositive || (userAffirmative && !userNegative) || (userAffirmative && userNegative && /\boui\b/i.test(userTextNorm))) {
                 callbackAcceptedByClient = true;
                 callbackRefusedByClient = false;
+                maybeSpeakCallbackAck();
               }
             }
             if (lastWasRdvQuestionIntent || lastWasInRdvFlowIntent) {
@@ -5719,9 +5769,11 @@ But: être naturel et mettre le client en confiance.`,
             if (refusesConsent && consentRequired && !consentGiven) {
               // Ne pas confondre refus RAPPEL ou refus RDV avec refus d'enregistrement : si la dernière question portait sur le rappel, le RDV ou le flux RDV (jour/créneau), le "non" = pas de rappel / pas de RDV
               const lastIntentForConsent = detectLastQuestionIntent(lastAssistantText);
-              const lastWasCallbackQuestion = lastIntentForConsent === "callback";
-              const lastWasRdvQuestion = lastIntentForConsent === "rdv";
-              const lastWasInRdvFlow = lastIntentForConsent === "rdv";
+              const recentIntentForConsent = getMostRecentAssistantIntent(25000);
+              const effectiveIntentForConsent = lastIntentForConsent !== "unknown" ? lastIntentForConsent : recentIntentForConsent;
+              const lastWasCallbackQuestion = effectiveIntentForConsent === "callback";
+              const lastWasRdvQuestion = effectiveIntentForConsent === "rdv";
+              const lastWasInRdvFlow = effectiveIntentForConsent === "rdv";
               if (lastWasCallbackQuestion) {
                 callbackRefusedByClient = true; // Pour finalize → callback_type "none" et badge "Pas rappel"
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rappel (pas l'enregistrement), on laisse l'IA conclure.", { userText: userText?.substring(0, 40) });
@@ -5735,9 +5787,11 @@ But: être naturel et mettre le client en confiance.`,
             } else if (consentGiven && refusesConsent) {
               // Consentement déjà donné : si le client dit "non" et la dernière question était RDV, rappel, ou en plein flux RDV (jour/créneau/plaque), enregistrer le refus
               const lastIntentAfterConsent = detectLastQuestionIntent(lastAssistantText);
-              const lastWasRdvQuestion = lastIntentAfterConsent === "rdv";
-              const lastWasInRdvFlow = lastIntentAfterConsent === "rdv";
-              const lastWasCallbackQuestion = lastIntentAfterConsent === "callback";
+              const recentIntentAfterConsent = getMostRecentAssistantIntent(25000);
+              const effectiveIntentAfterConsent = lastIntentAfterConsent !== "unknown" ? lastIntentAfterConsent : recentIntentAfterConsent;
+              const lastWasRdvQuestion = effectiveIntentAfterConsent === "rdv";
+              const lastWasInRdvFlow = effectiveIntentAfterConsent === "rdv";
+              const lastWasCallbackQuestion = effectiveIntentAfterConsent === "callback";
               if (lastWasRdvQuestion || lastWasInRdvFlow) {
                 rdvRefusedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rendez-vous.", { userText: userText?.substring(0, 40) });
