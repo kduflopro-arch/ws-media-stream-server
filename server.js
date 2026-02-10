@@ -4256,6 +4256,10 @@ ${garageClosed
 - Tu peux alterner "Bonjour", "Salut", "Oui allô", mais reste professionnel.
 - N'enchaîne pas deux fois "Garage X, bonjour" dans la même phrase.`;
 
+        // Version courte des contraintes pour la mise à jour "avec client" uniquement (évite doublon avec le bloc RÈGLES ESSENTIELLES).
+        const hardConstraintsCompact =
+          `PROTOCOLE (obligatoire): Pas de marque ni modèle véhicule. Plaque uniquement par SMS ou confirmation dossier, jamais à l'oral. Devis accepté → ne jamais demander "Souhaitez-vous que le garage vous rappelle ?". RDV: ordre jour → créneau → plaque. Une question à la fois. Annulation/modif RDV: ne pas demander la plaque.`;
+
         const neutralPersona =
           `Persona: assistant téléphonique professionnel, cordial, chaleureux et concis.`;
 
@@ -4308,43 +4312,37 @@ ${garageClosed
           
           console.log("📋 Section DÉTECTION CLIENT générée:", newClientInfoLine.substring(0, 400));
           
-          // Prompt COMPACT "avec client" pour rester sous la limite API 16384 tokens sans tronquer.
-          // On limite la taille des blocs optionnels (services, FAQ) et on utilise des règles condensées.
-          const MAX_SERVICES_CHARS = 2200;
-          const MAX_FAQS_CHARS = 600;
-          const servicesForCompact = (servicesLine || "").length > MAX_SERVICES_CHARS
-            ? (servicesLine || "").slice(0, MAX_SERVICES_CHARS) + "..."
-            : (servicesLine || "");
-          const faqsForCompact = (faqsLine || "").length > MAX_FAQS_CHARS
-            ? (faqsLine || "").slice(0, MAX_FAQS_CHARS) + "..."
-            : (faqsLine || "");
+          // Prompt COURT dédié "avec client": une seule formulation des règles, pas de FAQ, tarifs/prestations en une ligne, contraintes compactes (dédoublonnage).
+          const pricingOneLine = (pricingSummary && String(pricingSummary).trim())
+            ? `Tarifs: ${String(pricingSummary).trim()}`
+            : "Tarifs: sur devis ou à confirmer.";
+          const servicesOneLine = (servicesSummary && String(servicesSummary).trim())
+            ? String(servicesSummary).trim().slice(0, 500) + (String(servicesSummary).trim().length > 500 ? "..." : "")
+            : "";
+          const stockOneLine = (servicesStockAndIncludesLine && String(servicesStockAndIncludesLine).trim())
+            ? String(servicesStockAndIncludesLine).trim().slice(0, 200) + (String(servicesStockAndIncludesLine).trim().length > 200 ? "..." : "")
+            : "";
           
-          const updatedBaseInstructions = `PROTOCOLE STRICT — AUCUN DÉRAPAGE: Tu DOIS suivre UNIQUEMENT le protocole défini ici. Pas de marque/modèle véhicule, pas de "préparer les pièces". Ne pas inventer d'étapes.
-
-Tu es ${assistantName}, l'assistant(e) téléphonique de ${garageLabel}. Appels téléphoniques, style oral et naturel. Objectif: comprendre le besoin, rassurer, proposer la suite adaptée.
+          const updatedBaseInstructions = `Tu es ${assistantName}, assistant(e) de ${garageLabel}. Appels téléphoniques, oral et naturel. Objectif: besoin du client, rassurer, proposer la suite.
 ${modeLine}
 ${consentLine}
 ${todayDateLine}
 ${hoursPolicyLine}
 ${hoursInfoLine ? `${hoursInfoLine}\n` : ""}${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}${closedInfoLine}
-${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
-${servicesForCompact ? `Services disponibles (résumé):\n${servicesForCompact}\n` : ""}${servicesStockAndIncludesLine ? `${servicesStockAndIncludesLine}\n` : ""}${faqsForCompact ? `FAQ (résumé):\n${faqsForCompact}\n` : ""}${newClientInfoLine}\n\n${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLES ESSENTIELLES (À RESPECTER):
-- Écoute: réponds à CE QUE le client dit. Si "non", confirmes puis alternative. Une question à la fois.
-- Après consentement: demande UNIQUEMENT "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?". JAMAIS "marque et modèle" ni "pour préparer les pièces". Pas de RDV supposé après un simple "oui" au consentement.
-- Info prestation: après ta réponse, propose "Souhaitez-vous faire une demande de devis ?" Si NON → "D'accord, pas de devis." puis "Souhaitez-vous que le garage vous rappelle ?" Si OUI (devis): plaque par SMS/dossier (annonce plaque si en dossier "Est-ce bien correct ?", sinon "Je vais vous envoyer un message pour la plaque"). Une fois devis noté: "Avez-vous besoin d'autre chose ?" UNIQUEMENT. NE JAMAIS demander "Souhaitez-vous que le garage vous rappelle ?" après un devis accepté.
-- Horaires/tarifs seulement: donne l'info puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si pas de RDV, demande "Souhaitez-vous que le garage vous rappelle ?" avant de clôturer. Ne dis pas "Quel jour ?" si le client n'a pas dit oui au RDV.
-- RDV: uniquement si le client a dit qu'il veut un rendez-vous. Ordre: (1) confirme prestation + tarif, (2) annonce horaires, (3) "Quel jour vous conviendrait ?" (4) "Plutôt matin ou après-midi ?" (5) confirmation plaque ("Votre plaque est [X]. Est-ce bien correct ?" ou message si pas de plaque). Jamais la plaque avant jour et créneau.
-- Plaque: uniquement par SMS ou confirmation dossier. Jamais à l'oral. Pour annulation/modification RDV uniquement: ne pas demander la plaque.
-- Ne pas inventer infos garage; si pas renseigné dis "Je n'ai pas l'info exacte" et propose devis/rappel. Réponses courtes + une question. Fin: "Avez-vous besoin d'autre chose ?" puis si besoin "Souhaitez-vous que le garage vous rappelle ?" (sauf après devis accepté).`;
+${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingOneLine}
+${servicesOneLine ? `Prestations (résumé): ${servicesOneLine}\n` : ""}${stockOneLine ? `${stockOneLine}\n` : ""}${newClientInfoLine}
+${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLES (une seule formulation):
+Consentement → "En quoi puis-je vous aider ?" uniquement. Jamais marque/modèle ni "préparer les pièces". Info prestation → propose devis; si oui: plaque SMS/dossier puis "Avez-vous besoin d'autre chose ?" (pas de question rappel après devis). Si non devis → "Souhaitez-vous que le garage vous rappelle ?" Horaires/tarifs seuls → pas "Quel jour ?"; demande rappel si pas RDV. RDV: ordre jour → créneau → plaque. Plaque: SMS ou dossier uniquement. Annulation RDV: pas de plaque. Réponses courtes, une question.`;
           
           let baseForUpdate = updatedBaseInstructions;
-          let updatedInstructions = `${baseForUpdate}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
-          // Filet de sécurité: limite API 16384 tokens. Le prompt "avec client" est déjà compact par conception; si cas limite (ex. client avec très long bloc), on tronque.
-          const REALTIME_INSTRUCTIONS_MAX_CHARS = 45800;
+          // Avec client: on utilise hardConstraintsCompact (pas de doublon avec le bloc RÈGLES ci-dessus).
+          let updatedInstructions = `${baseForUpdate}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraintsCompact}\n\n${closingGuidelines}`;
+          // Limite stricte: 16384 tokens. 43000 chars ≈ 16200 tokens max.
+          const REALTIME_INSTRUCTIONS_MAX_CHARS = 43000;
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
-            const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
+            const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraintsCompact}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
-            const truncNote = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel.]";
+            const truncNote = "\n\n[RÈGLES PRIORITAIRES: NE JAMAIS demander la marque ou le modèle du véhicule. Plaque par SMS uniquement. Après devis accepté ne pas demander rappel.]";
             baseForUpdate = baseForUpdate.slice(0, maxBase - truncNote.length) + truncNote;
             updatedInstructions = `${baseForUpdate}${rest}`;
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
