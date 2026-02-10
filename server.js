@@ -4337,14 +4337,17 @@ Consentement → "En quoi puis-je vous aider ?" uniquement. Jamais marque/modèl
           let baseForUpdate = updatedBaseInstructions;
           // Avec client: on utilise hardConstraintsCompact (pas de doublon avec le bloc RÈGLES ci-dessus).
           let updatedInstructions = `${baseForUpdate}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraintsCompact}\n\n${closingGuidelines}`;
-          // Limite stricte: 16384 tokens. 43000 chars ≈ 16200 tokens max.
-          const REALTIME_INSTRUCTIONS_MAX_CHARS = 43000;
+          // Limite définitive: 16384 tokens. OpenAI tokenise ~2.5–2.7 car/token → 40000 chars ≈ 14800–16000 tokens.
+          const REALTIME_INSTRUCTIONS_MAX_CHARS = 40000;
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
             const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraintsCompact}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
             const truncNote = "\n\n[RÈGLES PRIORITAIRES: NE JAMAIS demander la marque ou le modèle du véhicule. Plaque par SMS uniquement. Après devis accepté ne pas demander rappel.]";
             baseForUpdate = baseForUpdate.slice(0, maxBase - truncNote.length) + truncNote;
             updatedInstructions = `${baseForUpdate}${rest}`;
+            if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
+              updatedInstructions = updatedInstructions.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS);
+            }
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
           }
           
