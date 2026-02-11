@@ -98,29 +98,6 @@ const CALL_ANALYSIS_SCHEMA = {
   additionalProperties: false,
 };
 
-
-// --- Prompt utils: reduce Realtime "session.instructions" tokens without losing meaning ---
-function normalizeInstructions(text, maxChars = Number(process.env.REALTIME_INSTRUCTIONS_MAX_CHARS ?? "42000")) {
-  let t = String(text || "");
-  // normalize line endings
-  t = t.replace(/\r\n/g, "\n");
-  // trim trailing spaces
-  t = t.replace(/[ \t]+\n/g, "\n");
-  // collapse excessive blank lines
-  t = t.replace(/\n{3,}/g, "\n\n");
-  // collapse repeated warning emoji lines (keeps one)
-  t = t.replace(/(?:\n?⚠️){6,}/g, "\n⚠️⚠️⚠️");
-  // remove obvious duplicate headings
-  t = t.replace(/PROTOCOLE STRICT — AUCUN DÉRAPAGE:\nPROTOCOLE STRICT — AUCUN DÉRAPAGE:/g, "PROTOCOLE STRICT — AUCUN DÉRAPAGE:");
-  // hard cap (chars) as last resort (keep the start + critical tail note)
-  if (maxChars && t.length > maxChars) {
-    const tail = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle; pas d'invention (prix/délais); consentement avant analyse; finir chaque réponse par UNE question; plaque par SMS.]";
-    const keep = Math.max(1000, maxChars - tail.length);
-    t = t.slice(0, keep) + tail;
-  }
-  return t;
-}
-
 async function handleRunAnalysis(callId, res) {
   const send = (status, body) => {
     res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
@@ -4392,7 +4369,7 @@ STYLE (échange humain):
           let baseForUpdate = updatedBaseInstructions;
           let updatedInstructions = `${baseForUpdate}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
           // OpenAI Realtime: session.instructions limit 16384 tokens (~2.8 chars/token). Si dépassement, la mise à jour est rejetée et le modèle garde l'ancien prompt (dérapage marque/modèle).
-          const REALTIME_INSTRUCTIONS_MAX_CHARS = 42000;
+          const REALTIME_INSTRUCTIONS_MAX_CHARS = 45800;
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
             const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
@@ -4402,8 +4379,6 @@ STYLE (échange humain):
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
           }
           
-          updatedInstructions = normalizeInstructions(updatedInstructions, REALTIME_INSTRUCTIONS_MAX_CHARS);
-
           openaiWs.send(JSON.stringify({
             type: "session.update",
             session: {
@@ -4426,7 +4401,6 @@ STYLE (échange humain):
         // On ajoute des contraintes fortes (évite les réponses "hors sujet" type coach de vie).
         sessionUpdate.session.instructions =
           `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
-        sessionUpdate.session.instructions = normalizeInstructions(sessionUpdate.session.instructions, Number(process.env.REALTIME_INSTRUCTIONS_MAX_CHARS ?? "42000"));
         // Stocke pour fallback en cas de unknown_parameter (session.update partiellement appliquée)
         ws.__sessionInstructions = String(sessionUpdate.session.instructions || "");
         
