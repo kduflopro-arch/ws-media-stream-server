@@ -5164,6 +5164,7 @@ But: être naturel et mettre le client en confiance.`,
                     userText = item.text;
                   }
                   if (userText && userText.trim() && !isJunkTranscript(userText)) {
+                    console.log("🟢 Le client a parlé (texte reçu par l'IA):", userText.substring(0, 120));
                     console.log(`[CLIENT-SAYS] ${userText}`);
                     // Ne pas ingérer tout de suite : on n'enregistre que les phrases client auxquelles l'IA répond (voir conversation.item.done assistant)
                     lastUserTextPendingIngest = userText;
@@ -5761,7 +5762,10 @@ But: être naturel et mettre le client en confiance.`,
           if (msg.type === "conversation.item.input_audio_transcription.completed") {
             const transcript = msg.transcript;
             const isJunk = isJunkTranscript(transcript);
-            if (!isJunk) console.log(`[CLIENT-SAYS] (input_audio_transcription) ${transcript ?? ""}`);
+            if (!isJunk) {
+              console.log("🟢 Le client a parlé (transcription complétée):", (transcript ?? "").substring(0, 120));
+              console.log(`[CLIENT-SAYS] (input_audio_transcription) ${transcript ?? ""}`);
+            }
             // Ne plus envoyer à l'ingest ici : on utilise uniquement conversation.item.done (user) comme source
             // pour éviter doublons et transcriptions parasites (TV, audio-description). La transcription affichée
             // = ce que le modèle a réellement utilisé (conversation.item.done).
@@ -6020,6 +6024,7 @@ But: être naturel et mettre le client en confiance.`,
               console.log("🔇 Ignoré speech_started OpenAI (faux positif, niveau audio trop faible:", lastInputAudioLevel, "<", INPUT_SPEECH_THRESHOLD + ")");
               return;
             }
+            console.log("🟢 Le client a parlé (détection début parole OpenAI - speech_started)", { niveau: lastInputAudioLevel, seuil: INPUT_SPEECH_THRESHOLD });
             speechActive = true;
             lastSpeechTs = nowMs();
             awaitingUserResponse = true;
@@ -6045,6 +6050,7 @@ But: être naturel et mettre le client en confiance.`,
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4651',message:'input_audio_buffer.committed',data:{itemId:msg.item_id,previousItemId:msg.previous_item_id,speechActive,lastSpeechTs,timeSinceSpeech:nowMs()-lastSpeechTs,hasRealSpeech,bytesSinceSpeechStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
             // #endregion
             if (hasRealSpeech) {
+              console.log("🟢 Le client a parlé (buffer audio envoyé au modèle - committed)", { item_id: msg.item_id, timeSinceSpeech: nowMs() - lastSpeechTs });
               // ANTI-BRUIT: on ne met plus à jour lastCommittedAt ici. On le fait uniquement quand on a le transcript
               if (LOG_VERBOSE) console.log("✅ OpenAI buffer committed:", { item_id: msg.item_id, previous_item_id: msg.previous_item_id, timeSinceSpeech: nowMs() - lastSpeechTs });
               const canRequest = (nowMs() - lastResponseAt) > 600;
