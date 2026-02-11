@@ -2,7 +2,7 @@
 
 Ce document liste **toutes les variables d’environnement Render** utilisées par le serveur `ws-media-stream-server` (Twilio Media Streams ↔ OpenAI Realtime) et explique **à quoi elles servent**, **quand les modifier**, et **des valeurs conseillées**.
 
-> Rappel : ces variables se modifient dans Render → *Service* → **Environment** → **Add Environment Variable** → **Save Changes** (déclenche un redeploy).
+> **Rappel** : ces variables sont **enregistrées sur Render**. Toute modification se fait dans Render → *Service* → **Environment** → **Add Environment Variable** → **Save Changes** (déclenche un redeploy). En cas de renommage dans `server.js`, mettre à jour aussi les variables sur Render pour rester cohérent.
 
 ---
 

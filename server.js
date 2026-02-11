@@ -4775,8 +4775,9 @@ But: être naturel et mettre le client en confiance.`,
                 } else if (msg.response?.output) {
                   const rawOutput = msg.response.output;
                   const outputOnlyFunctionCalls = Array.isArray(rawOutput) && rawOutput.length > 0 && rawOutput.every((item) => item && item.type === "function_call");
-                  if (outputOnlyFunctionCalls) {
-                    if (LOG_VERBOSE) console.log("📋 response.done: uniquement des appels d'outils (normal), pas de texte à extraire. Le modèle enverra une nouvelle réponse après function_call_output.");
+                  const outputEmpty = Array.isArray(rawOutput) && rawOutput.length === 0;
+                  if (outputOnlyFunctionCalls || outputEmpty) {
+                    if (LOG_VERBOSE) console.log("📋 response.done:", outputEmpty ? "output vide (normal après tool call ou court)" : "uniquement appels d'outils (normal), pas de texte à extraire.");
                   } else {
                     // Debug approfondi si aucun texte n'a pu être extrait alors que output existe (et ce n'est pas que des function_call)
                     console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
@@ -6920,9 +6921,10 @@ But: être naturel et mettre le client en confiance.`,
             const mulawLen = 160;
             preOpenFrames.push({ audioBase64, mulawLen, ts: nowMs() });
             preOpenBytes += mulawLen;
-            while (preOpenFrames.length > 50) {
-              preOpenFrames.shift();
-              preOpenBytes = Math.max(0, preOpenBytes - mulawLen);
+            // Garder plus de frames (150 ≈ 3s) pour ne pas perdre le début de la parole si la connexion OpenAI est lente
+            while (preOpenFrames.length > 150) {
+              const dropped = preOpenFrames.shift();
+              preOpenBytes = Math.max(0, preOpenBytes - (dropped?.mulawLen ?? mulawLen));
             }
           }
           if (mediaCount <= 5) {
