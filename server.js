@@ -4773,8 +4773,22 @@ But: être naturel et mettre le client en confiance.`,
                     }
                   }
                 } else if (msg.response?.output) {
-                  // Debug approfondi si aucun texte n'a pu être extrait alors que output existe
-                  console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
+                  const rawOutput = msg.response.output;
+                  const outputOnlyFunctionCalls = Array.isArray(rawOutput) && rawOutput.length > 0 && rawOutput.every((item) => item && item.type === "function_call");
+                  if (outputOnlyFunctionCalls) {
+                    if (LOG_VERBOSE) console.log("📋 response.done: uniquement des appels d'outils (normal), pas de texte à extraire. Le modèle enverra une nouvelle réponse après function_call_output.");
+                  } else {
+                    // Debug approfondi si aucun texte n'a pu être extrait alors que output existe (et ce n'est pas que des function_call)
+                    console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
+                    try {
+                      console.log(
+                        "📋 DEBUG structure response.output:",
+                        JSON.stringify(rawOutput, null, 2).substring(0, 1200),
+                      );
+                    } catch (jsonErr) {
+                      console.error("❌ Impossible de sérialiser response.output pour debug:", jsonErr);
+                    }
+                  }
                   // Vérifier si c'est un rate limit ou quota insuffisant (resp depuis msg.response car hors scope du try plus haut)
                   const respStatus = msg.response?.status;
                   const respStatusDetails = msg.response?.status_details || msg.response?.statusDetails || null;
@@ -4810,20 +4824,13 @@ But: être naturel et mettre le client en confiance.`,
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4252',message:'QUOTA INSUFFISANT - Réponse bloquée',data:{rid,status:respStatus,lastCommittedAt,timeSinceCommit:lastCommittedAt>0?nowMs()-lastCommittedAt:-1,userHasSpoken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
                     // #endregion
                   }
-                  // Toujours logguer la structure brute (tronquée) pour pouvoir ajuster l'extracteur
-                  try {
-                    console.log(
-                      "📋 DEBUG structure response.output:",
-                      JSON.stringify(rawOutput, null, 2).substring(0, 1200),
-                    );
-                  } catch (jsonErr) {
-                    console.error("❌ Impossible de sérialiser response.output pour debug:", jsonErr);
-                  }
                 }
               } catch (e) {
                 console.error("❌ Erreur extraction texte depuis response.output:", e);
-                if (process.env.OPENAI_OUTPUT_DEBUG === "true") {
-                  console.log("📋 DEBUG response.output (erreur extraction):", JSON.stringify(rawOutput).substring(0, 800));
+                if (process.env.OPENAI_OUTPUT_DEBUG === "true" && msg.response?.output) {
+                  try {
+                    console.log("📋 DEBUG response.output (erreur extraction):", JSON.stringify(msg.response.output).substring(0, 800));
+                  } catch (_) { /* ignore */ }
                 }
               }
             }
