@@ -152,7 +152,7 @@ async function handleRunAnalysis(callId, res) {
     // "internal" retiré : tout traité en "request"
   }
   const callDateIso = call.created_at ? new Date(call.created_at).toISOString().slice(0, 10) : null;
-  const rdvInstruction = " Pour le résumé (champ summary) : si le client souhaite un rendez-vous, écris 'Demande de rendez-vous pour [jour/créneau]' (le garage confirmera). Ne jamais écrire 'Un rendez-vous est pris'. RÈGLE APPEL NON ABOUTI : Si le client a demandé un rendez-vous (ou a accepté la proposition de l'IA de prendre un RDV) mais a raccroché avant d'avoir indiqué un jour ou une préférence de créneau (matin/après-midi), tu DOIS remplir callOutcome = 'rdv_incomplete' et rdvIncompleteReason avec une phrase courte (ex: 'Le client a raccroché avant d'indiquer ses préférences de date pour le rendez-vous.'). Dans ce cas, inclus cette raison dans le résumé (summary) et dans la conclusion (aiConclusion). Si le client a seulement demandé des informations (pas de demande de RDV), ou s'il a bien indiqué un jour/créneau avant la fin de l'appel, mets callOutcome = 'completed' et rdvIncompleteReason = ''. Réponds en fr.";
+  const rdvInstruction = " Pour le résumé (champ summary) : sois DÉTAILLÉ, PRÉCIS et FIDÈLE à l'appel. Si le client souhaite un rendez-vous, écris clairement 'Demande de rendez-vous pour [prestation] — [jour/créneau indiqué par le client], plaque [X] si mentionnée.' Mentionne aussi les demandes d'info (tarifs, horaires, prestations) et les réponses du client. Ne jamais écrire 'Un rendez-vous est pris'. RÈGLE APPEL NON ABOUTI (rdv_incomplete) : utilise callOutcome = 'rdv_incomplete' UNIQUEMENT si le client a demandé un RDV (ou accepté d'en prendre un) mais a raccroché SANS avoir indiqué ni un jour ni une préférence de créneau (matin/après-midi). Si dans la transcription l'assistant confirme le rendez-vous (ex. 'Je note pour la vidange', 'Parfait pour mercredi matin', 'votre plaque est BT-346-QT', 'Parfait je note pour...'), alors le client a bien indiqué jour et/ou créneau : tu DOIS mettre callOutcome = 'completed' et rdvIncompleteReason = ''. Dans ce cas, ne pas écrire dans le résumé que le client a raccroché avant d'indiquer ses préférences. Si le client a seulement demandé des informations (pas de demande de RDV), ou s'il a indiqué un jour/créneau (ou confirmé la plaque pour le RDV), mets callOutcome = 'completed' et rdvIncompleteReason = ''. Réponds en fr.";
 
   const hasSummary = (call.call_summary ?? "").trim().length > 0;
   const hasConclusion = (call.ai_conclusion ?? "").trim().length > 0;
@@ -3749,7 +3749,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             ? "Mode rendez-vous: aucun (tu ne proposes pas de RDV, tu prends un message)."
             : appointmentMode === "internal"
               ? `Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes UNIQUEMENT après validation explicite du client). RÈGLE ABSOLUE - HORAIRES/INFO UNIQUEMENT: Si le client demande UNIQUEMENT les horaires d'ouverture, les tarifs ou une simple information (sans avoir dit qu'il veut un rendez-vous), tu réponds à sa question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Tu NE dis JAMAIS "Quel jour vous conviendrait le mieux ?" ni ne donnes les horaires d'ouverture dans ce cas — sauf si le client a demandé les horaires. EXEMPLE: Client "Quel est le tarif d'une vidange ?" → tu donnes UNIQUEMENT le tarif (ex. "entre 50 et 190 euros selon le véhicule"), puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Tu NE donnes PAS les horaires d'ouverture ni ne demandes de jour/crénneau. EXEMPLE: Client "Quels sont les horaires ?" → tu DONNES les horaires puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". "Quel jour vous conviendrait le mieux ?" se dit UNIQUEMENT quand le client vient de répondre OUI à "Vous voulez prendre rendez-vous ?". Tu ne confirmes le rendez-vous QUE si le client donne son consentement explicite. CRITIQUE: Si le client décrit un problème, tu DOIS D'ABORD poser des questions (depuis quand, autres symptômes) AVANT de proposer un diagnostic et de demander "Vous voulez prendre rendez-vous ?".${garageClosed ? " IMPORTANT: Si le garage est fermé, tu NE peux PAS prendre de rendez-vous. Tu dis que le garage est fermé et que quelqu'un rappellera." : ""}`
-              : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande et le garage rappelle pour confirmer).";
+              : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande ; après avoir noté jour/créneau/plaque, dis : « C'est une demande de rendez-vous, le garage vous rappellera pour confirmer. » puis « Avez-vous besoin d'autre chose ? »).";
 
         const consentLine =
           consentRequired && !consentGiven
@@ -3864,7 +3864,9 @@ IMPORTANT - SALUTATION (À RESPECTER STRICTEMENT):
 - Ne dis JAMAIS seulement "Bonjour [nom]" sans Monsieur/Madame quand le genre est défini (homme ou femme). Exemple obligatoire: "${salutationText || "Bonjour " + (salutationName || "client")}" → utilise cette forme.
 
 IMPORTANT - MENTION DES RENDEZ-VOUS EN DÉBUT D'APPEL:
-- Si le client a des rendez-vous à venir listés ci-dessus (section "Rendez-vous à venir"), APRÈS la salutation tu DOIS en une phrase courte mentionner le statut : si c'est une "demande en attente de confirmation par le garage", dis par ex. "Je vois que vous avez une demande de rendez-vous en attente pour le [date] à [heure]." ; si c'est un "rendez-vous enregistré", dis par ex. "Je vois que vous avez un rendez-vous enregistré pour le [date] à [heure]." Puis demande "En quoi puis-je vous aider ?" Ne saute pas cette étape : le client doit savoir que tu as accès à son dossier et au statut de son RDV. ORTHOGRAPHE (dates/heures seulement): espace avant le chiffre: "le 11 février", "à 8 heures", "mercredi 11" (jamais le11, à8, mercredi11). Fourchettes de prix: TOUJOURS en chiffres, jamais en lettres — "entre 50 et 190 euros", "de 80 à 150 euros" (jamais "cent quatre vingt dix euros"). Espace avant et après les chiffres. Ne pas couper les mots (tarif, mais, cent, samedi, Monsieur, noms).
+- Si le client a un "rendez-vous enregistré" (confirmé par le garage) listé ci-dessus (section "Rendez-vous à venir"), APRÈS la salutation tu DOIS en une phrase courte le mentionner : "Je vois que vous avez un rendez-vous enregistré pour le [date] à [heure]." Puis demande "En quoi puis-je vous aider ?"
+- Si le client a uniquement une "demande en attente de confirmation par le garage", NE PAS en parler en début d'appel. Ne mentionne cette demande que si le client le demande explicitement (ex: "Est-ce que j'ai un rendez-vous ?", "Où en est ma demande ?", "Vous avez bien ma demande ?"). Dans ce cas, informe-le : "Vous avez une demande de rendez-vous en attente pour le [date] à [heure], le garage vous rappellera pour confirmer."
+- ORTHOGRAPHE (dates/heures seulement): espace avant le chiffre: "le 11 février", "à 8 heures", "mercredi 11" (jamais le11, à8, mercredi11). Fourchettes de prix: TOUJOURS en chiffres, jamais en lettres — "entre 50 et 190 euros", "de 80 à 150 euros" (jamais "cent quatre vingt dix euros"). Espace avant et après les chiffres. Ne pas couper les mots (tarif, mais, cent, samedi, Monsieur, noms).
 
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - RÈGLE PRIORITAIRE - ANNULATION OU MODIFICATION DE RDV: Si le client appelle UNIQUEMENT pour annuler ou modifier un rendez-vous (il dit "annuler", "annulation", "modifier", "changer", "déplacer" son rendez-vous), tu NE demandes PAS la plaque d'immatriculation. Tu ne proposes pas d'envoyer un message pour la plaque. Tu traites la demande d'annulation ou de modification, puis tu proposes "Avez-vous besoin d'autre chose ?". La plaque n'est pas utile pour une annulation ou une modification de rendez-vous.
@@ -4183,7 +4185,7 @@ RÈGLES RDV:
 - Ne lance JAMAIS une demande de rendez-vous (et ne dis JAMAIS "Quel jour ?") si le client n'a pas explicitement accepté (répondu oui à "Vous voulez prendre rendez-vous ?" ou "Souhaitez-vous prendre rendez-vous ?").
 - Dès que le client répond NON ou "non merci" à la question de prise de rendez-vous, tu ARRÊTES tout: tu NE demandes PAS le jour, PAS le créneau, tu NE prends AUCUNE demande de rendez-vous. Tu enchaînes avec "D'accord, pas de rendez-vous. Souhaitez-vous que le garage vous rappelle ?" puis "Avez-vous besoin d'autre chose ?".
 - Après "Avez-vous besoin d'autre chose ?", une réponse du client ne vaut PAS consentement pour un RDV. Tu DOIS poser "Souhaitez-vous prendre rendez-vous ?" et attendre un OUI clair avant de demander le jour ou le créneau.
-- Si mode rendez-vous = demande: tu notes la demande, tu ne confirmes jamais.
+- Si mode rendez-vous = demande: tu notes la demande, tu ne confirmes jamais. Après avoir noté la demande (jour, créneau, plaque), dis TOUJOURS clairement au client : « C'est une demande de rendez-vous, le garage vous rappellera pour confirmer. » puis « Avez-vous besoin d'autre chose ? ».
 - Si mode rendez-vous = aucun: tu prends un message, tu ne proposes pas de RDV.
 - Si mode rendez-vous = interne et garage fermé: tu dis qu'une personne rappellera, sans proposer de créneau.
 - MULTI-PRESTATIONS: Le client peut demander une ou plusieurs prestations (ex: diagnostic, parallélisme et équilibrage). Tu les notes toutes et tu confirmes la liste. Si une prestation en comprend une autre (voir "Prestations incluses" ci-dessus), dis au client qu'une seule suffit (ex: "La révision comprend déjà le diagnostic, une révision suffit.").
@@ -5881,6 +5883,14 @@ But: être naturel et mettre le client en confiance.`,
               } else if (rdvExplicitPositive || (userAffirmative && !userNegative)) {
                 rdvAcceptedByClient = true;
                 rdvRefusedByClient = false;
+              } else if (lastWasInRdvFlowIntent) {
+                // Client a indiqué un jour ou un créneau (ex. "mercredi matin") = demande de RDV en cours
+                const userGaveDayOrSlot = /\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|demain|après-demain)\b/i.test(userTextNorm) || /\b(matin|après-midi)\b/i.test(userTextNorm);
+                if (userGaveDayOrSlot) {
+                  rdvAcceptedByClient = true;
+                  rdvRefusedByClient = false;
+                  if (LOG_VERBOSE) console.log("ℹ️ Demande de RDV (client a indiqué jour/créneau).", { userText: userText?.substring(0, 50) });
+                }
               }
             }
             if (lastWasDevisQuestionIntent && (rdvExplicitPositive || userAffirmative || looksLikeAffirmativeForCallback)) {
@@ -6360,10 +6370,22 @@ But: être naturel et mettre le client en confiance.`,
                     const consentText = consentRequired && !consentGiven
                       ? "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN
                       : "";
+                    const appointments = clientInfo.appointments || [];
+                    let appointmentLine = "";
+                    if (appointments.length > 0) {
+                      const apt = appointments[0];
+                      const date = new Date(apt.appointment_date);
+                      const dateStr = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+                      if (apt.en_attente_confirmation_garage === true) {
+                        appointmentLine = ""; // Ne pas communiquer la demande en attente au client en début d'appel ; l'IA ne la mentionne que si le client le demande.
+                      } else {
+                        appointmentLine = `Je vois que vous avez un rendez-vous enregistré pour le ${dateStr} à ${apt.appointment_time}.`;
+                      }
+                    }
                     const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
                     const greeting = consentRequired && !consentGiven
                       ? [baseHello, consentText].filter(Boolean).join(" ")
-                      : [baseHello, question].filter(Boolean).join(" ");
+                      : [baseHello, appointmentLine, question].filter(Boolean).join(" ");
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4288',message:'GREETING CONSTRUIT (avec nom client)',data:{baseHello,consentText,question,greeting:greeting.substring(0,200),consentRequired,consentGiven,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,initialGreetingText:initialAssistantGreetingText?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
                     // #endregion
@@ -6968,10 +6990,10 @@ But: être naturel et mettre le client en confiance.`,
         // Si plateConfirmedByClient ou plateSmsAlreadyMentioned: pas de SMS, valider la plaque en dossier
         if (plateConfirmedByClient) {
           plateSmsSendOnFinalize = false;
-          console.log("ℹ️ SMS plaque non envoyé car client a confirmé la plaque pour le RDV (plateConfirmedByClient=true)");
+          console.log("ℹ️ À la fin de l'appel: pas d'envoi SMS plaque (client a déjà confirmé la plaque pour le RDV)");
         }
         if (plateSmsAlreadyMentioned && plateSmsSendOnFinalize) {
-          console.log("ℹ️ SMS plaque non envoyé car client a confirmé la plaque existante (plateSmsAlreadyMentioned=true)");
+          console.log("ℹ️ À la fin de l'appel: pas d'envoi SMS plaque (client a confirmé la plaque existante)");
           plateSmsSendOnFinalize = false;
         }
         if (plateSmsSendOnFinalize) {
@@ -7009,7 +7031,7 @@ But: être naturel et mettre le client en confiance.`,
               console.error("❌ Erreur lors de l'envoi SMS plaque (stop):", err);
             });
         } else {
-          console.log("ℹ️ Aucun SMS plaque à envoyer (plateSmsSendOnFinalize=false)");
+          console.log("ℹ️ À la fin de l'appel: aucun envoi SMS plaque demandé (un SMS a pu être envoyé pendant l'appel si l'IA l'a proposé)");
         }
         finalizeCallToAutoGuru("twilio_stop");
         if (outboundTimer) {
