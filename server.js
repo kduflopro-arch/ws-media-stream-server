@@ -3785,50 +3785,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const nowForPrompt = new Date();
         const todayDateLine = `[Référence interne] Aujourd'hui nous sommes ${nowForPrompt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}. Utilise cette date pour raisonner (demain, créneaux, etc.) et pour indiquer le bon jour de la semaine quand tu donnes une date au client. Ne dis JAMAIS cette phrase au client au début de l'appel. Ne donne la date du jour au client QUE s'il demande explicitement (ex: "quelle date sommes-nous ?", "c'est quel jour aujourd'hui ?", "on est le combien ?").`;
 
-        const hoursPolicyLine = `Horaires: l'assistant répond 24h/24 et 7j/7 pour vous aider. Le garage, lui, est ouvert selon les horaires d'ouverture ci-dessous (information).`;
-        const hoursInfoLine = garageHoursText
-          ? `Horaires d'ouverture du garage: ${garageHoursText}`
-          : "";
-        
-        // Construire la ligne des jours de fermeture hebdomadaires
-        let closedDaysLine = "";
-        if (closedDaysText && closedDaysText.trim()) {
-          closedDaysLine = `Jours de fermeture du garage: ${closedDaysText} Tu DOIS communiquer ces jours au client s'il demande un rendez-vous.`;
-        }
-        
+        const hoursPolicyLine = `Horaires: l'assistant répond 24h/24 et 7j/7 pour vous aider. Les horaires du garage sont obtenus par l'outil get_opening_hours quand tu en as besoin.`;
+        // Données garage (tarifs, services, FAQ, horaires, prestations incluses): reçues au "start" et stockées en mémoire.
+        // Elles ne sont jamais envoyées dans le prompt à OpenAI — l'IA les récupère à la demande via les tools (get_garage_pricing, etc.).
         const closedInfoLine = garageClosed
           ? `Info horaires (interne): le garage est actuellement indiqué comme fermé. (${garageClosedReason || "closed"}) ${garageClosedText || ""} Tu NE le mentionnes PAS au début. Tu le mentionnes uniquement en fin d'appel, selon les règles ci-dessous.`
           : "Info horaires (interne): garage indiqué ouvert.";
-        const hoursReminderLine =
-          appointmentMode !== "none"
-            ? (hoursInfoLine
-              ? `Cette règle s'applique UNIQUEMENT quand le client a DÉJÀ répondu OUI à "Vous voulez prendre rendez-vous ?". Dans ce cas seulement: AVANT de demander le jour, annonce EXACTEMENT les horaires: "${hoursInfoLine}".${closedDaysText ? ` Puis: "${closedDaysText}".` : ""} Ensuite demande le jour qui convient le mieux. Si le client n'a PAS dit qu'il veut un rendez-vous (ex: il a juste demandé les horaires), ne demande PAS le jour — demande "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?".`
-              : `Quand le client a DÉJÀ répondu OUI à "Vous voulez prendre rendez-vous ?": tu dis "Je n'ai pas les horaires exacts dans nos réglages." Puis tu demandes le jour qui convient le mieux. Si le client n'a pas dit qu'il veut un RDV, ne demande pas le jour.`)
-            : "";
-        const pricingLine = pricingSummary
-          ? `Tarifs du garage (à utiliser si le client demande un prix, sans inventer): ${pricingSummary}
-IMPORTANT: Si un tarif contient "(le prix peut varier selon le véhicule)", tu DOIS donner le prix indiqué ET préciser que le prix peut varier selon le véhicule. Ajoute ensuite: "Tout sera inscrit lorsque vous aurez établi le devis avec le garage." ou une phrase similaire. Exemple: "Pour une vidange, c'est environ 45€, mais le prix peut varier selon le véhicule. Tout sera inscrit lorsque vous aurez établi le devis avec le garage." Écris toujours "devis" (un seul mot), jamais "de vis". Exemple correct: "lors du devis avec le garage".`
-          : "Tarifs du garage: non renseignés (si le client demande un prix, tu expliques que c'est sur devis ou à confirmer).";
-
-        const servicesLine = servicesSummary
-          ? `Services disponibles au garage (utilise ces infos pour répondre aux questions): ${servicesSummary}`
-          : "";
-
-        let servicesStockAndIncludesLine = "";
-        if (appointmentMode === "internal") {
-          const parts = [];
-          if (servicesRequiringStockSummary && servicesRequiringStockSummary.trim()) {
-            parts.push(`Prestations nécessitant vérification stock avant confirmation du RDV (tu ne confirmes PAS le RDV toi-même pour celles-ci, tu prends une demande et dis que le garage rappellera pour confirmer stock et devis): ${servicesRequiringStockSummary}.`);
-          }
-          if (servicesIncludesSummary && servicesIncludesSummary.trim()) {
-            parts.push(`Prestations incluses (à utiliser pour éviter les doublons): ${servicesIncludesSummary} Si le client demande plusieurs prestations et qu'une prestation en comprend une autre, dis-lui qu'une seule prestation suffit (ex: "La révision comprend déjà le diagnostic, une révision suffit.").`);
-          }
-          if (parts.length > 0) servicesStockAndIncludesLine = parts.join("\n");
-        }
-
-        const faqsLine = faqsSummary
-          ? `Questions fréquentes (utilise ces réponses si le client pose une question similaire): ${faqsSummary}`
-          : "";
 
         // Construire la section infos client pour le prompt
         const buildClientInfoLine = () => {
@@ -4030,6 +3992,7 @@ ${todayDateLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
 DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil.
+${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${clientInfoLine ? `${clientInfoLine}\n\n` : ""}
 Pour un RDV: avant de demander le jour, appelle get_opening_hours puis annonce les horaires au client. Puis demande le jour qui convient.
 RÈGLE ABSOLUE - GUIDAGE PROACTIF (À RESPECTER EN PRIORITÉ):
@@ -4075,16 +4038,15 @@ OBJECTIF (ACCOMPAGNEMENT PROACTIF):
 - Si le client sait exactement ce qu'il veut (ex: "je veux une vidange", "je veux un devis", "je veux un rendez-vous"), tu vas droit au but et tu réduis les questions. Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (vidange, révision, diagnostic, freins, etc.), prends le rendez-vous DIRECTEMENT sans poser de questions de diagnostic (pas de "depuis quand", pas de symptômes) : confirme prestation + tarif (get_garage_pricing), puis appelle get_opening_hours et annonce les horaires, puis jour → matin/après-midi → plaque.
 
 RÈGLE ANTI-INVENTION (TRÈS IMPORTANT):
-- La plupart des informations viennent des réglages IA (Tarifs du garage, Services disponibles, Questions fréquentes, Horaires).
+- Les infos garage (tarifs, services, FAQ, horaires) sont obtenues uniquement via les outils (get_garage_pricing, get_garage_services, get_garage_faq, get_opening_hours). Ne réponds jamais sans avoir appelé l'outil adapté.
 - Tu NE DOIS PAS inventer d'informations sur le garage (prix, contenu exact d'une prestation, délais, conditions).
 - Si une info n'est pas renseignée, tu dis clairement: "Je n'ai pas l'information exacte dans nos réglages" et tu proposes la suite (devis / rappel / passage au garage).
 - Tu peux donner une explication générique UNIQUEMENT si ça aide le client à comprendre son problème (et tu précises que ça peut varier selon le véhicule).
 
 RENSEIGNEMENTS SUR LES PRESTATIONS (PRIORITÉ OBLIGATOIRE):
-- Quand le client demande des renseignements sur une prestation (ex: "C'est quoi une révision ?", "Vous faites les freins ?", "En quoi consiste le diagnostic ?"), tu DOIS d'abord consulter la section "Services disponibles" ci-dessus.
-- Si la prestation figure dans "Services disponibles" avec une description renseignée (texte après les deux-points pour cette prestation), tu LIS et tu REPRENDS cette description pour répondre au client. Ne réinvente pas : utilise telle quelle ou reformule légèrement en termes simples ce qui est écrit.
-- Si la prestation n'a pas de description dans "Services disponibles" (ou la prestation n'y figure pas), tu peux alors expliquer à l'aide de tes connaissances générales, en termes simples, et tu précises que ça peut varier selon le véhicule ou le garage.
-- Utilise en priorité "Services disponibles", "Questions fréquentes" et "Tarifs du garage". Si une info n'est pas renseignée, tu donnes une explication générique et tu précises que ça peut varier selon le véhicule.
+- Quand le client demande des renseignements sur une prestation (ex: "C'est quoi une révision ?", "Vous faites les freins ?"), appelle get_garage_services pour obtenir la liste et les descriptions, puis réponds à partir du résultat.
+- Si la prestation figure dans le résultat de get_garage_services avec une description, reprends cette description pour répondre au client. Sinon, explique en termes simples et précise que ça peut varier selon le véhicule.
+- Pour tarifs et FAQ: utilise get_garage_pricing et get_garage_faq. Si une info n'est pas renseignée (résultat vide), dis "Je n'ai pas l'information exacte" et propose devis ou rappel.
 
 DIAGNOSTIC GUIDÉ (si le client ne sait pas exactement):
 - RÈGLE ABSOLUE: Quand le client décrit un problème, tu DOIS dans la même réponse: (1) reconnaître le problème, (2) mentionner brièvement 1-2 causes possibles, (3) poser UNE SEULE question pour recueillir des informations utiles (depuis quand, autres symptômes, contexte). NE PROPOSE PAS de rendez-vous dans cette première réponse. Attends d'abord la réponse du client.
@@ -4327,6 +4289,7 @@ ${todayDateLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
 DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil.
+${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${newClientInfoLine}\n\n
 Pour un RDV: avant de demander le jour, appelle get_opening_hours puis annonce les horaires au client. Puis demande le jour qui convient.
 RÈGLES D'ÉCOUTE:
@@ -4340,16 +4303,15 @@ OBJECTIF (ACCOMPAGNEMENT):
 - Si le client sait exactement ce qu'il veut (ex: "je veux une vidange", "je veux un devis", "je veux un rendez-vous"), tu vas droit au but et tu réduis les questions. Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (vidange, révision, diagnostic, freins, etc.), prends le rendez-vous DIRECTEMENT sans poser de questions de diagnostic (pas de "depuis quand", pas de symptômes) : confirme prestation + tarif (get_garage_pricing), puis appelle get_opening_hours et annonce les horaires, puis jour → matin/après-midi → plaque.
 
 RÈGLE ANTI-INVENTION (TRÈS IMPORTANT):
-- La plupart des informations viennent des réglages IA (Tarifs du garage, Services disponibles, Questions fréquentes, Horaires).
+- Les infos garage (tarifs, services, FAQ, horaires) sont obtenues uniquement via les outils (get_garage_pricing, get_garage_services, get_garage_faq, get_opening_hours). Ne réponds jamais sans avoir appelé l'outil adapté.
 - Tu NE DOIS PAS inventer d'informations sur le garage (prix, contenu exact d'une prestation, délais, conditions).
 - Si une info n'est pas renseignée, tu dis clairement: "Je n'ai pas l'information exacte dans nos réglages" et tu proposes la suite (devis / rappel / passage au garage).
 - Tu peux donner une explication générique UNIQUEMENT si ça aide le client à comprendre son problème (et tu précises que ça peut varier selon le véhicule).
 
 RENSEIGNEMENTS SUR LES PRESTATIONS (PRIORITÉ OBLIGATOIRE):
-- Quand le client demande des renseignements sur une prestation (ex: "C'est quoi une révision ?", "Vous faites les freins ?", "En quoi consiste le diagnostic ?"), tu DOIS d'abord consulter la section "Services disponibles" ci-dessus.
-- Si la prestation figure dans "Services disponibles" avec une description renseignée (texte après les deux-points pour cette prestation), tu LIS et tu REPRENDS cette description pour répondre au client. Ne réinvente pas : utilise telle quelle ou reformule légèrement en termes simples ce qui est écrit.
-- Si la prestation n'a pas de description dans "Services disponibles" (ou la prestation n'y figure pas), tu peux alors expliquer à l'aide de tes connaissances générales, en termes simples, et tu précises que ça peut varier selon le véhicule ou le garage.
-- Utilise en priorité "Services disponibles", "Questions fréquentes" et "Tarifs du garage". Si une info n'est pas renseignée, tu donnes une explication générique et tu précises que ça peut varier selon le véhicule.
+- Quand le client demande des renseignements sur une prestation (ex: "C'est quoi une révision ?", "Vous faites les freins ?"), appelle get_garage_services pour obtenir la liste et les descriptions, puis réponds à partir du résultat.
+- Si la prestation figure dans le résultat de get_garage_services avec une description, reprends cette description pour répondre au client. Sinon, explique en termes simples et précise que ça peut varier selon le véhicule.
+- Pour tarifs et FAQ: utilise get_garage_pricing et get_garage_faq. Si une info n'est pas renseignée (résultat vide), dis "Je n'ai pas l'information exacte" et propose devis ou rappel.
 
 INTENTION RDV (TRÈS IMPORTANT):
 - Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
@@ -6178,7 +6140,9 @@ But: être naturel et mettre le client en confiance.`,
         const streamCallSid = msg.start?.callSid;
         twilioStreamSid = msg.start?.streamSid ?? null;
         
-        // Extraire les paramètres depuis start.customParameters (passés via TwiML parameters)
+        // Tous les paramètres garage sont envoyés au serveur WS au "start" (sans limite côté app).
+        // Ils sont stockés en mémoire (pricingSummary, servicesSummary, etc.) et ne sont jamais envoyés à OpenAI dans le prompt.
+        // L'IA récupère uniquement les infos nécessaires à la demande via les tools (get_garage_pricing, get_garage_services, etc.).
         const startParams = msg.start?.customParameters || {};
         const finalCallSid = startParams.callSid || callSid || streamCallSid;
         const finalGarageId = startParams.garageId || garageId;
