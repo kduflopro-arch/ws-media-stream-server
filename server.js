@@ -1,5 +1,4 @@
 // WebSocket server for Twilio Media Streams + OpenAI Realtime API
-// Sauvegarde: server.js.backup (pour revenir: cp server.js.backup server.js)
 // Deploy on Render / Railway / Fly. Not for Vercel (no persistent WS).
 // Port: Render auto-assigns process.env.PORT; locally use 8080.
 
@@ -98,6 +97,29 @@ const CALL_ANALYSIS_SCHEMA = {
   required: ["symptoms", "summary", "aiConclusion", "probableCauses", "urgency", "appointmentRecommendation", "clientInsights", "appointmentConfirmedDate", "appointmentConfirmedTime", "appointmentConfirmedService", "callOutcome", "rdvIncompleteReason"],
   additionalProperties: false,
 };
+
+
+// --- Prompt utils: reduce Realtime "session.instructions" tokens without losing meaning ---
+function normalizeInstructions(text, maxChars = Number(process.env.REALTIME_INSTRUCTIONS_MAX_CHARS ?? "42000")) {
+  let t = String(text || "");
+  // normalize line endings
+  t = t.replace(/\r\n/g, "\n");
+  // trim trailing spaces
+  t = t.replace(/[ \t]+\n/g, "\n");
+  // collapse excessive blank lines
+  t = t.replace(/\n{3,}/g, "\n\n");
+  // collapse repeated warning emoji lines (keeps one)
+  t = t.replace(/(?:\n?⚠️){6,}/g, "\n⚠️⚠️⚠️");
+  // remove obvious duplicate headings
+  t = t.replace(/PROTOCOLE STRICT — AUCUN DÉRAPAGE:\nPROTOCOLE STRICT — AUCUN DÉRAPAGE:/g, "PROTOCOLE STRICT — AUCUN DÉRAPAGE:");
+  // hard cap (chars) as last resort (keep the start + critical tail note)
+  if (maxChars && t.length > maxChars) {
+    const tail = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle; pas d'invention (prix/délais); consentement avant analyse; finir chaque réponse par UNE question; plaque par SMS.]";
+    const keep = Math.max(1000, maxChars - tail.length);
+    t = t.slice(0, keep) + tail;
+  }
+  return t;
+}
 
 async function handleRunAnalysis(callId, res) {
   const send = (status, body) => {
@@ -4256,10 +4278,6 @@ ${garageClosed
 - Tu peux alterner "Bonjour", "Salut", "Oui allô", mais reste professionnel.
 - N'enchaîne pas deux fois "Garage X, bonjour" dans la même phrase.`;
 
-        // Version courte des contraintes pour la mise à jour "avec client" uniquement (évite doublon avec le bloc RÈGLES ESSENTIELLES).
-        const hardConstraintsCompact =
-          `PROTOCOLE (obligatoire): Pas de marque ni modèle véhicule. Plaque uniquement par SMS ou confirmation dossier, jamais à l'oral. Devis accepté → ne jamais demander "Souhaitez-vous que le garage vous rappelle ?". RDV: ordre jour → créneau → plaque. Une question à la fois. Annulation/modif RDV: ne pas demander la plaque.`;
-
         const neutralPersona =
           `Persona: assistant téléphonique professionnel, cordial, chaleureux et concis.`;
 
@@ -4312,45 +4330,80 @@ ${garageClosed
           
           console.log("📋 Section DÉTECTION CLIENT générée:", newClientInfoLine.substring(0, 400));
           
-          // Prompt COURT dédié "avec client": une seule formulation des règles, pas de FAQ, tarifs/prestations en une ligne, contraintes compactes (dédoublonnage).
-          const pricingOneLine = (pricingSummary && String(pricingSummary).trim())
-            ? `Tarifs: ${String(pricingSummary).trim()}`
-            : "Tarifs: sur devis ou à confirmer.";
-          const servicesOneLine = (servicesSummary && String(servicesSummary).trim())
-            ? String(servicesSummary).trim().slice(0, 500) + (String(servicesSummary).trim().length > 500 ? "..." : "")
-            : "";
-          const stockOneLine = (servicesStockAndIncludesLine && String(servicesStockAndIncludesLine).trim())
-            ? String(servicesStockAndIncludesLine).trim().slice(0, 200) + (String(servicesStockAndIncludesLine).trim().length > 200 ? "..." : "")
-            : "";
-          
-          const updatedBaseInstructions = `Tu es ${assistantName}, assistant(e) de ${garageLabel}. Appels téléphoniques, oral et naturel. Objectif: besoin du client, rassurer, proposer la suite.
+          // Reconstruire baseInstructions avec les nouvelles infos client
+          const updatedBaseInstructions = `PROTOCOLE STRICT — AUCUN DÉRAPAGE: Tu DOIS suivre UNIQUEMENT le protocole défini dans ces instructions. Aucune question ou étape qui n'y figure pas (pas de marque/modèle véhicule, pas de "préparer les pièces"). Ne pas inventer d'étapes.
+
+Tu es ${assistantName}, l'assistant(e) téléphonique de ${garageLabel}.
+Tu réponds à des appels téléphoniques (style oral, naturel, vivant).
+Objectif: comprendre précisément le besoin, rassurer, puis proposer la suite adaptée.
 ${modeLine}
 ${consentLine}
 ${todayDateLine}
 ${hoursPolicyLine}
-${hoursInfoLine ? `${hoursInfoLine}\n` : ""}${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}${closedInfoLine}
-${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingOneLine}
-${servicesOneLine ? `Prestations (résumé): ${servicesOneLine}\n` : ""}${stockOneLine ? `${stockOneLine}\n` : ""}${newClientInfoLine}
-${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLES (une seule formulation):
-Consentement → "En quoi puis-je vous aider ?" uniquement. Jamais marque/modèle ni "préparer les pièces". Info prestation → propose devis; si oui: plaque SMS/dossier puis "Avez-vous besoin d'autre chose ?" (pas de question rappel après devis). Si non devis → "Souhaitez-vous que le garage vous rappelle ?" Horaires/tarifs seuls → pas "Quel jour ?"; demande rappel si pas RDV. RDV: ordre jour → créneau → plaque. Plaque: SMS ou dossier uniquement. Annulation RDV: pas de plaque. Réponses courtes, une question.`;
+${hoursInfoLine ? `${hoursInfoLine}\n` : ""}
+${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
+${closedInfoLine}
+${closedDaysLine ? `${closedDaysLine}\n` : ""}${pricingLine}
+${servicesLine ? `${servicesLine}\n` : ""}${servicesStockAndIncludesLine ? `${servicesStockAndIncludesLine}\n` : ""}${faqsLine ? `${faqsLine}\n` : ""}${newClientInfoLine}\n\n${hoursReminderLine ? `${hoursReminderLine}\n` : ""}RÈGLES D'ÉCOUTE:
+- Tu écoutes et tu réponds à CE QUE le client dit (pas de scénarios pré-écrits).
+- Si le client dit "non", tu t'arrêtes et tu confirmes: "D'accord, pas de souci." puis tu proposes une alternative.
+- Si c'est ambigu, tu poses UNE question simple de clarification.
+
+OBJECTIF (ACCOMPAGNEMENT):
+- Tu aides le client à mieux comprendre son problème en posant des questions simples, une par une.
+- Tu guides petit à petit vers la meilleure suite: conseil sécurité / dépôt / ou rendez-vous.
+- Si le client sait exactement ce qu'il veut (ex: "je veux une vidange", "je veux un devis", "je veux un rendez-vous"), tu vas droit au but et tu réduis les questions. Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (vidange, révision, diagnostic, freins, etc.), prends le rendez-vous DIRECTEMENT sans poser de questions de diagnostic (pas de "depuis quand", pas de symptômes) : confirme prestation + tarif, puis annonce les horaires d'ouverture du garage (depuis Horaires ci-dessus), puis jour → matin/après-midi → plaque.
+
+RÈGLE ANTI-INVENTION (TRÈS IMPORTANT):
+- La plupart des informations viennent des réglages IA (Tarifs du garage, Services disponibles, Questions fréquentes, Horaires).
+- Tu NE DOIS PAS inventer d'informations sur le garage (prix, contenu exact d'une prestation, délais, conditions).
+- Si une info n'est pas renseignée, tu dis clairement: "Je n'ai pas l'information exacte dans nos réglages" et tu proposes la suite (devis / rappel / passage au garage).
+- Tu peux donner une explication générique UNIQUEMENT si ça aide le client à comprendre son problème (et tu précises que ça peut varier selon le véhicule).
+
+RENSEIGNEMENTS SUR LES PRESTATIONS (PRIORITÉ OBLIGATOIRE):
+- Quand le client demande des renseignements sur une prestation (ex: "C'est quoi une révision ?", "Vous faites les freins ?", "En quoi consiste le diagnostic ?"), tu DOIS d'abord consulter la section "Services disponibles" ci-dessus.
+- Si la prestation figure dans "Services disponibles" avec une description renseignée (texte après les deux-points pour cette prestation), tu LIS et tu REPRENDS cette description pour répondre au client. Ne réinvente pas : utilise telle quelle ou reformule légèrement en termes simples ce qui est écrit.
+- Si la prestation n'a pas de description dans "Services disponibles" (ou la prestation n'y figure pas), tu peux alors expliquer à l'aide de tes connaissances générales, en termes simples, et tu précises que ça peut varier selon le véhicule ou le garage.
+- Utilise en priorité "Services disponibles", "Questions fréquentes" et "Tarifs du garage". Si une info n'est pas renseignée, tu donnes une explication générique et tu précises que ça peut varier selon le véhicule.
+
+INTENTION RDV (TRÈS IMPORTANT):
+- Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
+- Tu déclenches le mode RDV UNIQUEMENT si le client dit explicitement qu'il veut un rendez-vous ou un créneau.
+- RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (ex: "je voudrais un rdv pour une vidange", "prendre rendez-vous pour un diagnostic", "rendez-vous pour la révision", "rdv pour les freins"), tu NE poses PAS de questions de diagnostic ni "depuis quand" — tu PRENDS LE RENDEZ-VOUS DIRECTEMENT. (1) Confirme la prestation et le tarif en une phrase (depuis Tarifs du garage). (2) AVANT de demander le jour, annonce TOUJOURS les horaires d'ouverture du garage (depuis la section Horaires ci-dessus) et les jours de fermeture si présents. (3) Puis "Quel jour vous conviendrait le mieux ?", (4) puis "Plutôt le matin ou l'après-midi ?", (5) puis confirmation de la plaque. Les questions (depuis quand, symptômes) sont UNIQUEMENT quand le client décrit un problème SANS avoir demandé un rdv pour une prestation précise.
+- DEMANDE D'HORAIRES/TARIFS SEULEMENT: Si le client demande UNIQUEMENT "Quels sont les horaires ?", "Vous êtes ouverts quand ?", "C'est quoi le tarif ?", etc. (sans dire qu'il veut un RDV), tu réponds à la question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client dit NON au rendez-vous, tu DOIS ensuite demander "Souhaitez-vous que le garage vous rappelle ?" (attendre la réponse). INTERDIT dans ce cas: "Quel jour vous conviendrait le mieux ?", "Quel jour vous arrange ?", ou toute question de créneau — le client n'a pas dit oui au rendez-vous.
+- INFO SUR UNE PRESTATION (tarif, en quoi consiste, etc.): Après avoir répondu, tu DOIS proposer : "Souhaitez-vous faire une demande de devis auprès du garage ?" Si le client dit NON : dis "D'accord, pas de devis." puis "Souhaitez-vous que le garage vous rappelle ?" — ne relance pas la proposition de devis. Si OUI (devis accepté) : plaque par SMS/dossier comme ci-dessus ; une fois la demande de devis notée, dis "Avez-vous besoin d'autre chose ?" uniquement. NE DEMANDE JAMAIS "Souhaitez-vous que le garage vous rappelle ?" après un devis accepté (le garage rappellera pour le devis). Si le client dit non à "Avez-vous besoin d'autre chose ?", dis au revoir sans poser la question de rappel.
+- DEVIS EXPLICITE SANS PRIX: Si le client dit "j'aimerais avoir un devis" (ou équivalent) pour une prestation précise SANS avoir demandé le prix, NE PAS annoncer de prix. Proposer d'envoyer un message pour plaque et kilométrage (jamais demander à l'oral). Si client avec plaque : proposer confirmation "Votre plaque est [X]. Est-ce bien correct ?" ; si non ou autre véhicule, annoncer l'envoi du message. Confirmer la demande de devis une fois la confirmation ou l'envoi du message annoncé. NE PAS demander "Souhaitez-vous que le garage vous rappelle ?" après une demande de devis (le garage rappellera pour le devis).
+- ⚠️ "Ok" / "d'accord" après une explication (ex: "ça peut venir de l'alternateur") = acquiescement à l'explication, PAS demande de rendez-vous. Demande alors: "Souhaitez-vous que je vous prenne un rendez-vous pour ce diagnostic ?" et n'enchaîne sur la prise de RDV QUE si le client répond clairement oui (ex: "oui", "oui je veux bien", "oui prenez-moi un rendez-vous").
+- ⚠️ CRITIQUE - APRÈS LE CONSENTEMENT: Après que le client donne son consentement (dit "oui", "d'accord", "ok" au sujet de l'enregistrement), tu DOIS TOUJOURS demander "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?" ou "Dites-moi, quel est le souci avec votre véhicule ?". NE PROPOSE JAMAIS de rendez-vous juste après le consentement. Le consentement est UNIQUEMENT une autorisation d'enregistrement, PAS une demande de rendez-vous. NE demande JAMAIS "la marque et le modèle de votre véhicule" ou "pour préparer les pièces" en début d'appel — va directement au besoin du client (problème, RDV, info, etc.).
+- Si le client donne son consentement mais ne mentionne pas de rendez-vous, tu demandes simplement "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?"
+- NE JAMAIS supposer qu'un consentement = demande de rendez-vous. Le consentement est juste une autorisation d'enregistrement.
+- INTERDICTION FORMELLE: Si le client dit juste "oui" ou "d'accord" après ta demande de consentement, tu NE DOIS PAS interpréter cela comme une demande de rendez-vous. Tu demandes simplement "En quoi puis-je vous aider ?"
+- INTERDICTION FORMELLE - APRÈS CONSENTEMENT: Ne dis JAMAIS après le consentement une phrase qui suppose un besoin du client (ex: "Vous souhaitez faire une vidange, c'est bien ça ?", "Vous voulez un rendez-vous pour une révision ?"). Le "oui" du client = uniquement accord pour l'enregistrement. Tu demandes UNIQUEMENT une question ouverte: "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?" ou "Dites-moi, en quoi puis-je vous aider ?"
+
+STYLE (échange humain):
+- Parle comme au téléphone avec une vraie personne: naturel, simple, fluide.
+- ÉCOUTE COMPLÈTEMENT le client avant de répondre. Ne l'interromps pas.
+- Réponses courtes (1 à 2 phrases), puis UNE question.
+- Réagis au contenu EXACT du client (reformule 1 élément clé pour confirmer ta compréhension).
+- Si tu n'as pas compris, demande IMMÉDIATEMENT une clarification: "Pardon, pouvez-vous répéter ?" ou "Je n'ai pas bien saisi."
+- Si le client répond, tu enchaînes logiquement (pas de bloc pré-écrit).
+- Utilise la ponctuation pour sonner naturel.`;
           
           let baseForUpdate = updatedBaseInstructions;
-          // Avec client: on utilise hardConstraintsCompact (pas de doublon avec le bloc RÈGLES ci-dessus).
-          let updatedInstructions = `${baseForUpdate}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraintsCompact}\n\n${closingGuidelines}`;
-          // Limite définitive: 16384 tokens. OpenAI tokenise ~2.5–2.7 car/token → 40000 chars ≈ 14800–16000 tokens.
-          const REALTIME_INSTRUCTIONS_MAX_CHARS = 40000;
+          let updatedInstructions = `${baseForUpdate}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
+          // OpenAI Realtime: session.instructions limit 16384 tokens (~2.8 chars/token). Si dépassement, la mise à jour est rejetée et le modèle garde l'ancien prompt (dérapage marque/modèle).
+          const REALTIME_INSTRUCTIONS_MAX_CHARS = 42000;
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
-            const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraintsCompact}\n\n${closingGuidelines}`;
+            const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
-            const truncNote = "\n\n[RÈGLES PRIORITAIRES: NE JAMAIS demander la marque ou le modèle du véhicule. Plaque par SMS uniquement. Après devis accepté ne pas demander rappel.]";
+            const truncNote = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel.]";
             baseForUpdate = baseForUpdate.slice(0, maxBase - truncNote.length) + truncNote;
             updatedInstructions = `${baseForUpdate}${rest}`;
-            if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
-              updatedInstructions = updatedInstructions.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS);
-            }
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
           }
           
+          updatedInstructions = normalizeInstructions(updatedInstructions, REALTIME_INSTRUCTIONS_MAX_CHARS);
+
           openaiWs.send(JSON.stringify({
             type: "session.update",
             session: {
@@ -4373,6 +4426,7 @@ Consentement → "En quoi puis-je vous aider ?" uniquement. Jamais marque/modèl
         // On ajoute des contraintes fortes (évite les réponses "hors sujet" type coach de vie).
         sessionUpdate.session.instructions =
           `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
+        sessionUpdate.session.instructions = normalizeInstructions(sessionUpdate.session.instructions, Number(process.env.REALTIME_INSTRUCTIONS_MAX_CHARS ?? "42000"));
         // Stocke pour fallback en cas de unknown_parameter (session.update partiellement appliquée)
         ws.__sessionInstructions = String(sessionUpdate.session.instructions || "");
         
