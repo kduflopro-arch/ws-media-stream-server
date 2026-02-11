@@ -3515,10 +3515,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-    // Ne pas spam: si OpenAI a déjà une réponse en cours, ou si on vient juste d'en demander une.
     const now = nowMs();
     if (responseInProgress) return;
-    if ((now - lastResponseCreateRequestedAt) < RESPONSE_CREATE_DEBOUNCE_MS) return;
+    // Après un function_call_output on doit toujours envoyer response.create (pas de debounce)
+    const skipDebounce = reason === "after_function_call_output";
+    if (!skipDebounce && (now - lastResponseCreateRequestedAt) < RESPONSE_CREATE_DEBOUNCE_MS) return;
     lastResponseCreateRequestedAt = now;
     try {
       // IMPORTANT: `response.voice` n'est pas accepté (erreur: unknown_parameter) sur notre modèle Realtime actuel.
@@ -5711,6 +5712,18 @@ But: être naturel et mettre le client en confiance.`,
                   item: { type: "function_call_output", call_id: callId, output },
                   previous_item_id: previousItemId,
                 }));
+                // Déclencher la réponse de l'IA après envoi du résultat d'outil (sinon le modèle ne génère pas la phrase pour le client)
+                let attempt = 0;
+                const maxAttempts = 5;
+                const scheduleResponseAfterTool = () => {
+                  attempt += 1;
+                  if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                    requestResponseCreate("after_function_call_output");
+                  } else if (openaiWs && openaiWs.readyState === WebSocket.OPEN && responseInProgress && attempt < maxAttempts) {
+                    setTimeout(scheduleResponseAfterTool, 200);
+                  }
+                };
+                setTimeout(scheduleResponseAfterTool, 150);
               } catch (err) {
                 console.error("❌ Envoi function_call_output:", err);
               }
