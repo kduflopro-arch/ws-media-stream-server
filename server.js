@@ -24,7 +24,7 @@ Contraintes strictes :
 5. Résumé de l'appel (champ "summary") : NE PAS recopier la transcription. RÉSUMÉ STRUCTURÉ et LISIBLE pour le garage, UNIQUEMENT les infos utiles pour le rappel et l'accueil. Présentation en paragraphes courts, une idée par ligne si besoin. Contenu :
    - Prestation demandée (ex: diagnostic batterie, réparation freins, devis) avec tarif si mentionné.
    - Symptômes évoqués par le client uniquement s'il en a décrit.
-   - RDV : oui/non, et si oui jour/heure demandés ou proposés.
+   - RDV : oui/non, et si oui jour/créneau (matin ou après-midi) demandés ou proposés.
    - Diagnostic préliminaire si problème décrit, sinon "à confirmer au diagnostic".
    - Autres demandes (devis, info, autre véhicule).
    - Réponses utiles du client (depuis quand, conditions) en 2 à 4 lignes max.
@@ -46,6 +46,12 @@ Contraintes strictes :
    - Si urgence MOYENNE : "Consultation recommandée dans les 2-3 jours"
    - Si urgence FAIBLE : "Consultation à planifier selon disponibilité"
 10. Informations client : Analyse la conversation pour extraire TOUTES les informations utiles pour le rappel (genre, âge, état émotionnel, kilométrage, durée du problème, conditions, créneaux, contraintes, niveau de connaissance, style de communication, raison urgence, expérience garages, notes). Si aucune note utile, mets une chaîne vide "".
+11. Type d'appel (champ "callType") : Détermine UNE SEULE valeur pour les badges affichés au garage. Valeurs possibles :
+   - "demande_rdv" : le client a demandé ou accepté de prendre un rendez-vous (demande de RDV, jour/créneau indiqués ou en cours de prise).
+   - "info" : appel uniquement pour une information (horaires, tarifs, adresse, renseignement) sans demande de RDV ni modification/annulation.
+   - "modification_rdv" : le client appelle pour modifier ou déplacer un rendez-vous existant.
+   - "annulation_rdv" : le client appelle pour annuler un rendez-vous.
+   En cas de doute entre demande_rdv et info : si le client a dit oui à "Vous voulez prendre rendez-vous ?" ou a indiqué un jour/créneau pour un RDV, mets "demande_rdv".
 
 Format de sortie JSON strict requis. Réponds en français.`;
 
@@ -93,8 +99,9 @@ const CALL_ANALYSIS_SCHEMA = {
     appointmentConfirmedService: { type: "string" },
     callOutcome: { type: "string" },
     rdvIncompleteReason: { type: "string" },
+    callType: { type: "string", enum: ["demande_rdv", "info", "modification_rdv", "annulation_rdv"] },
   },
-  required: ["symptoms", "summary", "aiConclusion", "probableCauses", "urgency", "appointmentRecommendation", "clientInsights", "appointmentConfirmedDate", "appointmentConfirmedTime", "appointmentConfirmedService", "callOutcome", "rdvIncompleteReason"],
+  required: ["symptoms", "summary", "aiConclusion", "probableCauses", "urgency", "appointmentRecommendation", "clientInsights", "appointmentConfirmedDate", "appointmentConfirmedTime", "appointmentConfirmedService", "callOutcome", "rdvIncompleteReason", "callType"],
   additionalProperties: false,
 };
 
@@ -152,7 +159,7 @@ async function handleRunAnalysis(callId, res) {
     // "internal" retiré : tout traité en "request"
   }
   const callDateIso = call.created_at ? new Date(call.created_at).toISOString().slice(0, 10) : null;
-  const rdvInstruction = " Pour le résumé (champ summary) : sois DÉTAILLÉ, PRÉCIS et FIDÈLE à l'appel. Si le client souhaite un rendez-vous, écris clairement 'Demande de rendez-vous pour [prestation] — [jour/créneau indiqué par le client], plaque [X] si mentionnée.' Mentionne aussi les demandes d'info (tarifs, horaires, prestations) et les réponses du client. Ne jamais écrire 'Un rendez-vous est pris'. RÈGLE APPEL NON ABOUTI (rdv_incomplete) : utilise callOutcome = 'rdv_incomplete' UNIQUEMENT si le client a demandé un RDV (ou accepté d'en prendre un) mais a raccroché SANS avoir indiqué ni un jour ni une préférence de créneau (matin/après-midi). Si dans la transcription l'assistant confirme le rendez-vous (ex. 'Je note pour la vidange', 'Parfait pour mercredi matin', 'votre plaque est BT-346-QT', 'Parfait je note pour...'), alors le client a bien indiqué jour et/ou créneau : tu DOIS mettre callOutcome = 'completed' et rdvIncompleteReason = ''. Dans ce cas, ne pas écrire dans le résumé que le client a raccroché avant d'indiquer ses préférences. Si le client a seulement demandé des informations (pas de demande de RDV), ou s'il a indiqué un jour/créneau (ou confirmé la plaque pour le RDV), mets callOutcome = 'completed' et rdvIncompleteReason = ''. Réponds en fr.";
+  const rdvInstruction = " Pour le résumé (champ summary) : sois DÉTAILLÉ, PRÉCIS et FIDÈLE à l'appel. Si le client souhaite un rendez-vous, écris clairement 'Demande de rendez-vous pour [prestation] — [jour/créneau indiqué par le client], plaque [X] si mentionnée.' Mentionne aussi les demandes d'info (tarifs, horaires, prestations) et les réponses du client. Ne jamais écrire 'Un rendez-vous est pris'. Pour le champ callType : mets 'demande_rdv' dès que le client a demandé ou accepté un RDV et a indiqué un jour ou un créneau (matin/après-midi) ; mets 'info' si l'appel est uniquement une demande d'information (horaires, tarifs, etc.) sans prise de RDV ; 'modification_rdv' ou 'annulation_rdv' si le client appelle pour modifier ou annuler un RDV. RÈGLE APPEL NON ABOUTI (rdv_incomplete) : utilise callOutcome = 'rdv_incomplete' UNIQUEMENT si le client a demandé un RDV (ou accepté d'en prendre un) mais a raccroché SANS avoir indiqué ni un jour ni une préférence de créneau (matin/après-midi). Si dans la transcription l'assistant confirme le rendez-vous (ex. 'Je note pour la vidange', 'Parfait pour mercredi matin', 'votre plaque est BT-346-QT', 'Parfait je note pour...'), alors le client a bien indiqué jour et/ou créneau : tu DOIS mettre callOutcome = 'completed', rdvIncompleteReason = '' et callType = 'demande_rdv'. Dans ce cas, ne pas écrire dans le résumé que le client a raccroché avant d'indiquer ses préférences. Si le client a seulement demandé des informations (pas de demande de RDV), ou s'il a indiqué un jour/créneau (ou confirmé la plaque pour le RDV), mets callOutcome = 'completed' et rdvIncompleteReason = ''. Réponds en fr.";
 
   const hasSummary = (call.call_summary ?? "").trim().length > 0;
   const hasConclusion = (call.ai_conclusion ?? "").trim().length > 0;
@@ -252,6 +259,13 @@ async function handleRunAnalysis(callId, res) {
     const callOutcome = (analysis.callOutcome ?? "").trim();
     const rdvIncompleteReason = (analysis.rdvIncompleteReason ?? "").trim();
     const isRdvIncomplete = callOutcome === "rdv_incomplete" && rdvIncompleteReason;
+    const callType = (analysis.callType ?? "").trim();
+    const hasValidCallType = ["demande_rdv", "info", "modification_rdv", "annulation_rdv"].includes(callType);
+    const isDemandeRdv = callType === "demande_rdv";
+    const isModificationRdv = callType === "modification_rdv";
+    const isAnnulationRdv = callType === "annulation_rdv";
+    const isInfoOnly = callType === "info";
+    const callbackTypeFromAnalysis = hasValidCallType && (isInfoOnly ? "info" : (isDemandeRdv || isModificationRdv || isAnnulationRdv ? "rdv" : "none"));
 
     const updatePayload = {
       status: "done",
@@ -267,6 +281,12 @@ async function handleRunAnalysis(callId, res) {
       client_insights: clientInsights,
       call_outcome: isRdvIncomplete ? "rdv_incomplete" : "completed",
       rdv_incomplete_reason: isRdvIncomplete ? rdvIncompleteReason : null,
+      ...(hasValidCallType ? {
+        rdv_requested: isDemandeRdv,
+        callback_type: callbackTypeFromAnalysis,
+        modification_rdv: isModificationRdv,
+        annulation_rdv: isAnnulationRdv,
+      } : {}),
     };
 
     const { data: updatedRow, error: updateError } = await supabase
@@ -3918,7 +3938,7 @@ IMPORTANT - GESTION DES RENDEZ-VOUS:
   * Si mode rendez-vous = "demande" ou "aucun": tu notes la demande d'annulation et dis: "J'ai bien noté votre demande d'annulation. Le garage vous rappellera pour confirmer."
 - Si le client demande s'il a un rendez-vous: informe-le des rendez-vous à venir listés ci-dessus.
 - Si le client ne mentionne pas modification/annulation, procède normalement (diagnostic, nouveau RDV, etc.).
-- RÈGLE - JOUR INDIQUÉ PAR LE CLIENT: Quand tu as demandé "Quel jour vous conviendrait le mieux ?" et que le client indique un jour (ex: "jeudi", "vendredi"), ce jour fait partie des jours d'ouverture. Tu DOIS l'accepter et passer à l'étape suivante (créneau matin/après-midi ou proposition d'un créneau précis de la liste). Ne répète PAS la liste des jours d'ouverture (ex: "le garage est ouvert entre mercredi et samedi"). Dis par ex. "Parfait, jeudi. Plutôt le matin ou l'après-midi ?" ou si tu as des créneaux précis dans "Créneaux disponibles", propose-en un ou deux qui correspondent au jour dit.
+- RÈGLE - JOUR INDIQUÉ PAR LE CLIENT: Quand tu as demandé "Quel jour vous conviendrait le mieux ?" et que le client indique un jour (ex: "jeudi", "vendredi"), ce jour fait partie des jours d'ouverture. Tu DOIS l'accepter puis TOUJOURS poser la question du créneau avant toute autre chose: "Plutôt le matin ou l'après-midi ?" — ne passe JAMAIS à la confirmation de plaque sans avoir obtenu cette préférence. Ne répète PAS la liste des jours d'ouverture. Dis par ex. "Parfait, jeudi. Plutôt le matin ou l'après-midi ?" ou si tu as des créneaux précis dans "Créneaux disponibles", propose-en un ou deux qui correspondent au jour dit.
 - En mode interne avec "Créneaux disponibles": propose de préférence des créneaux de cette liste (date + heure exactes). Quand le client dit un jour, identifie dans la liste le créneau qui correspond (ex: client dit "jeudi" → "Je vous propose jeudi 6 février à 10h, ça vous convient ?").
 
 PRISE DE RENDEZ-VOUS EN MODE INTERNE (IA PREND RDV) — À RESPECTER STRICTEMENT:
@@ -6408,8 +6428,8 @@ But: être naturel et mettre le client en confiance.`,
                     const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
                     console.log(`👋 Greeting avec nom client joué via ${providerName}.`, { callSid, consentRequired, salutationName, lastName, clientName: clientInfo.name });
                     if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
-                  } else if (initialAssistantGreetingText && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN) {
-                    // Greeting générique déjà joué : si le client a un rendez-vous enregistré (pas en attente), le notifier quand même
+                  } else if ((initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN) {
+                    // Greeting déjà joué (générique ou OpenAI) : si le client a un rendez-vous enregistré (pas en attente), le notifier quand même
                     const appointments = clientInfo.appointments || [];
                     if (appointments.length > 0) {
                       const apt = appointments[0];
@@ -6418,7 +6438,7 @@ But: être naturel et mettre le client en confiance.`,
                         const dateStr = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
                         const rdvNotification = `Je vois que vous avez un rendez-vous enregistré pour le ${dateStr} à ${apt.appointment_time}. En quoi puis-je vous aider ?`;
                         enqueuePremiumTts(rdvNotification, { interrupt: true, source: "rdv_notification_followup", allowWithoutUser: true });
-                        console.log("👋 Notification RDV enregistré jouée (greeting générique déjà envoyé).", { callSid });
+                        console.log("👋 Notification RDV enregistré jouée (greeting déjà envoyé).", { callSid });
                       }
                     }
                   }
@@ -7053,7 +7073,7 @@ But: être naturel et mettre le client en confiance.`,
               console.error("❌ Erreur lors de l'envoi SMS plaque (stop):", err);
             });
         } else {
-          console.log("ℹ️ À la fin de l'appel: aucun envoi SMS plaque demandé (un SMS a pu être envoyé pendant l'appel si l'IA l'a proposé)");
+          console.log("ℹ️ À la fin de l'appel: pas d'envoi SMS plaque supplémentaire demandé (un SMS a pu avoir été envoyé pendant l'appel si l'IA l'a proposé)");
         }
         finalizeCallToAutoGuru("twilio_stop");
         if (outboundTimer) {
