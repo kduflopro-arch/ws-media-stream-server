@@ -863,11 +863,17 @@ wss.on("connection", (ws, req) => {
       if (RUN_ANALYSIS_DELAY_MS > 0) {
         await new Promise((r) => setTimeout(r, RUN_ANALYSIS_DELAY_MS));
       }
+      // Secours badge RDV : si l'assistant a posé une question RDV (intent "rdv" enregistré) et le client n'a pas refusé, considérer comme demande de RDV (la réponse jour/créneau peut avoir été reçue dans un ordre d'events où on ne l'a pas détectée)
+      const hasRdvIntent = recentAssistantQuestionIntents.some((x) => x && x.intent === "rdv");
+      if (hasRdvIntent && !rdvRefusedByClient && !rdvAcceptedByClient) {
+        rdvAcceptedByClient = true;
+        console.log("📌 [RDV] Secours finalize: intent rdv présent, pas de refus → rdv_requested = true");
+      }
       // Badges (comme devis_requested) : déterminés uniquement par le WS, envoyés au finalize pour écriture en base
       const rdvRequestedFromWs = rdvAcceptedByClient && !rdvRefusedByClient;
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
       console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient });
-      console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, recentIntentsCount: recentAssistantQuestionIntents.length });
+      console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, recentIntentsCount: recentAssistantQuestionIntents.length, hasRdvIntent });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -5285,6 +5291,13 @@ But: être naturel et mettre le client en confiance.`,
                       }
                     }
                     // Détection RDV depuis conversation.item.done (user) — même logique que input_audio_transcription (le texte user peut arriver ici en premier)
+                    // Client initie la demande de RDV (ex. "je voudrais prendre rendez-vous") → rdv_requested = true tout de suite (appel peut couper en pleine demande)
+                    const clientAsksForRdv = /\b(je\s+)?(voudrais|veux|souhaite)\s+(prendre\s+)?(un\s+)?(rdv|rendez-?vous)\b/i.test(ut) || /\b(prendre|avoir)\s+(un\s+)?(rdv|rendez-?vous)\b/i.test(ut) || /\b(rdv|rendez-?vous)\s+(s['']il vous plaît|svp|merci)\b/i.test(ut) || /\bappel(le)?\s+pour\s+(un\s+)?(rdv|rendez-?vous)\b/i.test(ut);
+                    if (clientAsksForRdv && !rdvRefusedByClient) {
+                      rdvAcceptedByClient = true;
+                      rdvRefusedByClient = false;
+                      console.log("📌 [RDV] (conversation.item.done user) → rdv_accepted (client demande RDV)", { userText: userText.substring(0, 50) });
+                    }
                     const detectRdvIntent = (raw) => {
                       const q = String(raw || "").match(/[^?.!\n\r]*\?/g) || [];
                       const t = String(q.length ? q[q.length - 1] : raw).toLowerCase();
@@ -5907,6 +5920,13 @@ But: être naturel et mettre le client en confiance.`,
             const lastWasDevisQuestionIntent = effectiveIntent === "devis";
             const lastWasRdvQuestionIntent = effectiveIntent === "rdv";
             const lastWasInRdvFlowIntent = effectiveIntent === "rdv";
+            // Client initie la demande de RDV (ex. "je voudrais prendre rendez-vous") → rdv_requested = true tout de suite (appel peut couper en pleine demande)
+            const clientAsksForRdvInput = /\b(je\s+)?(voudrais|veux|souhaite)\s+(prendre\s+)?(un\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm) || /\b(prendre|avoir)\s+(un\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm) || /\b(rdv|rendez-?vous)\s+(s['']il vous plaît|svp|merci)\b/i.test(userTextNorm) || /\bappel(le)?\s+pour\s+(un\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm);
+            if (clientAsksForRdvInput && !rdvRefusedByClient) {
+              rdvAcceptedByClient = true;
+              rdvRefusedByClient = false;
+              console.log("📌 [RDV] (input_audio_transcription) → rdv_accepted (client demande RDV)", { userText: userTextNorm?.slice(0, 50) });
+            }
             if (lastWasRdvQuestionIntent || lastWasInRdvFlowIntent) {
               console.log("📌 [RDV] Intention RDV détectée:", { lastIntent, recentIntent, effectiveIntent, lastAssistantSnippet: (lastAssistantText || "").slice(0, 100) });
             }
