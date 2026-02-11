@@ -5284,6 +5284,37 @@ But: être naturel et mettre le client en confiance.`,
                         if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (plaque pour devis, depuis conversation.item.done).", { userText: userText.substring(0, 40) });
                       }
                     }
+                    // Détection RDV depuis conversation.item.done (user) — même logique que input_audio_transcription (le texte user peut arriver ici en premier)
+                    const detectRdvIntent = (raw) => {
+                      const q = String(raw || "").match(/[^?.!\n\r]*\?/g) || [];
+                      const t = String(q.length ? q[q.length - 1] : raw).toLowerCase();
+                      const asksRdv = /\b(rendez-?vous|rdv|créneau)\b/.test(t) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(t);
+                      const asksCallback = /\b(rappel|rappeler)\b/.test(t);
+                      return asksRdv && !asksCallback ? "rdv" : "unknown";
+                    };
+                    const lastIntentRdv = detectRdvIntent(lastAssistantText);
+                    const recentIntentRdv = getMostRecentAssistantIntent(25000) === "rdv";
+                    const inRdvFlow = lastIntentRdv === "rdv" || recentIntentRdv;
+                    if (inRdvFlow && userText.trim()) {
+                      const userGaveDayOrSlot = /\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|demain|après-demain)\b/i.test(ut) || /\b(matin|après-midi)\b/i.test(ut);
+                      const userAffirmativeConv = isAffirmativeFr(ut);
+                      const userNegativeConv = isNegativeFr(ut);
+                      const rdvPositive = /\b(oui|ouais|ok|d['']?accord|je veux|prendre rendez-vous|un rendez-vous)\b/i.test(ut);
+                      const rdvNegative = /\b(non|pas de rendez-vous|pas maintenant|je ne veux pas de rendez-vous)\b/i.test(ut);
+                      if (rdvNegative || (userNegativeConv && !userAffirmativeConv)) {
+                        rdvRefusedByClient = true;
+                        rdvAcceptedByClient = false;
+                        console.log("📌 [RDV] (conversation.item.done user) → rdv_refused", { userText: userText.substring(0, 50) });
+                      } else if (rdvPositive || (userAffirmativeConv && !userNegativeConv)) {
+                        rdvAcceptedByClient = true;
+                        rdvRefusedByClient = false;
+                        console.log("📌 [RDV] (conversation.item.done user) → rdv_accepted (oui)", { userText: userText.substring(0, 50) });
+                      } else if (userGaveDayOrSlot) {
+                        rdvAcceptedByClient = true;
+                        rdvRefusedByClient = false;
+                        console.log("📌 [RDV] (conversation.item.done user) → rdv_accepted (jour/créneau)", { userText: userText.substring(0, 50) });
+                      }
+                    }
                   }
                 } catch (e) {
                   console.error("❌ Erreur extraction texte user depuis conversation.item.done:", e);
