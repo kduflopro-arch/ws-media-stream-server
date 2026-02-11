@@ -4223,6 +4223,8 @@ ${garageClosed
         const neutralPersona =
           `Persona: assistant téléphonique professionnel, cordial, chaleureux et concis.`;
 
+        // Limite OpenAI Realtime: session.instructions = 16384 tokens max. 16384 * 2.7 ≈ 44237 car. On utilise 44200 pour rester sous la limite.
+        const REALTIME_INSTRUCTIONS_MAX_CHARS = 44200;
         // IMPORTANT: sur notre modèle Realtime actuel, `session.input_audio_transcription` n'est PAS supporté
         // (Render logs: unknown_parameter). On le désactive par défaut.
         const REALTIME_INPUT_TRANSCRIPTION_ENABLED = (process.env.REALTIME_INPUT_TRANSCRIPTION_ENABLED ?? "false").toLowerCase() === "true";
@@ -4341,8 +4343,6 @@ STYLE (échange humain):
           
           let baseForUpdate = updatedBaseInstructions;
           let updatedInstructions = `${baseForUpdate}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
-          // OpenAI Realtime: session.instructions limit 16384 tokens (~2.8 chars/token). Si dépassement, la mise à jour est rejetée et le modèle garde l'ancien prompt (dérapage marque/modèle).
-          const REALTIME_INSTRUCTIONS_MAX_CHARS = 45800;
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
             const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
@@ -4374,8 +4374,15 @@ STYLE (échange humain):
         };
         
         // On ajoute des contraintes fortes (évite les réponses "hors sujet" type coach de vie).
-        sessionUpdate.session.instructions =
-          `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
+        let initialInstructionsText = `${baseInstructions}\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
+        if (initialInstructionsText.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
+          const restInitial = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
+          const maxBaseInitial = REALTIME_INSTRUCTIONS_MAX_CHARS - restInitial.length - 400;
+          const truncNoteInitial = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel.]";
+          initialInstructionsText = baseInstructions.slice(0, maxBaseInitial - truncNoteInitial.length) + truncNoteInitial + restInitial;
+          console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
+        }
+        sessionUpdate.session.instructions = initialInstructionsText;
         sessionUpdate.session.tools = garageTools;
         sessionUpdate.session.tool_choice = "auto";
         // Stocke pour fallback en cas de unknown_parameter (session.update partiellement appliquée)
