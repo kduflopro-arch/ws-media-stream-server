@@ -768,6 +768,7 @@ wss.on("connection", (ws, req) => {
     const intent = asksDevis ? "devis" : asksCallback && !asksRdv ? "callback" : asksRdv && !asksCallback ? "rdv" : null;
     if (!intent) return;
     recentAssistantQuestionIntents.push({ intent, ts: nowMs() });
+    console.log("📌 [RDV] recordAssistantQuestionIntent:", { intent, asksRdv: !!asksRdv, asksCallback: !!asksCallback, asksDevis: !!asksDevis, lastQuestion: target.slice(0, 80) });
     // garder uniquement les plus récents (mémoire courte)
     if (recentAssistantQuestionIntents.length > 10) {
       recentAssistantQuestionIntents = recentAssistantQuestionIntents.slice(-10);
@@ -866,6 +867,7 @@ wss.on("connection", (ws, req) => {
       const rdvRequestedFromWs = rdvAcceptedByClient && !rdvRefusedByClient;
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
       console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient });
+      console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, recentIntentsCount: recentAssistantQuestionIntents.length });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -5874,6 +5876,9 @@ But: être naturel et mettre le client en confiance.`,
             const lastWasDevisQuestionIntent = effectiveIntent === "devis";
             const lastWasRdvQuestionIntent = effectiveIntent === "rdv";
             const lastWasInRdvFlowIntent = effectiveIntent === "rdv";
+            if (lastWasRdvQuestionIntent || lastWasInRdvFlowIntent) {
+              console.log("📌 [RDV] Intention RDV détectée:", { lastIntent, recentIntent, effectiveIntent, lastAssistantSnippet: (lastAssistantText || "").slice(0, 100) });
+            }
             const callbackExplicitPositive = /\b(oui|ouais|ok|d['’]?accord|je veux|oui je veux|volontiers|avec plaisir|rappeler moi|rappellez moi|rappeler)\b/i.test(userTextNorm);
             const callbackExplicitNegative = /\b(non|pas besoin|pas de rappel|ne me rappelez pas|je ne veux pas être rappel[ée]?)\b/i.test(userTextNorm);
             const rdvExplicitPositive = /\b(oui|ouais|ok|d['’]?accord|je veux|prendre rendez-vous|un rendez-vous)\b/i.test(userTextNorm);
@@ -5902,19 +5907,22 @@ But: être naturel et mettre le client en confiance.`,
               }
             }
             if (lastWasRdvQuestionIntent || lastWasInRdvFlowIntent) {
+              const userGaveDayOrSlot = /\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|demain|après-demain)\b/i.test(userTextNorm) || /\b(matin|après-midi)\b/i.test(userTextNorm);
+              console.log("📌 [RDV] Bloc RDV évalué:", { lastWasRdvQuestionIntent, lastWasInRdvFlowIntent, userText: userTextNorm?.slice(0, 60), userGaveDayOrSlot, rdvExplicitPositive, userAffirmative, userNegative });
               if (rdvExplicitNegative || (userNegative && !userAffirmative)) {
                 rdvRefusedByClient = true;
                 rdvAcceptedByClient = false;
+                console.log("📌 [RDV] → rdv_refused (client a refusé)");
               } else if (rdvExplicitPositive || (userAffirmative && !userNegative)) {
                 rdvAcceptedByClient = true;
                 rdvRefusedByClient = false;
+                console.log("📌 [RDV] → rdv_accepted (oui explicite)");
               } else if (lastWasInRdvFlowIntent) {
                 // Client a indiqué un jour ou un créneau (ex. "mercredi matin") = demande de RDV en cours
-                const userGaveDayOrSlot = /\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|demain|après-demain)\b/i.test(userTextNorm) || /\b(matin|après-midi)\b/i.test(userTextNorm);
                 if (userGaveDayOrSlot) {
                   rdvAcceptedByClient = true;
                   rdvRefusedByClient = false;
-                  if (LOG_VERBOSE) console.log("ℹ️ Demande de RDV (client a indiqué jour/créneau).", { userText: userText?.substring(0, 50) });
+                  console.log("📌 [RDV] → rdv_accepted (client a indiqué jour/créneau)", { userText: userText?.substring(0, 50) });
                 }
               }
             }
