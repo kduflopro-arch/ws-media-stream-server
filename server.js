@@ -588,7 +588,7 @@ wss.on("connection", (ws, req) => {
   // VAD local (Twilio ne fournit pas toujours un VAD fiable via OpenAI events)
   let speechActive = false;
   let lastSpeechTs = 0;
-  let lastCommitAt = 0;
+  let lastCommitAt = 0; // Dernier input_audio_buffer.committed (pour watchdog response.create)
   let silenceFrames = 0; // frames consécutives "silence"
   let bytesSinceSpeechStart = 0;
   let responseInProgress = false;
@@ -6050,17 +6050,20 @@ But: être naturel et mettre le client en confiance.`,
             fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4651',message:'input_audio_buffer.committed',data:{itemId:msg.item_id,previousItemId:msg.previous_item_id,speechActive,lastSpeechTs,timeSinceSpeech:nowMs()-lastSpeechTs,hasRealSpeech,bytesSinceSpeechStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
             // #endregion
             if (hasRealSpeech) {
-              console.log("🟢 Le client a parlé (buffer audio envoyé au modèle - committed)", { item_id: msg.item_id, timeSinceSpeech: nowMs() - lastSpeechTs });
+              const commitTs = nowMs();
+              lastCommitAt = commitTs; // Pour que le watchdog envoie response.create (lastCommittedAt n'est mis à jour qu'après le transcript)
+              console.log("🟢 Le client a parlé (buffer audio envoyé au modèle - committed)", { item_id: msg.item_id, timeSinceSpeech: commitTs - lastSpeechTs });
               // ANTI-BRUIT: on ne met plus à jour lastCommittedAt ici. On le fait uniquement quand on a le transcript
-              if (LOG_VERBOSE) console.log("✅ OpenAI buffer committed:", { item_id: msg.item_id, previous_item_id: msg.previous_item_id, timeSinceSpeech: nowMs() - lastSpeechTs });
-              const canRequest = (nowMs() - lastResponseAt) > 600;
+              if (LOG_VERBOSE) console.log("✅ OpenAI buffer committed:", { item_id: msg.item_id, previous_item_id: msg.previous_item_id, timeSinceSpeech: commitTs - lastSpeechTs });
+              const canRequest = (commitTs - lastResponseAt) > 600;
               if (awaitingUserResponse && canRequest) {
-                lastResponseAt = nowMs();
+                lastResponseAt = commitTs;
                 awaitingUserResponse = false;
                 setTimeout(() => {
                   if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
                   if (responseInProgress) return;
-                  if (lastResponseCreatedAt >= lastCommittedAt) return;
+                  // Ne pas envoyer si on a déjà créé une réponse pour ce commit (évite doublon)
+                  if (lastResponseCreatedAt >= lastCommitAt) return;
                   requestResponseCreate("watchdog_after_commit");
                 }, WATCHDOG_AFTER_COMMIT_MS);
               }
