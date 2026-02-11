@@ -4378,7 +4378,8 @@ STYLE (échange humain):
             updatedInstructions = `${baseForUpdate}${rest}`;
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
           }
-          
+          const estTokensUpdate = Math.round(updatedInstructions.length / 2.7);
+          console.log("🧬 Tokens envoyés à OpenAI (est.):", estTokensUpdate, "(mise à jour client,", updatedInstructions.length, "car.)");
           openaiWs.send(JSON.stringify({
             type: "session.update",
             session: {
@@ -4407,6 +4408,9 @@ STYLE (échange humain):
         // Stocker la fonction pour mise à jour ultérieure
         ws.__updatePromptWithClientInfo = updatePromptWithClientInfo;
 
+        const initialInstructions = sessionUpdate.session.instructions || "";
+        const estTokensInitial = Math.round(initialInstructions.length / 2.7);
+        console.log("🧬 Tokens envoyés à OpenAI (est.):", estTokensInitial, "(session initiale,", initialInstructions.length, "car.)");
         openaiWs.send(JSON.stringify(sessionUpdate));
 
         function pickGreetingText(label) {
