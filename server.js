@@ -259,14 +259,7 @@ async function handleRunAnalysis(callId, res) {
     const callOutcome = (analysis.callOutcome ?? "").trim();
     const rdvIncompleteReason = (analysis.rdvIncompleteReason ?? "").trim();
     const isRdvIncomplete = callOutcome === "rdv_incomplete" && rdvIncompleteReason;
-    const callType = (analysis.callType ?? "").trim();
-    const hasValidCallType = ["demande_rdv", "info", "modification_rdv", "annulation_rdv"].includes(callType);
-    const isDemandeRdv = callType === "demande_rdv";
-    const isModificationRdv = callType === "modification_rdv";
-    const isAnnulationRdv = callType === "annulation_rdv";
-    const isInfoOnly = callType === "info";
-    const callbackTypeFromAnalysis = hasValidCallType && (isInfoOnly ? "info" : (isDemandeRdv || isModificationRdv || isAnnulationRdv ? "rdv" : "none"));
-
+    // Badges (RDV, Info, Modif. RDV, Annul. RDV) : gérés uniquement par le serveur WS lors du finalize (comme devis_requested). run-analysis n'écrit pas ces champs.
     const updatePayload = {
       status: "done",
       updated_at: new Date().toISOString(),
@@ -281,12 +274,6 @@ async function handleRunAnalysis(callId, res) {
       client_insights: clientInsights,
       call_outcome: isRdvIncomplete ? "rdv_incomplete" : "completed",
       rdv_incomplete_reason: isRdvIncomplete ? rdvIncompleteReason : null,
-      ...(hasValidCallType ? {
-        rdv_requested: isDemandeRdv,
-        callback_type: callbackTypeFromAnalysis,
-        modification_rdv: isModificationRdv,
-        annulation_rdv: isAnnulationRdv,
-      } : {}),
     };
 
     const { data: updatedRow, error: updateError } = await supabase
@@ -742,8 +729,10 @@ wss.on("connection", (ws, req) => {
   let callbackRefusedByClient = false; // Client a refusé d'être rappelé (envoyé au finalize pour badge "Pas rappel")
   let callbackAcceptedByClient = false; // Client a accepté explicitement d'être rappelé
   let rdvRefusedByClient = false; // Client a refusé de prendre rendez-vous (envoyé au finalize → rdv_requested false)
-  let rdvAcceptedByClient = false; // Client a accepté explicitement la prise de rendez-vous
+  let rdvAcceptedByClient = false; // Client a accepté explicitement la prise de rendez-vous (badge RDV)
   let devisAcceptedByClient = false; // Client a accepté une demande de devis (envoyé au finalize → badge "Devis demandé")
+  let modificationRdvByClient = false; // Client a demandé à modifier un RDV (badge Modif. RDV)
+  let annulationRdvByClient = false; // Client a demandé à annuler un RDV (badge Annul. RDV)
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
@@ -873,7 +862,10 @@ wss.on("connection", (ws, req) => {
       if (RUN_ANALYSIS_DELAY_MS > 0) {
         await new Promise((r) => setTimeout(r, RUN_ANALYSIS_DELAY_MS));
       }
-      console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient });
+      // Badges (comme devis_requested) : déterminés uniquement par le WS, envoyés au finalize pour écriture en base
+      const rdvRequestedFromWs = rdvAcceptedByClient && !rdvRefusedByClient;
+      const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
+      console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -890,6 +882,10 @@ wss.on("connection", (ws, req) => {
           devis_requested: devisAcceptedByClient,
           rdv_refused: rdvRefusedByClient,
           rdv_accepted: rdvAcceptedByClient,
+          rdv_requested: rdvRequestedFromWs,
+          callback_type: callbackTypeFromWs,
+          modification_rdv: modificationRdvByClient,
+          annulation_rdv: annulationRdvByClient,
           plate_confirmed_by_client: plateConfirmedByClient,
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
           consent_granted: consentGiven,
@@ -5929,6 +5925,21 @@ But: être naturel et mettre le client en confiance.`,
             if (lastWasDevisQuestionIntent && (callbackExplicitNegative || looksLikeRefuseForCallback || /\b(pas de devis|sans devis|non merci)\b/i.test(userTextNorm))) {
               devisAcceptedByClient = false;
               if (LOG_VERBOSE) console.log("ℹ️ Client a refusé la demande de devis.", { userText: userText?.substring(0, 40) });
+            }
+            // Détection modification / annulation RDV (badges Modif. RDV, Annul. RDV) — même logique que devis_requested
+            const userWantsModifyRdv = /\b(modifier|changer|déplacer|reporter|décaler)\s+(mon\s+)?(rdv|rendez-?vous|créneau|date)\b/i.test(userTextNorm) || /\b(je\s+veux\s+)?(modifier|changer)\s+(le\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm);
+            const userWantsCancelRdv = /\b(annuler|annulation)\s+(mon\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm) || /\b(je\s+veux\s+)?annuler\s+(le\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm) || /\bplus\s+besoin\s+(du\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm);
+            const assistantAskedModify = lastAssistantText && /\b(modifier|changer|déplacer|reporter)\s+(votre\s+)?(rdv|rendez-?vous)\b/i.test(String(lastAssistantText));
+            const assistantAskedCancel = lastAssistantText && /\b(annuler|annulation)\s+(votre\s+)?(rdv|rendez-?vous)\b/i.test(String(lastAssistantText));
+            if (userWantsModifyRdv || (assistantAskedModify && (userAffirmative || rdvExplicitPositive))) {
+              modificationRdvByClient = true;
+              annulationRdvByClient = false;
+              if (LOG_VERBOSE) console.log("ℹ️ Demande de modification de RDV.", { userText: userText?.substring(0, 50) });
+            }
+            if (userWantsCancelRdv || (assistantAskedCancel && (userAffirmative || rdvExplicitPositive))) {
+              annulationRdvByClient = true;
+              modificationRdvByClient = false;
+              if (LOG_VERBOSE) console.log("ℹ️ Demande d'annulation de RDV.", { userText: userText?.substring(0, 50) });
             }
             // Secours: si l'IA a demandé la plaque pour le devis et que le client donne/confirme sa plaque → devis demandé
             if (!devisAcceptedByClient && lastAssistantText) {
