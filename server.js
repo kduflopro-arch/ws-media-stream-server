@@ -735,6 +735,8 @@ wss.on("connection", (ws, req) => {
   let annulationRdvByClient = false; // Client a demandé à annuler un RDV (badge Annul. RDV)
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
+  let userSpeakCount = 0; // Nombre de fois que le client a parlé (conversation.item.done user) → si < 2 au finalize = no_request
+  const userSpeakItemIds = new Set(); // Éviter double comptage du même item
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   let appointmentMode = "request";
@@ -881,6 +883,9 @@ wss.on("connection", (ws, req) => {
       if (consentRequired && !consentGiven && effectiveConsentGranted) {
         console.log("✅ Consentement inféré (IA a répondu après accueil):", lastAssistantText ? lastAssistantText.substring(0, 80) : "");
       }
+      const noRequest = userSpeakCount < 2;
+      const noRequestReason = "Le client n'a fait aucune demande";
+      if (noRequest) console.log("📌 no_request (client a parlé moins de 2 fois):", { userSpeakCount });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -904,6 +909,7 @@ wss.on("connection", (ws, req) => {
           plate_confirmed_by_client: plateConfirmedByClient,
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
           consent_granted: effectiveConsentGranted,
+          ...(noRequest ? { no_request: true, no_request_reason: noRequestReason } : {}),
         }),
       }).catch((err) => {
         console.error("❌ Erreur lors de l'appel à realtime-finalize:", err);
@@ -5209,6 +5215,11 @@ But: être naturel et mettre le client en confiance.`,
                     userText = item.text;
                   }
                   if (userText && userText.trim() && !isJunkTranscript(userText)) {
+                    if (item.id && !userSpeakItemIds.has(item.id)) {
+                      userSpeakItemIds.add(item.id);
+                      userSpeakCount++;
+                      if (LOG_VERBOSE) console.log("📊 userSpeakCount:", userSpeakCount);
+                    }
                     console.log("🟢 Le client a parlé (texte reçu par l'IA):", userText.substring(0, 120));
                     console.log(`[CLIENT-SAYS] ${userText}`);
                     // Ne pas ingérer tout de suite : on n'enregistre que les phrases client auxquelles l'IA répond (voir conversation.item.done assistant)
