@@ -879,9 +879,10 @@ wss.on("connection", (ws, req) => {
       // Si l'IA a déjà dit une phrase post-consentement ("En quoi puis-je vous aider ?", "Bonjour Monsieur/Madame...") alors le client a forcément donné son accord
       const lastLow = (lastAssistantText || "").toLowerCase().trim();
       const looksLikePostConsent = lastLow.includes("en quoi puis-je vous aider") || lastLow.includes("quel est votre besoin") || (lastLow.includes("dites-moi") && (lastLow.includes("souci") || lastLow.includes("puis-je vous aider"))) || /^bonjour\s+(monsieur|madame)\s+/i.test(String(lastAssistantText || "").trim());
-      const effectiveConsentGranted = consentGiven || (consentRequired && !!lastAssistantText && looksLikePostConsent);
+      // Ne pas inférer le consentement si le client n'a jamais parlé (évite de valider après silence ou bruit)
+      const effectiveConsentGranted = consentGiven || (consentRequired && !!lastAssistantText && looksLikePostConsent && userSpeakCount >= 1);
       if (consentRequired && !consentGiven && effectiveConsentGranted) {
-        console.log("✅ Consentement inféré (IA a répondu après accueil):", lastAssistantText ? lastAssistantText.substring(0, 80) : "");
+        console.log("✅ Consentement inféré (IA a répondu après accueil + client a parlé au moins 1 fois):", lastAssistantText ? lastAssistantText.substring(0, 80) : "");
       }
       const noRequest = userSpeakCount < 2;
       const noRequestReason = "Le client n'a fait aucune demande";
