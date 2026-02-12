@@ -6492,7 +6492,7 @@ But: être naturel et mettre le client en confiance.`,
                       : "";
                     const appointments = clientInfo.appointments || [];
                     let appointmentLine = "";
-                    if (appointments.length > 0) {
+                    if (appointments.length > 0 && (!consentRequired || consentGiven)) {
                       const apt = appointments[0];
                       const date = new Date(apt.appointment_date);
                       const dateStr = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
@@ -6519,8 +6519,8 @@ But: être naturel et mettre le client en confiance.`,
                     const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
                     console.log(`👋 Greeting avec nom client joué via ${providerName}.`, { callSid, consentRequired, salutationName, lastName, clientName: clientInfo.name });
                     if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
-                  } else if ((initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN) {
-                    // Greeting déjà joué (générique ou OpenAI) : si le client a un rendez-vous enregistré (pas en attente), le notifier quand même
+                  } else if ((initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
+                    // Greeting déjà joué et consentement donné : si le client a un rendez-vous enregistré (pas en attente), le notifier
                     const appointments = clientInfo.appointments || [];
                     if (appointments.length > 0) {
                       const apt = appointments[0];
@@ -6529,7 +6529,7 @@ But: être naturel et mettre le client en confiance.`,
                         const dateStr = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
                         const rdvNotification = `Je vois que vous avez un rendez-vous enregistré pour le ${dateStr} à ${apt.appointment_time}. En quoi puis-je vous aider ?`;
                         enqueuePremiumTts(rdvNotification, { interrupt: true, source: "rdv_notification_followup", allowWithoutUser: true });
-                        console.log("👋 Notification RDV enregistré jouée (greeting déjà envoyé).", { callSid });
+                        console.log("👋 Notification RDV enregistré jouée (consentement donné).", { callSid });
                       }
                     }
                   }
