@@ -874,6 +874,13 @@ wss.on("connection", (ws, req) => {
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
       console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient });
       console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, recentIntentsCount: recentAssistantQuestionIntents.length, hasRdvIntent });
+      // Si l'IA a déjà dit une phrase post-consentement ("En quoi puis-je vous aider ?", "Bonjour Monsieur/Madame...") alors le client a forcément donné son accord
+      const lastLow = (lastAssistantText || "").toLowerCase().trim();
+      const looksLikePostConsent = lastLow.includes("en quoi puis-je vous aider") || lastLow.includes("quel est votre besoin") || (lastLow.includes("dites-moi") && (lastLow.includes("souci") || lastLow.includes("puis-je vous aider"))) || /^bonjour\s+(monsieur|madame)\s+/i.test(String(lastAssistantText || "").trim());
+      const effectiveConsentGranted = consentGiven || (consentRequired && !!lastAssistantText && looksLikePostConsent);
+      if (consentRequired && !consentGiven && effectiveConsentGranted) {
+        console.log("✅ Consentement inféré (IA a répondu après accueil):", lastAssistantText ? lastAssistantText.substring(0, 80) : "");
+      }
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -896,7 +903,7 @@ wss.on("connection", (ws, req) => {
           annulation_rdv: annulationRdvByClient,
           plate_confirmed_by_client: plateConfirmedByClient,
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
-          consent_granted: consentGiven,
+          consent_granted: effectiveConsentGranted,
         }),
       }).catch((err) => {
         console.error("❌ Erreur lors de l'appel à realtime-finalize:", err);
