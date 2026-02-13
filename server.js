@@ -813,7 +813,9 @@ wss.on("connection", (ws, req) => {
   function isAssistantAnnulationRdv(assistantText) {
     const t = String(assistantText || "").toLowerCase();
     if (/\b(annuler|annulation)\s+(ce|votre|son)\s+(rdv|rendez-?vous)\b/i.test(t)) return true;
-    if (/\bdemande\s+d['']?annulation\b/i.test(t) || /\bnoté.*annulation\b/i.test(t)) return true;
+    if (/\bdemande\s+d\W*annulation\b/i.test(t) || /\bnoté.*annulation\b/i.test(t)) return true;
+    if (/(?:je\s+)?note\s+(?:votre\s+)?(?:demande\s+)?d\W*annulation/i.test(t)) return true;
+    if (/\bannulation\b/.test(t) && (t.includes("je note") || t.includes("noté") || t.includes("demande d"))) return true;
     return false;
   }
   /** Retourne true si le message assistant indique que la demande de devis a été prise (toutes formulations). */
