@@ -907,9 +907,19 @@ wss.on("connection", (ws, req) => {
       if (consentRequired && !consentGiven && effectiveConsentGranted) {
         console.log("✅ Consentement inféré (IA a répondu après accueil + client a parlé au moins 1 fois):", lastAssistantText ? lastAssistantText.substring(0, 80) : "");
       }
-      // Pas de secours : no_request = client n'a pas parlé (userSpeakCount < 1) — comportement strict
-      const noRequest = userSpeakCount < 1;
+      // no_request = client n'a pas fait de demande. Ne pas envoyer no_request si l'assistant a déjà demandé le jour/créneau :
+      // dans ce cas le client a forcément déclenché le flux RDV (parole ou item pas encore reçu avant stream stop) → run-analysis mettra rdv_incomplete.
+      const lastIntentAtFinalize = (() => {
+        const raw = String(lastAssistantText || "");
+        const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
+        const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase();
+        const asksRdv = (/\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target)) && target.includes("?");
+        return asksRdv ? "rdv" : (getMostRecentAssistantIntent(25000));
+      })();
+      const assistantAskedForDayOrSlot = (lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || ""));
+      const noRequest = userSpeakCount < 1 && !assistantAskedForDayOrSlot;
       const noRequestReason = "Le client n'a fait aucune demande";
+      if (assistantAskedForDayOrSlot && userSpeakCount < 1) console.log("📌 Pas de no_request : l'assistant a demandé jour/créneau → run-analysis pour rdv_incomplete:", { userSpeakCount, lastAssistantText: (lastAssistantText || "").slice(0, 80) });
       if (noRequest) console.log("📌 no_request (client n'a pas parlé):", { userSpeakCount, assistantTurnCount });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
