@@ -126,7 +126,7 @@ async function handleRunAnalysis(callId, res) {
   const { data: call, error: callError } = await supabase
     .schema("autoguru")
     .from("calls")
-    .select("id, garage_id, consent, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion, from_number, created_at, service_requested")
+    .select("id, garage_id, consent, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion, from_number, created_at, service_requested, call_outcome, rdv_incomplete_reason")
     .eq("id", callId)
     .maybeSingle();
 
@@ -259,7 +259,8 @@ async function handleRunAnalysis(callId, res) {
     const callOutcome = (analysis.callOutcome ?? "").trim();
     const rdvIncompleteReason = (analysis.rdvIncompleteReason ?? "").trim();
     const isRdvIncomplete = callOutcome === "rdv_incomplete" && rdvIncompleteReason;
-    // Badges (RDV, Info, Modif. RDV, Annul. RDV) : gérés uniquement par le serveur WS lors du finalize (comme devis_requested). run-analysis n'écrit pas ces champs.
+    const noRequestSetByWs = (call.call_outcome === "no_request");
+    // Ne pas écraser call_outcome / rdv_incomplete_reason si le finalize a déjà posé no_request (client a parlé < 2 fois)
     const updatePayload = {
       status: "done",
       updated_at: new Date().toISOString(),
@@ -272,8 +273,12 @@ async function handleRunAnalysis(callId, res) {
         : null,
       symptoms: Array.isArray(analysis.symptoms) ? analysis.symptoms : null,
       client_insights: clientInsights,
-      call_outcome: isRdvIncomplete ? "rdv_incomplete" : "completed",
-      rdv_incomplete_reason: isRdvIncomplete ? rdvIncompleteReason : null,
+      ...(noRequestSetByWs
+        ? {}
+        : {
+            call_outcome: isRdvIncomplete ? "rdv_incomplete" : "completed",
+            rdv_incomplete_reason: isRdvIncomplete ? rdvIncompleteReason : null,
+          }),
     };
 
     const { data: updatedRow, error: updateError } = await supabase
