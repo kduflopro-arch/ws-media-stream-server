@@ -260,13 +260,8 @@ async function handleRunAnalysis(callId, res) {
     const rdvIncompleteReason = (analysis.rdvIncompleteReason ?? "").trim();
     const isRdvIncomplete = callOutcome === "rdv_incomplete" && rdvIncompleteReason;
     const noRequestSetByWs = (call.call_outcome === "no_request");
-    const rdvRequestedFromFinalize = call.rdv_requested === true;
     // Ne pas écraser call_outcome / rdv_incomplete_reason si le finalize a déjà posé no_request (client a parlé < 2 fois)
-    // Si le WS a rdv_requested=true MAIS l'analyse dit explicitement que le client n'a pas indiqué de jour/créneau → ne pas forcer "abouti" (appel non abouti)
-    const reasonSaysNoDayOrSlot = /n'a pas indiqué|pas mentionné|sans avoir indiqué|aucun jour|aucun créneau|pas de jour|pas de créneau|n'a pas.*date|n'a pas.*préférence/i.test(rdvIncompleteReason);
-    const forceCompletedRdv = rdvRequestedFromFinalize && isRdvIncomplete && !reasonSaysNoDayOrSlot;
-    if (forceCompletedRdv) console.log("[run-analysis] rdv_requested=true → call_outcome forcé à completed (pas rdv_incomplete):", callId);
-    if (rdvRequestedFromFinalize && isRdvIncomplete && reasonSaysNoDayOrSlot) console.log("[run-analysis] rdv_requested=true mais raison « pas de jour/créneau » → on garde rdv_incomplete (appel non abouti):", callId);
+    // Pas de secours : si l'analyse retourne rdv_incomplete, on garde rdv_incomplete (jamais forcer "completed")
     const updatePayload = {
       status: "done",
       updated_at: new Date().toISOString(),
@@ -282,8 +277,8 @@ async function handleRunAnalysis(callId, res) {
       ...(noRequestSetByWs
         ? {}
         : {
-            call_outcome: forceCompletedRdv ? "completed" : (isRdvIncomplete ? "rdv_incomplete" : "completed"),
-            rdv_incomplete_reason: forceCompletedRdv ? null : (isRdvIncomplete ? rdvIncompleteReason : null),
+            call_outcome: isRdvIncomplete ? "rdv_incomplete" : "completed",
+            rdv_incomplete_reason: isRdvIncomplete ? rdvIncompleteReason : null,
           }),
     };
 
@@ -898,17 +893,12 @@ wss.on("connection", (ws, req) => {
       if (RUN_ANALYSIS_DELAY_MS > 0) {
         await new Promise((r) => setTimeout(r, RUN_ANALYSIS_DELAY_MS));
       }
-      // Secours badge RDV : si l'assistant a posé une question RDV (intent "rdv" enregistré) et le client n'a pas refusé, considérer comme demande de RDV (la réponse jour/créneau peut avoir été reçue dans un ordre d'events où on ne l'a pas détectée)
-      const hasRdvIntent = recentAssistantQuestionIntents.some((x) => x && x.intent === "rdv");
-      if (hasRdvIntent && !rdvRefusedByClient && !rdvAcceptedByClient) {
-        rdvAcceptedByClient = true;
-        console.log("📌 [RDV] Secours finalize: intent rdv présent, pas de refus → rdv_requested = true");
-      }
+      // Pas de secours : rdv_requested = true uniquement si le client a explicitement accepté / demandé un RDV (pas d'inférence depuis l'intent seul)
       // Badges (comme devis_requested) : déterminés uniquement par le WS, envoyés au finalize pour écriture en base
       const rdvRequestedFromWs = rdvAcceptedByClient && !rdvRefusedByClient;
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
       console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient });
-      console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, recentIntentsCount: recentAssistantQuestionIntents.length, hasRdvIntent });
+      console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs });
       // Si l'IA a déjà dit une phrase post-consentement ("En quoi puis-je vous aider ?", "Bonjour Monsieur/Madame...") alors le client a forcément donné son accord
       const lastLow = (lastAssistantText || "").toLowerCase().trim();
       const looksLikePostConsent = lastLow.includes("en quoi puis-je vous aider") || lastLow.includes("quel est votre besoin") || (lastLow.includes("dites-moi") && (lastLow.includes("souci") || lastLow.includes("puis-je vous aider"))) || /^bonjour\s+(monsieur|madame)\s+/i.test(String(lastAssistantText || "").trim());
@@ -917,11 +907,9 @@ wss.on("connection", (ws, req) => {
       if (consentRequired && !consentGiven && effectiveConsentGranted) {
         console.log("✅ Consentement inféré (IA a répondu après accueil + client a parlé au moins 1 fois):", lastAssistantText ? lastAssistantText.substring(0, 80) : "");
       }
-      // Secours: si l'IA a répondu au moins 2 fois (accueil + une vraie réponse), le client a forcément parlé (même si userSpeakCount=0 à cause de transcriptions ignorées)
-      const inferredUserSpoke = assistantTurnCount >= 2;
-      const noRequest = userSpeakCount < 1 && !inferredUserSpoke;
+      // Pas de secours : no_request = client n'a pas parlé (userSpeakCount < 1) — comportement strict
+      const noRequest = userSpeakCount < 1;
       const noRequestReason = "Le client n'a fait aucune demande";
-      if (userSpeakCount < 1 && inferredUserSpoke) console.log("📌 no_request évité (secours: assistantTurnCount >= 2):", { userSpeakCount, assistantTurnCount });
       if (noRequest) console.log("📌 no_request (client n'a pas parlé):", { userSpeakCount, assistantTurnCount });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
@@ -6150,6 +6138,7 @@ But: être naturel et mettre le client en confiance.`,
               }
             } else if (consentGiven && refusesConsent) {
               // Consentement déjà donné : si le client dit "non" et la dernière question était RDV ou rappel, enregistrer le refus
+              const lastAssistantAskedPlateConfirmation = lastAssistantText && /\b(est-ce bien correct|correcte?)\b/i.test(String(lastAssistantText)) && /\b(plaque|immatriculation)\b/i.test(String(lastAssistantText));
               const lastIntentAfterConsent = detectLastQuestionIntent(lastAssistantText);
               const recentIntentAfterConsent = getMostRecentAssistantIntent(25000);
               const effectiveIntentAfterConsent = lastIntentAfterConsent !== "unknown" ? lastIntentAfterConsent : recentIntentAfterConsent;
@@ -6157,7 +6146,8 @@ But: être naturel et mettre le client en confiance.`,
               const lastWasInRdvFlow = effectiveIntentAfterConsent === "rdv";
               const lastWasCallbackQuestion = effectiveIntentAfterConsent === "callback";
               const transcriptLooksRefuse = /\b(non|pas besoin|pas de rappel)\b/i.test(userTextNorm) && !/\b(oui|ouais|ouai)\b/i.test(userTextNorm);
-              if (lastWasRdvQuestion || lastWasInRdvFlow) {
+              // Ne jamais interpréter un "non" comme refus de RDV quand la dernière question était la confirmation de la plaque (réponse = oui/non sur la plaque, pas sur le RDV)
+              if ((lastWasRdvQuestion || lastWasInRdvFlow) && !lastAssistantAskedPlateConfirmation) {
                 rdvRefusedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Client a refusé le rendez-vous.", { userText: userText?.substring(0, 40) });
               }
