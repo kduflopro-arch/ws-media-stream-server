@@ -740,7 +740,9 @@ wss.on("connection", (ws, req) => {
   let annulationRdvByClient = false; // Client a demandé à annuler un RDV (badge Annul. RDV)
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
-  let userSpeakCount = 0; // Nombre de fois que le client a parlé (conversation.item.done user) → si < 2 au finalize = no_request
+  let userSpeakCount = 0; // Nombre de fois que le client a parlé (conversation.item.done user) → si < 1 au finalize = no_request
+  let assistantTurnCount = 0; // Nombre de réponses IA (response.done avec texte) ; si >= 2 on considère que le client a parlé (secours si userSpeakCount reste 0)
+  const assistantTurnRids = new Set(); // Éviter double comptage par response_id
   const userSpeakItemIds = new Set(); // Éviter double comptage du même item
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
@@ -889,9 +891,12 @@ wss.on("connection", (ws, req) => {
       if (consentRequired && !consentGiven && effectiveConsentGranted) {
         console.log("✅ Consentement inféré (IA a répondu après accueil + client a parlé au moins 1 fois):", lastAssistantText ? lastAssistantText.substring(0, 80) : "");
       }
-      const noRequest = userSpeakCount < 1;
+      // Secours: si l'IA a répondu au moins 2 fois (accueil + une vraie réponse), le client a forcément parlé (même si userSpeakCount=0 à cause de transcriptions ignorées)
+      const inferredUserSpoke = assistantTurnCount >= 2;
+      const noRequest = userSpeakCount < 1 && !inferredUserSpoke;
       const noRequestReason = "Le client n'a fait aucune demande";
-      if (noRequest) console.log("📌 no_request (client n'a pas parlé):", { userSpeakCount });
+      if (userSpeakCount < 1 && inferredUserSpoke) console.log("📌 no_request évité (secours: assistantTurnCount >= 2):", { userSpeakCount, assistantTurnCount });
+      if (noRequest) console.log("📌 no_request (client n'a pas parlé):", { userSpeakCount, assistantTurnCount });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4777,6 +4782,11 @@ But: être naturel et mettre le client en confiance.`,
               try {
                 const extractedText = extractTextFromResponseOutput(rawOutput);
                 if (extractedText) {
+                  if (extractedText.trim() && !assistantTurnRids.has(rid)) {
+                    assistantTurnRids.add(rid);
+                    assistantTurnCount++;
+                    if (LOG_VERBOSE) console.log("📊 assistantTurnCount (response.done):", assistantTurnCount);
+                  }
                   const existingText = transcriptMap.get(rid) || "";
                     if (!existingText.includes(extractedText)) {
                     if (LOG_VERBOSE) console.log("📝 Texte extrait depuis response.done:", extractedText.substring(0, 160));
@@ -5466,6 +5476,11 @@ But: être naturel et mettre le client en confiance.`,
             const rid = msg.response_id ?? msg.response?.id ?? null;
             // Récupérer le texte depuis le transcript (accumulé via delta) ou directement depuis msg.text
             const doneText = (rid ? (transcriptMap.get(rid) || "") : "") || (typeof msg.text === "string" ? msg.text : "");
+            if (doneText && doneText.trim() && rid && !assistantTurnRids.has(rid)) {
+              assistantTurnRids.add(rid);
+              assistantTurnCount++;
+              if (LOG_VERBOSE) console.log("📊 assistantTurnCount (response.output_text.done):", assistantTurnCount);
+            }
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
               // Déjà en flux refus: ne rien faire d'autre (message fixe en cours, hangup programmé)
               if (ws.__consentRefused) {
