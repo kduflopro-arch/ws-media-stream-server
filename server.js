@@ -889,9 +889,9 @@ wss.on("connection", (ws, req) => {
       if (consentRequired && !consentGiven && effectiveConsentGranted) {
         console.log("✅ Consentement inféré (IA a répondu après accueil + client a parlé au moins 1 fois):", lastAssistantText ? lastAssistantText.substring(0, 80) : "");
       }
-      const noRequest = userSpeakCount < 2;
+      const noRequest = userSpeakCount < 1;
       const noRequestReason = "Le client n'a fait aucune demande";
-      if (noRequest) console.log("📌 no_request (client a parlé moins de 2 fois):", { userSpeakCount });
+      if (noRequest) console.log("📌 no_request (client n'a pas parlé):", { userSpeakCount });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
