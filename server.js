@@ -917,9 +917,12 @@ wss.on("connection", (ws, req) => {
         return asksRdv ? "rdv" : (getMostRecentAssistantIntent(25000));
       })();
       const assistantAskedForDayOrSlot = (lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || ""));
-      const noRequest = userSpeakCount < 1 && !assistantAskedForDayOrSlot;
+      // Si l'assistant a eu au moins 2 tours de parole, il y a eu un échange : ne pas envoyer no_request (conversation.item.done user peut ne pas être arrivé avant stream stop). Run-analysis déterminera l'issue.
+      const hasMultiTurnExchange = assistantTurnCount >= 2;
+      const noRequest = userSpeakCount < 1 && !assistantAskedForDayOrSlot && !hasMultiTurnExchange;
       const noRequestReason = "Le client n'a fait aucune demande";
       if (assistantAskedForDayOrSlot && userSpeakCount < 1) console.log("📌 Pas de no_request : l'assistant a demandé jour/créneau → run-analysis pour rdv_incomplete:", { userSpeakCount, lastAssistantText: (lastAssistantText || "").slice(0, 80) });
+      if (hasMultiTurnExchange && userSpeakCount < 1) console.log("📌 Pas de no_request : échange multi-tours (assistantTurnCount >= 2) → run-analysis pour issue:", { userSpeakCount, assistantTurnCount });
       if (noRequest) console.log("📌 no_request (client n'a pas parlé):", { userSpeakCount, assistantTurnCount });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
