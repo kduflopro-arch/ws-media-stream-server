@@ -262,9 +262,11 @@ async function handleRunAnalysis(callId, res) {
     const noRequestSetByWs = (call.call_outcome === "no_request");
     const rdvRequestedFromFinalize = call.rdv_requested === true;
     // Ne pas écraser call_outcome / rdv_incomplete_reason si le finalize a déjà posé no_request (client a parlé < 2 fois)
-    // Si le WS a enregistré rdv_requested=true (client a fait la demande jour/créneau/plaque), ne pas marquer rdv_incomplete (transcript peut manquer de détail)
-    const forceCompletedRdv = rdvRequestedFromFinalize && isRdvIncomplete;
+    // Si le WS a rdv_requested=true MAIS l'analyse dit explicitement que le client n'a pas indiqué de jour/créneau → ne pas forcer "abouti" (appel non abouti)
+    const reasonSaysNoDayOrSlot = /n'a pas indiqué|pas mentionné|sans avoir indiqué|aucun jour|aucun créneau|pas de jour|pas de créneau|n'a pas.*date|n'a pas.*préférence/i.test(rdvIncompleteReason);
+    const forceCompletedRdv = rdvRequestedFromFinalize && isRdvIncomplete && !reasonSaysNoDayOrSlot;
     if (forceCompletedRdv) console.log("[run-analysis] rdv_requested=true → call_outcome forcé à completed (pas rdv_incomplete):", callId);
+    if (rdvRequestedFromFinalize && isRdvIncomplete && reasonSaysNoDayOrSlot) console.log("[run-analysis] rdv_requested=true mais raison « pas de jour/créneau » → on garde rdv_incomplete (appel non abouti):", callId);
     const updatePayload = {
       status: "done",
       updated_at: new Date().toISOString(),
