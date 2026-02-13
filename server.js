@@ -3927,8 +3927,9 @@ IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - Si le client a déjà une plaque enregistrée (voir "Plaque d'immatriculation enregistrée" ci-dessus):
   * Lors de la prise de rendez-vous: d'abord "Quel jour vous conviendrait le mieux ?" puis "Plutôt le matin ou l'après-midi ?". Une fois le jour et le créneau obtenus, tu dis: "Pour confirmer, votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?"
   * Tu DOIS dire EXACTEMENT pour la plaque: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?" — mais UNIQUEMENT après avoir demandé le jour et le matin ou l'après-midi.
-  * Si le client confirme que c'est la bonne plaque (ex: "oui", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne", "oui c'est pour cette voiture"), utilise cette plaque pour le rendez-vous. NE PROPOSE PAS d'envoyer un message dans ce cas.
-  * Si le client dit que ce n'est PAS la bonne plaque OU que c'est pour un autre véhicule (ex: "non", "ce n'est pas la bonne", "j'ai changé de voiture", "c'est une autre voiture"), alors tu dis: "D'accord, je vais vous envoyer un message pour que vous puissiez m'indiquer la plaque de ce véhicule." (Le message sera envoyé automatiquement à la fin de l'appel).
+  * Si le client confirme que c'est la bonne plaque (ex: "oui", "d'accord", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne", "oui c'est pour cette voiture"), utilise cette plaque pour le rendez-vous. NE PROPOSE PAS d'envoyer un message dans ce cas.
+  * Si le client dit que ce n'est PAS la bonne plaque OU que c'est pour un autre véhicule (ex: "ce n'est pas la bonne", "j'ai changé de voiture", "c'est une autre voiture"), alors tu dis: "D'accord, je vais vous envoyer un message pour que vous puissiez m'indiquer la plaque de ce véhicule."
+  * ⚠️ RÈGLE RÉPONSE COURTE après "Est-ce bien correct ?" : si le client répond par UN SEUL MOT (ex: "non", "nan", "oui") ou une réponse très courte, la reconnaissance vocale peut se tromper ("oui" entendu "non"). Dans le doute, reformule UNE FOIS : "Vous confirmez que c'est bien la bonne plaque pour ce rendez-vous ?" avant de proposer d'envoyer un message. Ne propose d'envoyer un message que si le client a clairement dit que ce n'est pas la bonne plaque ou que c'est pour un autre véhicule (phrase explicite).
 - Si le client a plusieurs plaques enregistrées: même ordre — d'abord jour et créneau (matin/après-midi), puis tu lis la plaque principale et demandes confirmation.
 - Si le client n'a PAS de plaque enregistrée: d'abord jour et créneau (matin/après-midi), puis tu dis que tu vas lui envoyer un message pour qu'il envoie sa plaque (NE PAS demander la plaque à l'oral).
 - RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque si le client a déjà une plaque enregistrée SANS avoir d'abord lu la plaque et demandé confirmation (après avoir le jour et l'heure).
@@ -5293,14 +5294,17 @@ But: être naturel et mettre le client en confiance.`,
                   if (userText && userText.trim()) {
                     const utPlate = String(userText).toLowerCase().trim().replace(/\s+/g, " ");
                     const confirmsPlatePatternsConv = [
-                      /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|voilà|voila)(\s+oui|\s+c'est ça|\s+merci)?\.?$/i,
-                      /\b(oui|ouais|ouai|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui voilà|oui c'est bon|voilà c'est ça|correct|exact)\b/i,
+                      /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|voilà|voila)(\s+oui|\s+c'est ça|\s+merci)?\.?$/i,
+                      /\b(oui|ouais|ouai|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui voilà|oui c'est bon|voilà c'est ça|correct|exact|d'accord|très bien|parfait|bien sûr)\b/i,
                       /\b(c'est bien ça|c'est exact|tout à fait|parfait)\b/i
                     ];
-                    const otherVehicleConv = userText.match(/\b(non|ce n'est pas|autre voiture|autre véhicule)\b/i) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(utPlate);
-                    const confirmsPlateConv = confirmsPlatePatternsConv.some(p => p.test(utPlate)) && !otherVehicleConv;
-                    if (confirmsPlateConv) {
-                      if (LOG_VERBOSE) console.log("✅ Client confirme la plaque, SMS non envoyé:", userText.substring(0, 60));
+                    const explicitOtherConv = /\b(ce n'est pas la bonne|pas la bonne|autre voiture|autre véhicule|j'ai changé de voiture)\b/i.test(utPlate);
+                    const singleWordNoConv = /^\s*(non|nan|no)\s*$/i.test(utPlate);
+                    const otherVehicleConv = explicitOtherConv || (userText.match(/\b(non|ce n'est pas)\b/i) && !singleWordNoConv);
+                    const otherVehicleConvFinal = otherVehicleConv && !(singleWordNoConv && !explicitOtherConv);
+                    const confirmsPlateConv = confirmsPlatePatternsConv.some(p => p.test(utPlate)) && !otherVehicleConvFinal;
+                    if (confirmsPlateConv || (singleWordNoConv && !explicitOtherConv)) {
+                      if (LOG_VERBOSE) console.log("✅ Client confirme la plaque (conversation.item.done), SMS non envoyé:", userText.substring(0, 60));
                       plateSmsSendOnFinalize = false;
                       plateSmsAlreadyMentioned = true;
                       plateConfirmedByClient = true;
@@ -6130,24 +6134,27 @@ But: être naturel et mettre le client en confiance.`,
             }
             
             // Détecter si le client confirme la plaque existante ou demande un autre véhicule
-            // Si le client confirme la plaque (ex: "oui", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne")
-            // CORRECTION: Améliorer la détection de confirmation de plaque
-            // Patterns pour confirmation de la plaque (sensibilité élevée : "oui" / "ouais" = confirmation)
+            // Si le client confirme la plaque (ex: "oui", "c'est ça", "d'accord", "correct", "oui c'est bien")
+            // CORRECTION: Confirmation large (d'accord, oui, ok, etc.) ; "non" seul peut être un faux positif STT pour "oui"
             const confirmsPlatePatterns = [
-              /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|voilà|voila)(\s+oui|\s+c'est ça|\s+c'est bon|\s+merci)?\.?$/i,
-              /\b(oui|ouais|ouai|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui c'est pour cette voiture|correct|exact|oui c'est bien|oui c'est la même|oui c'est celle-là|oui voilà|oui c'est bon|voilà c'est ça)\b/i,
+              /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|voilà|voila)(\s+oui|\s+c'est ça|\s+c'est bon|\s+merci)?\.?$/i,
+              /\b(oui|ouais|ouai|c'est ça|c'est correct|c'est bien|oui c'est|oui c'est la bonne|oui c'est pour cette voiture|correct|exact|oui c'est bien|oui c'est la même|oui c'est celle-là|oui voilà|oui c'est bon|voilà c'est ça|d'accord|très bien|parfait|bien sûr|volontiers)\b/i,
               /\b(oui|ouais|ouai|exactement|précisément)\s+(c'est|c'est bien|c'est correct|c'est la bonne|c'est pour cette voiture)\b/i,
               /\b(c'est bien ça|c'est exact|tout à fait|parfait)\b/i
             ];
             const confirmsPlate = confirmsPlatePatterns.some(pattern => pattern.test(userTextNorm));
-            // Négatif uniquement si clairement "non" ou autre véhicule (ne pas utiliser "nan" : souvent mal reconnu pour "oui")
-            const otherVehicle = userText.match(/\b(non|ce n'est pas|autre voiture|autre véhicule|j'ai changé|nouvelle voiture|nouveau véhicule)\b/i) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(userTextNorm);
+            // "Autre véhicule" UNIQUEMENT si formulation explicite (pas un "non" seul souvent mal reconnu pour "oui")
+            const explicitOtherVehicle = /\b(ce n'est pas la bonne|pas la bonne|autre voiture|autre véhicule|j'ai changé de voiture|nouvelle voiture|nouveau véhicule|c'est une autre|c'est pour un autre)\b/i.test(userTextNorm);
+            const singleWordNo = /^\s*(non|nan|no)\s*$/i.test(userTextNorm);
+            const otherVehicle = explicitOtherVehicle || (userText.match(/\b(non|ce n'est pas)\b/i) && !singleWordNo && !confirmsPlate);
+            // Si le client a dit uniquement "non" (1 mot), ne pas traiter comme autre véhicule : souvent mal reconnu pour "oui"
+            const otherVehicleFinal = otherVehicle && !(singleWordNo && !explicitOtherVehicle);
             
             // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3980',message:'DÉTECTION CONFIRMATION PLAQUE',data:{userText:userText.substring(0,200),confirmsPlate,otherVehicle:!!otherVehicle,plateSmsSendOnFinalize},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
+            fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3980',message:'DÉTECTION CONFIRMATION PLAQUE',data:{userText:userText.substring(0,200),confirmsPlate,otherVehicleFinal:!!otherVehicleFinal,singleWordNo,plateSmsSendOnFinalize},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
             // #endregion
             
-            if (confirmsPlate && !otherVehicle) {
+            if (confirmsPlate && !otherVehicleFinal) {
               if (LOG_VERBOSE) console.log("✅ Client confirme la plaque, désactivation SMS:", userText?.substring(0, 60));
               plateSmsSendOnFinalize = false;
               plateSmsAlreadyMentioned = true; // Éviter de proposer à nouveau
@@ -6155,7 +6162,13 @@ But: être naturel et mettre le client en confiance.`,
               // #region agent log
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3990',message:'PLATE SMS DÉSACTIVÉ (confirmation plaque)',data:{userText:userText.substring(0,200),plateSmsSendOnFinalize:false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
               // #endregion
-            } else if (otherVehicle && !confirmsPlate) {
+            } else if (singleWordNo && !explicitOtherVehicle) {
+              // Réponse courte "non" seule : souvent mal reconnu pour "oui" (STT). Traiter comme confirmation pour éviter SMS à tort.
+              if (LOG_VERBOSE) console.log("✅ Réponse courte « non » après question plaque → considérée comme confirmation (évite faux négatif STT):", userText?.substring(0, 40));
+              plateSmsSendOnFinalize = false;
+              plateSmsAlreadyMentioned = true;
+              plateConfirmedByClient = true;
+            } else if (otherVehicleFinal && !confirmsPlate) {
               console.log("🚗 Client demande un autre véhicule, l'IA devrait proposer d'envoyer un message pour plate_2:", { userText });
               // Ne pas activer ici, attendre que l'IA propose d'envoyer le message
               // L'IA devrait proposer d'envoyer un message dans ce cas selon le prompt
