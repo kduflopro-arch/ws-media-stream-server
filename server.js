@@ -5221,10 +5221,12 @@ But: être naturel et mettre le client en confiance.`,
                     userText = item.text;
                   }
                   if (userText && userText.trim() && !isJunkTranscript(userText)) {
-                    if (item.id && !userSpeakItemIds.has(item.id)) {
-                      userSpeakItemIds.add(item.id);
+                    const norm = userText.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
+                    const dedupKey = "speak_" + norm;
+                    if (!userSpeakItemIds.has(dedupKey)) {
+                      userSpeakItemIds.add(dedupKey);
                       userSpeakCount++;
-                      if (LOG_VERBOSE) console.log("📊 userSpeakCount:", userSpeakCount);
+                      if (LOG_VERBOSE) console.log("📊 userSpeakCount (conversation.item.done):", userSpeakCount);
                     }
                     console.log("🟢 Le client a parlé (texte reçu par l'IA):", userText.substring(0, 120));
                     console.log(`[CLIENT-SAYS] ${userText}`);
@@ -5898,6 +5900,13 @@ But: être naturel et mettre le client en confiance.`,
               lastCommittedAt = nowMs();
               userHasSpoken = true;
               lastUserActivityMs = nowMs();
+              const norm = String(transcript).trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
+              const dedupKey = "speak_" + norm;
+              if (!userSpeakItemIds.has(dedupKey)) {
+                userSpeakItemIds.add(dedupKey);
+                userSpeakCount++;
+                if (LOG_VERBOSE) console.log("📊 userSpeakCount (input_audio_transcription):", userSpeakCount);
+              }
               console.log("✅ Transcription utilisateur reçue, lastCommittedAt mis à jour:", { transcript: transcript.substring(0, 100), lastCommittedAt, oldLastCommittedAt });
               // #region agent log - MISE À JOUR lastCommittedAt
               fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4991',message:'MISE À JOUR lastCommittedAt - SUCCÈS',data:{transcript:transcript.substring(0,100),lastCommittedAt,oldLastCommittedAt,userHasSpoken,isJunk:false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
