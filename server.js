@@ -126,7 +126,7 @@ async function handleRunAnalysis(callId, res) {
   const { data: call, error: callError } = await supabase
     .schema("autoguru")
     .from("calls")
-    .select("id, garage_id, consent, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion, from_number, created_at, service_requested, call_outcome, rdv_incomplete_reason")
+    .select("id, garage_id, consent, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion, from_number, created_at, service_requested, call_outcome, rdv_incomplete_reason, rdv_requested")
     .eq("id", callId)
     .maybeSingle();
 
@@ -159,7 +159,7 @@ async function handleRunAnalysis(callId, res) {
     // "internal" retiré : tout traité en "request"
   }
   const callDateIso = call.created_at ? new Date(call.created_at).toISOString().slice(0, 10) : null;
-  const rdvInstruction = " Pour le résumé (champ summary) : sois DÉTAILLÉ, PRÉCIS et FIDÈLE à l'appel. Si le client souhaite un rendez-vous, écris clairement 'Demande de rendez-vous pour [prestation] — [jour/créneau indiqué PAR LE CLIENT pour cette demande], plaque [X] si mentionnée.' RÈGLE : le 'rendez-vous enregistré' que l'assistant mentionne (ex. déjà en dossier) n'est PAS la préférence du client pour cet appel. appointmentConfirmedDate et appointmentConfirmedTime = UNIQUEMENT si le client a DIT ou CONFIRMÉ un jour/créneau pour cette demande ; sinon laisse-les vides et dans le résumé écris 'le client n'a pas indiqué de jour/créneau préféré'. RÈGLE NOTIFICATION RDV : Si l'assistant a seulement rappelé au client son RDV déjà enregistré puis demandé \"En quoi puis-je vous aider ?\" et que le client n'a rien demandé ni confirmé (silence, raccrochage) : NE JAMAIS écrire \"Le client a confirmé son accord pour le rendez-vous\" ou \"a confirmé le RDV\". Écris \"L'assistant a rappelé au client son RDV déjà enregistré ([date/heure]). Le client n'a formulé aucune demande ; appel terminé sans autre échange.\" callType = \"info\" dans ce cas (pas \"demande_rdv\"). Mentionne aussi les demandes d'info (tarifs, horaires, prestations) et les réponses du client. Ne jamais écrire 'Un rendez-vous est pris'. Pour le champ callType : mets 'demande_rdv' dès que le client a demandé ou accepté un RDV et a indiqué un jour ou un créneau (matin/après-midi) ; mets 'info' si l'appel est uniquement une demande d'information (horaires, tarifs, etc.) sans prise de RDV ; 'modification_rdv' ou 'annulation_rdv' si le client appelle pour modifier ou annuler un RDV. RÈGLE APPEL NON ABOUTI (rdv_incomplete) : utilise callOutcome = 'rdv_incomplete' UNIQUEMENT si le client a demandé un RDV (ou accepté d'en prendre un) mais a raccroché SANS avoir indiqué ni un jour ni une préférence de créneau (matin/après-midi). Si dans la transcription l'assistant confirme le rendez-vous (ex. 'Je note pour la vidange', 'Parfait pour mercredi matin', 'votre plaque est BT-346-QT', 'Parfait je note pour...'), alors le client a bien indiqué jour et/ou créneau : tu DOIS mettre callOutcome = 'completed', rdvIncompleteReason = '' et callType = 'demande_rdv'. Dans ce cas, ne pas écrire dans le résumé que le client a raccroché avant d'indiquer ses préférences. Si le client a seulement demandé des informations (pas de demande de RDV), ou s'il a indiqué un jour/créneau (ou confirmé la plaque pour le RDV), mets callOutcome = 'completed' et rdvIncompleteReason = ''. Réponds en fr.";
+  const rdvInstruction = " Pour le résumé (champ summary) : sois DÉTAILLÉ, PRÉCIS et FIDÈLE à l'appel. Si le client souhaite un rendez-vous, écris clairement 'Demande de rendez-vous pour [prestation] — [jour/créneau indiqué PAR LE CLIENT pour cette demande], plaque [X] si mentionnée.' RÈGLE : le 'rendez-vous enregistré' que l'assistant mentionne (ex. déjà en dossier) n'est PAS la préférence du client pour cet appel. appointmentConfirmedDate et appointmentConfirmedTime = UNIQUEMENT si le client a DIT ou CONFIRMÉ un jour/créneau pour cette demande ; sinon laisse-les vides et dans le résumé écris 'le client n'a pas indiqué de jour/créneau préféré'. RÈGLE NOTIFICATION RDV : Si l'assistant a seulement rappelé au client son RDV déjà enregistré puis demandé \"En quoi puis-je vous aider ?\" et que le client n'a rien demandé ni confirmé (silence, raccrochage) : NE JAMAIS écrire \"Le client a confirmé son accord pour le rendez-vous\" ou \"a confirmé le RDV\". Écris \"L'assistant a rappelé au client son RDV déjà enregistré ([date/heure]). Le client n'a formulé aucune demande ; appel terminé sans autre échange.\" callType = \"info\" dans ce cas (pas \"demande_rdv\"). Mentionne aussi les demandes d'info (tarifs, horaires, prestations) et les réponses du client. Ne jamais écrire 'Un rendez-vous est pris'. Pour le champ callType : mets 'demande_rdv' dès que le client a demandé ou accepté un RDV et a indiqué un jour ou un créneau (matin/après-midi) ; mets 'info' si l'appel est uniquement une demande d'information (horaires, tarifs, etc.) sans prise de RDV ; 'modification_rdv' ou 'annulation_rdv' si le client appelle pour modifier ou annuler un RDV. RÈGLE APPEL NON ABOUTI (rdv_incomplete) : utilise callOutcome = 'rdv_incomplete' UNIQUEMENT si le client a demandé un RDV (ou accepté d'en prendre un) mais a raccroché SANS avoir indiqué ni un jour ni une préférence de créneau (matin/après-midi). Si dans la transcription l'assistant dit des phrases comme « Parfait, jeudi », « Plutôt le matin ou l'après-midi ? » puis plus tard « Je vois que vous êtes déjà dans nos dossiers. Votre plaque... » et « C'est une demande de rendez-vous, le garage vous rappellera pour confirmer », alors le client a indiqué un jour et un créneau : tu DOIS mettre callOutcome = 'completed', rdvIncompleteReason = '' et callType = 'demande_rdv'. De même si l'assistant confirme (ex. 'Je note pour la vidange', 'Parfait pour mercredi matin', 'votre plaque est...', 'Parfait je note pour...'), le client a bien indiqué jour et/ou créneau → callOutcome = 'completed'. Dans ce cas, ne pas écrire dans le résumé que le client a raccroché avant d'indiquer ses préférences. Si le client a seulement demandé des informations (pas de demande de RDV), ou s'il a indiqué un jour/créneau (ou confirmé la plaque pour le RDV), mets callOutcome = 'completed' et rdvIncompleteReason = ''. Réponds en fr.";
 
   const hasSummary = (call.call_summary ?? "").trim().length > 0;
   const hasConclusion = (call.ai_conclusion ?? "").trim().length > 0;
@@ -260,7 +260,11 @@ async function handleRunAnalysis(callId, res) {
     const rdvIncompleteReason = (analysis.rdvIncompleteReason ?? "").trim();
     const isRdvIncomplete = callOutcome === "rdv_incomplete" && rdvIncompleteReason;
     const noRequestSetByWs = (call.call_outcome === "no_request");
+    const rdvRequestedFromFinalize = call.rdv_requested === true;
     // Ne pas écraser call_outcome / rdv_incomplete_reason si le finalize a déjà posé no_request (client a parlé < 2 fois)
+    // Si le WS a enregistré rdv_requested=true (client a fait la demande jour/créneau/plaque), ne pas marquer rdv_incomplete (transcript peut manquer de détail)
+    const forceCompletedRdv = rdvRequestedFromFinalize && isRdvIncomplete;
+    if (forceCompletedRdv) console.log("[run-analysis] rdv_requested=true → call_outcome forcé à completed (pas rdv_incomplete):", callId);
     const updatePayload = {
       status: "done",
       updated_at: new Date().toISOString(),
@@ -276,8 +280,8 @@ async function handleRunAnalysis(callId, res) {
       ...(noRequestSetByWs
         ? {}
         : {
-            call_outcome: isRdvIncomplete ? "rdv_incomplete" : "completed",
-            rdv_incomplete_reason: isRdvIncomplete ? rdvIncompleteReason : null,
+            call_outcome: forceCompletedRdv ? "completed" : (isRdvIncomplete ? "rdv_incomplete" : "completed"),
+            rdv_incomplete_reason: forceCompletedRdv ? null : (isRdvIncomplete ? rdvIncompleteReason : null),
           }),
     };
 
@@ -791,6 +795,24 @@ wss.on("connection", (ws, req) => {
       break;
     }
     return "unknown";
+  }
+  /** Retourne true si le message assistant indique une modification de RDV (demande pour modifier, nouvelle date, déplacer). */
+  function isAssistantModificationRdv(assistantText) {
+    const t = String(assistantText || "").toLowerCase();
+    if (/\b(modifier|modification)\s+(ce|votre|son)\s+(rdv|rendez-?vous)\b/i.test(t)) return true;
+    if (/\bdemande\s+pour\s+modifier\b/i.test(t) || /\bfaire\s+une\s+demande\s+pour\s+modifier\b/i.test(t)) return true;
+    if (/\bnouvelle\s+date\s+et\s+créneau\b/i.test(t) || /\bnouvelle\s+date\s+et\s+heure\b/i.test(t)) return true;
+    if (/\bdéplacer\s+(ce|votre)\s+(rdv|rendez-?vous)\b/i.test(t) || /\bsouhaitez-?vous\s+le\s+déplacer\b/i.test(t)) return true;
+    if (/\bconfirmer\s+la\s+nouvelle\s+date\b/i.test(t) || /\brappellera\s+pour\s+confirmer\s+la\s+nouvelle\b/i.test(t)) return true;
+    if (/\bje\s+note\s+une\s+demande\s+pour\s+.+\s+à\s+\d+\s*heures?\b/i.test(t) && (t.includes("modifier") || t.includes("nouvelle date") || t.includes("déplacer"))) return true;
+    return false;
+  }
+  /** Retourne true si le message assistant indique une annulation de RDV. */
+  function isAssistantAnnulationRdv(assistantText) {
+    const t = String(assistantText || "").toLowerCase();
+    if (/\b(annuler|annulation)\s+(ce|votre|son)\s+(rdv|rendez-?vous)\b/i.test(t)) return true;
+    if (/\bdemande\s+d['']?annulation\b/i.test(t) || /\bnoté.*annulation\b/i.test(t)) return true;
+    return false;
   }
   /** Retourne true si le message assistant indique que la demande de devis a été prise (toutes formulations). */
   function isAssistantConfirmingDevis(assistantText) {
@@ -4067,7 +4089,7 @@ RÈGLE ABSOLUE - GUIDAGE PROACTIF (À RESPECTER EN PRIORITÉ):
 - EXEMPLE OBLIGATOIRE DE STRUCTURE DE RÉPONSE: "D'accord, un problème de voyant de batterie qui reste allumé peut venir d'un problème de batterie ou du système de charge. Depuis quand avez-vous remarqué ce voyant ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Merci. Avez-vous remarqué d'autres symptômes, comme des difficultés au démarrage ou des phares qui faiblissent ?" (ATTENDS LA RÉPONSE) Puis dans la réponse suivante: "Je vous propose de venir faire un diagnostic au garage pour ce problème. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" (ATTENDS LA RÉPONSE) Puis selon la réponse: prendre le rendez-vous OU demander si besoin d'autre chose OU dire au revoir.
 - TU GUIDES LE CLIENT, PAS L'INVERSE: Tu poses UNE question à la fois, tu attends la réponse, puis tu continues. Ne laisse JAMAIS le client sans suite concrète, mais ne pose pas plusieurs questions d'affilée.
 - RÈGLE DE FIN DE RÉPONSE: Si tu mentionnes des causes possibles, ta réponse DOIT se terminer par une question. Exemples de questions à poser: "Depuis quand avez-vous remarqué ce problème ?", "Avez-vous remarqué d'autres symptômes ?", "Quand est-ce que cela se produit ?", "Le voyant est-il allumé en permanence ?"
-- RÈGLE RAPPEL INFO (OBLIGATOIRE): Si le client demande SEULEMENT des informations (tarif, horaires, renseignement) et qu'aucun rendez-vous n'est pris, tu DOIS TOUJOURS demander avant de clôturer: "Souhaitez-vous que le garage vous rappelle ?" (attendre la réponse), puis "Avez-vous besoin d'autre chose ?". Exception : si le client a accepté une demande de devis, NE PAS poser la question de rappel (le garage rappellera pour le devis). Tu ne dis JAMAIS "Au revoir" sans avoir posé la question de rappel (sauf après devis accepté).
+- RÈGLE RAPPEL INFO (OBLIGATOIRE): Si le client demande SEULEMENT des informations (tarif, horaires, renseignement) et qu'aucun rendez-vous n'est pris, tu DOIS TOUJOURS demander avant de clôturer: "Souhaitez-vous que le garage vous rappelle ?" (attendre la réponse), puis "Avez-vous besoin d'autre chose ?". Exceptions : (1) si le client a fait une demande de RDV, NE PAS poser la question de rappel (le garage rappellera pour confirmer le RDV) ; (2) si le client a accepté une demande de devis, NE PAS poser la question de rappel (le garage rappellera pour le devis). Tu ne dis JAMAIS "Au revoir" sans avoir posé la question de rappel (sauf après devis accepté ou après demande de RDV).
 - CONFIRMATION OBLIGATOIRE APRÈS LA RÉPONSE AU RAPPEL:
   - Si la réponse du client est ambiguë ou très courte (ex. un seul mot, "euh", "heu"), reformule pour confirmer avant de noter : "Vous souhaitez que le garage vous rappelle, c'est bien ça ?" ou "Vous ne souhaitez pas être rappelé, c'est bien ça ?" — ne dis "Ok, je note : pas de rappel" que si le client a clairement dit non.
   - Si le client répond NON (ou réponse négative claire): tu DOIS dire EXACTEMENT: "Ok, je note : pas de rappel par le garage." puis "Avez-vous besoin d'autre chose ?". Le client peut changer d'avis ensuite ; si il dit "oui je veux être rappelé", tu dis "Ok, je note : le garage vous rappellera."
@@ -4196,14 +4218,16 @@ RÈGLE: Pose ces questions NATURELLEMENT, une à la fois. Quand tu proposes un R
         const infoOnlyRappelRule = `
 DÉFINITION - APPEL INFO: Un appel "info" est quand le client appelle pour des questions (horaires, tarifs, adresse, etc.) SANS prendre de rendez-vous.
 
-RÈGLE OBLIGATOIRE - RAPPEL EN CAS D'INFO UNIQUEMENT: Quand le client demande SEULEMENT des informations (horaires, tarif, adresse, renseignement) et qu'aucun rendez-vous n'est pris, tu DOIS TOUJOURS lui demander avant de clôturer : "Souhaitez-vous que le garage vous rappelle ?" ou "Souhaitez-vous être rappelé par le garage ?". Tu ne dois JAMAIS dire "Au revoir" ou terminer l'appel sans avoir posé cette question. C'est OBLIGATOIRE.
+RÈGLE OBLIGATOIRE - RAPPEL EN CAS D'INFO UNIQUEMENT: Quand le client demande SEULEMENT des informations (horaires, tarif, adresse, renseignement) et qu'aucun rendez-vous n'est pris (et qu'il n'a pas fait de demande de RDV), tu DOIS TOUJOURS lui demander avant de clôturer : "Souhaitez-vous que le garage vous rappelle ?" ou "Souhaitez-vous être rappelé par le garage ?". Tu ne dois JAMAIS dire "Au revoir" ou terminer l'appel sans avoir posé cette question. C'est OBLIGATOIRE. Exception : après une demande de rendez-vous, NE PAS demander le rappel (le garage rappellera pour confirmer le RDV).
 
 QUAND TU DOIS DEMANDER "Souhaitez-vous que le garage vous rappelle ?" (OBLIGATOIRE) — et UNIQUEMENT dans ces cas :
 1) Le client appelle UNIQUEMENT pour une information (sans demander de RDV) : après avoir répondu à sa question, tu DOIS demander : "Souhaitez-vous que le garage vous rappelle ?" ou "Souhaitez-vous être rappelé par le garage ?". Puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Tu ne clôtures PAS sans avoir posé la question de rappel.
 2) Le client REFUSE une prise de rendez-vous (ex. "non merci", "pas de RDV") : tu DOIS demander : "Souhaitez-vous que le garage vous rappelle ?" avant de clôturer.
 3) Le client souhaite être transféré vers le garage (si option activée) et le garage ne répond pas (ou le transfert est prévu) : tu proposes le rappel : "Souhaitez-vous que le garage vous rappelle ?".
 
-EXCEPTION — DEVIS ACCEPTÉ (RÈGLE ABSOLUE): Si le client a accepté une demande de devis (a dit oui à "Souhaitez-vous faire une demande de devis ?"), tu NE DOIS JAMAIS lui demander "Souhaitez-vous que le garage vous rappelle ?". Le garage rappellera pour le devis. Enchaîne UNIQUEMENT avec "Avez-vous besoin d'autre chose ?" puis clôture si non. Ne pose la question de rappel que si le client n'a PAS accepté de devis.
+EXCEPTION — DEMANDE DE RDV (RÈGLE ABSOLUE): Si le client a fait une demande de rendez-vous (jour/créneau/plaque notés ou en cours), tu NE DOIS JAMAIS lui demander "Souhaitez-vous que le garage vous rappelle ?". Le garage rappellera pour confirmer le RDV. Dis uniquement "C'est une demande de rendez-vous, le garage vous rappellera pour confirmer." puis "Avez-vous besoin d'autre chose ?". Pas de question de rappel.
+
+EXCEPTION — DEVIS ACCEPTÉ (RÈGLE ABSOLUE): Si le client a accepté une demande de devis (a dit oui à "Souhaitez-vous faire une demande de devis ?"), tu NE DOIS JAMAIS lui demander "Souhaitez-vous que le garage vous rappelle ?". Le garage rappellera pour le devis. Enchaîne UNIQUEMENT avec "Avez-vous besoin d'autre chose ?" puis clôture si non. Ne pose la question de rappel que si le client n'a PAS accepté de devis ni fait de demande de RDV.
 
 NE PAS demander le rappel dans les autres situations (ex. après un RDV déjà pris, etc.). À la réponse du client (oui/non) on enregistre : Infos (point vert). Les appels info-only ont tous le point "Infos".
 
@@ -4951,6 +4975,16 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText;
               recordAssistantQuestionIntent(doneText);
+              if (isAssistantModificationRdv(doneText)) {
+                modificationRdvByClient = true;
+                annulationRdvByClient = false;
+                if (LOG_VERBOSE) console.log("ℹ️ Modif. RDV (détection depuis réplique IA).", { text: doneText.substring(0, 60) });
+              }
+              if (isAssistantAnnulationRdv(doneText)) {
+                annulationRdvByClient = true;
+                modificationRdvByClient = false;
+                if (LOG_VERBOSE) console.log("ℹ️ Annul. RDV (détection depuis réplique IA).", { text: doneText.substring(0, 60) });
+              }
               if (isAssistantConfirmingDevis(doneText)) {
                 devisAcceptedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté, conversation.item.done).", { text: doneText.substring(0, 60) });
@@ -5524,6 +5558,16 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText; // Pour distinguer refus rappel vs refus consentement au prochain tour
               recordAssistantQuestionIntent(doneText);
+              if (isAssistantModificationRdv(doneText)) {
+                modificationRdvByClient = true;
+                annulationRdvByClient = false;
+                if (LOG_VERBOSE) console.log("ℹ️ Modif. RDV (détection depuis réplique IA, output_text.done).", { text: doneText.substring(0, 60) });
+              }
+              if (isAssistantAnnulationRdv(doneText)) {
+                annulationRdvByClient = true;
+                modificationRdvByClient = false;
+                if (LOG_VERBOSE) console.log("ℹ️ Annul. RDV (détection depuis réplique IA, output_text.done).", { text: doneText.substring(0, 60) });
+              }
               if (isAssistantConfirmingDevis(doneText)) {
                 devisAcceptedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté).", { text: doneText.substring(0, 60) });
