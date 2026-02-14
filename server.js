@@ -804,6 +804,26 @@ wss.on("connection", (ws, req) => {
     if (/\bje\s+note\s+une\s+demande\s+pour\s+.+\s+à\s+\d+\s*heures?\b/i.test(t) && (t.includes("modifier") || t.includes("nouvelle date") || t.includes("déplacer"))) return true;
     return false;
   }
+  /** Retourne true si l'assistant confirme avoir noté une modification de RDV (pas une question). */
+  function isAssistantConfirmingModificationRdv(assistantText) {
+    const t = String(assistantText || "").toLowerCase().trim();
+    if (t.endsWith("?")) return false; // phrase interrogative = pas une confirmation
+    if (/\b(noté|note)\s+(votre\s+)?(demande\s+de\s+)?modification\b/i.test(t)) return true;
+    if (/\b(bien\s+noté|j'?ai\s+bien\s+noté)\b.*\bmodification\b/i.test(t)) return true;
+    if (/\bdemande\s+de\s+modification\s+(pour|au)\b/i.test(t) && (/\bnoté\b/.test(t) || /\b(rappellera|rappel)\b/.test(t))) return true;
+    if (/\brappellera\s+pour\s+confirmer\s+(la\s+)?nouvelle\s+(date|heure)\b/i.test(t)) return true;
+    return false;
+  }
+  /** Retourne true si l'assistant confirme avoir noté une annulation de RDV (pas une question). */
+  function isAssistantConfirmingAnnulationRdv(assistantText) {
+    const t = String(assistantText || "").toLowerCase().trim();
+    if (t.endsWith("?")) return false;
+    if (/\b(noté|note)\s+(votre\s+)?(demande\s+)?d\W*annulation\b/i.test(t)) return true;
+    if (/\b(bien\s+noté|j'?ai\s+bien\s+noté)\b.*\bannulation\b/i.test(t)) return true;
+    if (/\bdemande\s+d\W*annulation\s+(pour|du)\b/i.test(t) && (/\bnoté\b/.test(t) || /\bnote\b/.test(t))) return true;
+    if (/\bannulation\b/.test(t) && (/\bje\s+note\b/.test(t) || /\bnoté\b/.test(t) || /\bdemande\s+d\W*annulation\b/.test(t))) return true;
+    return false;
+  }
   /** Retourne true si le message assistant indique une annulation de RDV. */
   function isAssistantAnnulationRdv(assistantText) {
     const t = String(assistantText || "").toLowerCase();
@@ -3983,7 +4003,7 @@ IMPORTANT - COMPRÉHENSION ET CONFIRMATION:
 IMPORTANT - GESTION DES RENDEZ-VOUS:
 - ANNULATION OU MODIFICATION: Pour chaque rendez-vous listé ci-dessus, le statut est indiqué (demande en attente / rendez-vous enregistré). Quand le client veut annuler ou modifier un rendez-vous : en mode DEMANDE (ou aucun), tu NE dis PAS que tu peux modifier ou prendre le rendez-vous toi-même. Tu dis : "Je peux faire une demande auprès du garage ; en cas de confirmation le garage vous rappellera ou un message de confirmation vous sera envoyé." Puis tu notes la demande (nouvelle date/heure pour modification, ou annulation) et tu dis que le garage rappellera pour confirmer. En mode INTERNE uniquement, tu peux dire "je peux le modifier / l'annuler" et agir directement. Ne confonds pas demande en attente (pas encore confirmée) et rendez-vous enregistré (déjà confirmé).
 - PHRASE OBLIGATOIRE AVANT PRISE DE RDV: Dès que le client demande à prendre rendez-vous (ou répond oui à "Vous voulez prendre rendez-vous ?"), dis TOUJOURS en premier : "D'accord, nous allons faire une demande de rendez-vous." Puis enchaîne avec le processus (prestation/tarif, horaires, jour, créneau, plaque). Ne saute jamais cette phrase.
-- RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (ex: "je voudrais un rdv pour une vidange", "prendre rendez-vous pour un diagnostic", "rdv pour la révision"), tu NE poses PAS de questions de diagnostic (pas de "depuis quand", pas de symptômes). Tu PRENDS LE RENDEZ-VOUS DIRECTEMENT: (0) dis "D'accord, nous allons faire une demande de rendez-vous.", (1) confirme la prestation et le tarif en une phrase, (2) AVANT de demander le jour, annonce TOUJOURS les horaires d'ouverture du garage (depuis la section Horaires ci-dessus) et les jours de fermeture si présents, (3) puis "Quel jour vous conviendrait le mieux ?", (4) puis "Plutôt le matin ou l'après-midi ?", (5) puis confirmation de la plaque.
+- RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (ex: "je voudrais un rdv pour une vidange", "prendre rendez-vous pour un diagnostic", "rdv pour la révision"), tu NE poses PAS de questions de diagnostic (pas de "depuis quand", pas de symptômes). Tu PRENDS LE RENDEZ-VOUS DIRECTEMENT: (0) dis "D'accord, nous allons faire une demande de rendez-vous.", (1) confirme la prestation et le tarif en une phrase, (2) appelle get_opening_hours puis annonce les JOURS et HEURES d'OUVERTURE (ex. "Le garage est ouvert du lundi au samedi de 8h30 à 16h") puis les jours de fermeture si présents ("fermé le dimanche"). Ne dis jamais uniquement le jour de fermeture sans avoir dit les horaires d'ouverture. (3) puis "Quel jour vous conviendrait le mieux ?", (4) puis "Plutôt le matin ou l'après-midi ?", (5) puis confirmation de la plaque.
 - ⚠️ DIAGNOSTIC SANS PROBLÈME DÉCRIT: Si le client demande UNIQUEMENT un rendez-vous pour un diagnostic SANS avoir décrit de problème ou de symptôme (ex: "je voudrais un rdv pour un diagnostic", "prendre rendez-vous pour un diagnostic"), tu NE dis JAMAIS "pour ce problème", "pour votre problème" ou "pour le problème". Dis uniquement: "Je vous propose de venir faire un diagnostic au garage. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" ou "D'accord, nous allons faire une demande de rendez-vous. Le tarif pour un diagnostic est de [TARIF]. [Horaires]. Vous voulez prendre rendez-vous ?". Réserve "pour ce problème" UNIQUEMENT quand le client a d'abord décrit un problème (symptôme, voyant, panne, etc.) et que tu as recueilli des infos.
 - RÈGLE ABSOLUE - CONSENTEMENT OBLIGATOIRE: Tu NE DOIS JAMAIS prendre un rendez-vous sans le consentement explicite du client. Tu proposes un rendez-vous, tu demandes confirmation, et tu attends la réponse du client avant de confirmer.
 - RÈGLE ABSOLUE - GUIDAGE PROACTIF: Quand le client décrit un problème (SANS avoir demandé un rdv pour une prestation précise), tu DOIS dans la même réponse: (1) reconnaître le problème, (2) mentionner brièvement 1-2 causes possibles, (3) poser UNE SEULE question pour recueillir des informations utiles (depuis quand, autres symptômes, contexte). NE PROPOSE PAS de rendez-vous dans cette première réponse. Attends d'abord la réponse du client.
@@ -4088,7 +4108,7 @@ ${closedInfoLine}
 DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil.
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${clientInfoLine ? `${clientInfoLine}\n\n` : ""}
-Pour un RDV: avant de demander le jour, appelle get_opening_hours puis annonce AU CLIENT les horaires d'ouverture ET les jours de fermeture (ex: "Nous sommes ouverts du lundi au vendredi de 8h30 à 12h et de 14h à 18h ; le samedi de 9h à 12h. Nous sommes fermés le dimanche."). Ensuite seulement demande "Quel jour vous conviendrait le mieux ?". Ne demande JAMAIS le jour sans avoir d'abord annoncé les horaires et les jours de fermeture.
+Pour un RDV: avant de demander le jour, appelle get_opening_hours puis annonce AU CLIENT les horaires d'OUVERTURE (jours ouverts + plages horaires) ET les jours de fermeture. Exemple: "Le garage est ouvert du lundi au samedi de 8h30 à 16h, et fermé le dimanche." ou "Nous sommes ouverts du lundi au vendredi de 8h30 à 12h et de 14h à 18h ; le samedi de 9h à 12h. Nous sommes fermés le dimanche." INTERDIT: dire uniquement "le garage est fermé le dimanche" (ou un seul jour de fermeture) sans avoir d'abord dit les jours et horaires d'OUVERTURE. Ensuite seulement demande "Quel jour vous conviendrait le mieux ?".
 - JOUR FERMÉ: Si le client propose un jour où le garage est fermé (d'après get_opening_hours), tu DOIS le contredire poliment: "Le garage est fermé le [jour]. Quel autre jour vous conviendrait ?" et proposer un jour ouvert. Ne valide JAMAIS un jour de fermeture.
 - TARIF DIAGNOSTIC: NE JAMAIS annoncer un prix sans avoir appelé get_garage_pricing. Dans le résultat, utilise UNIQUEMENT le montant de la ligne contenant « diagnostic » / « Diagnostic ». Ne jamais prendre le montant d'une autre prestation (vidange, révision, etc.). Si la ligne diagnostic indique 83 €, dis 83 euros — pas 90 ni un autre chiffre. Si l'outil renvoie "Tarifs non renseignés", dis "Le tarif sera établi lors du diagnostic" ou "Le tarif est sur devis".
 RÈGLE ABSOLUE - GUIDAGE PROACTIF (À RESPECTER EN PRIORITÉ):
@@ -4132,7 +4152,7 @@ OBJECTIF (ACCOMPAGNEMENT PROACTIF):
 - CRITIQUE - UNE QUESTION À LA FOIS: Quand le client décrit un problème, tu poses UNE SEULE question à la fois et tu attends la réponse du client avant de continuer. Ne pose JAMAIS plusieurs questions d'affilée. Ne propose JAMAIS un rendez-vous immédiatement après avoir posé une question. Attends d'abord la réponse du client.
 - Quand le client décrit un problème: Tu poses UNE question pour recueillir des informations (depuis quand, autres symptômes, contexte) et tu attends la réponse. Après avoir recueilli les informations nécessaires, tu proposes la prestation adaptée (diagnostic, réparation, etc.) avec un rendez-vous.
 - Tu guides petit à petit vers la meilleure suite: conseil sécurité / dépôt / ou rendez-vous. MAIS tu poses UNE question à la fois et tu attends la réponse entre chaque question.
-- Si le client sait exactement ce qu'il veut (ex: "je veux une vidange", "je veux un devis", "je veux un rendez-vous"), tu vas droit au but et tu réduis les questions. Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (vidange, révision, diagnostic, freins, etc.), prends le rendez-vous DIRECTEMENT sans poser de questions de diagnostic (pas de "depuis quand", pas de symptômes) : confirme prestation + tarif (get_garage_pricing), puis appelle get_opening_hours et annonce les horaires, puis jour → matin/après-midi → plaque.
+- Si le client sait exactement ce qu'il veut (ex: "je veux une vidange", "je veux un devis", "je veux un rendez-vous"), tu vas droit au but et tu réduis les questions. Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (vidange, révision, diagnostic, freins, etc.), prends le rendez-vous DIRECTEMENT sans poser de questions de diagnostic (pas de "depuis quand", pas de symptômes) : confirme prestation + tarif (get_garage_pricing), puis appelle get_opening_hours et annonce les jours et horaires d'ouverture puis les jours de fermeture, puis jour → matin/après-midi → plaque.
 
 RÈGLE ANTI-INVENTION (TRÈS IMPORTANT):
 - Les infos garage (tarifs, services, FAQ, horaires) sont obtenues uniquement via les outils (get_garage_pricing, get_garage_services, get_garage_faq, get_opening_hours). Ne réponds jamais sans avoir appelé l'outil adapté.
@@ -4166,7 +4186,7 @@ DIAGNOSTIC GUIDÉ (si le client ne sait pas exactement):
 INTENTION RDV (TRÈS IMPORTANT):
 - Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
 - Tu déclenches le mode RDV UNIQUEMENT si le client dit explicitement qu'il veut un rendez-vous ou un créneau.
-- RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (ex: "je voudrais un rdv pour une vidange", "prendre rendez-vous pour un diagnostic", "rdv pour les freins"), dis d'abord "D'accord, nous allons faire une demande de rendez-vous." Puis: (1) confirme la prestation et le tarif (get_garage_pricing), (2) appelle get_opening_hours puis annonce les horaires et jours de fermeture, (3) "Quel jour vous conviendrait le mieux ?", (4) "Plutôt le matin ou l'après-midi ?", (5) confirmation de la plaque. Les questions (depuis quand, symptômes) sont UNIQUEMENT quand le client décrit un problème SANS avoir demandé un rdv pour une prestation précise.
+- RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (ex: "je voudrais un rdv pour une vidange", "prendre rendez-vous pour un diagnostic", "rdv pour les freins"), dis d'abord "D'accord, nous allons faire une demande de rendez-vous." Puis: (1) confirme la prestation et le tarif (get_garage_pricing), (2) appelle get_opening_hours puis annonce les jours et horaires d'OUVERTURE (ex. ouvert du lundi au samedi de 8h30 à 16h), puis les jours de fermeture. Ne dis jamais uniquement le jour de fermeture. (3) "Quel jour vous conviendrait le mieux ?", (4) "Plutôt le matin ou l'après-midi ?", (5) confirmation de la plaque. Les questions (depuis quand, symptômes) sont UNIQUEMENT quand le client décrit un problème SANS avoir demandé un rdv pour une prestation précise.
 - DEMANDE D'HORAIRES/TARIFS SEULEMENT: Si le client demande UNIQUEMENT "Quels sont les horaires ?", "Vous êtes ouverts quand ?", "C'est quoi le tarif ?", etc. (sans dire qu'il veut un RDV), tu réponds à la question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client dit NON au rendez-vous, tu DOIS ensuite demander "Souhaitez-vous que le garage vous rappelle ?" (attendre la réponse). INTERDIT dans ce cas: "Quel jour vous conviendrait le mieux ?", "Quel jour vous arrange ?", ou toute question de créneau — le client n'a pas dit oui au rendez-vous.
 - INFO SUR UNE PRESTATION (tarif, en quoi consiste, etc.): Après avoir répondu, tu DOIS proposer : "Souhaitez-vous faire une demande de devis auprès du garage ?" Si le client dit NON : dis "D'accord, pas de devis." puis "Souhaitez-vous que le garage vous rappelle ?" — ne relance pas la proposition de devis. Si OUI (devis accepté) : plaque par SMS/dossier comme ci-dessus ; une fois la demande de devis notée, dis "Avez-vous besoin d'autre chose ?" uniquement. NE DEMANDE JAMAIS "Souhaitez-vous que le garage vous rappelle ?" après un devis accepté (le garage rappellera pour le devis). Si le client dit non à "Avez-vous besoin d'autre chose ?", dis au revoir sans poser la question de rappel.
 - DEVIS EXPLICITE SANS PRIX: Si le client dit "j'aimerais avoir un devis" (ou équivalent) pour une prestation précise SANS avoir demandé le prix, NE PAS annoncer de prix. Proposer d'envoyer un message pour plaque et kilométrage (jamais demander à l'oral). Si client avec plaque : proposer confirmation "Votre plaque est [X]. Est-ce bien correct ?" ; si non ou autre véhicule, annoncer l'envoi du message. Confirmer la demande de devis une fois la confirmation ou l'envoi du message annoncé. NE PAS demander "Souhaitez-vous que le garage vous rappelle ?" après une demande de devis (le garage rappellera pour le devis).
@@ -4395,7 +4415,7 @@ ${closedInfoLine}
 DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil.
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${newClientInfoLine}\n\n
-Pour un RDV: avant de demander le jour, appelle get_opening_hours puis annonce AU CLIENT les horaires ET les jours de fermeture. Ensuite seulement demande "Quel jour vous conviendrait le mieux ?". Si le client propose un jour fermé, dis "Le garage est fermé le [jour]. Quel autre jour vous conviendrait ?"
+Pour un RDV: avant de demander le jour, appelle get_opening_hours puis annonce AU CLIENT les jours et horaires d'OUVERTURE (ex. ouvert du lundi au samedi de 8h30 à 16h), puis les jours de fermeture. Ne dis jamais uniquement le jour de fermeture sans avoir dit les horaires d'ouverture. Ensuite seulement demande "Quel jour vous conviendrait le mieux ?". Si le client propose un jour fermé, dis "Le garage est fermé le [jour]. Quel autre jour vous conviendrait ?"
 Tarif diagnostic: appelle get_garage_pricing avant d'annoncer un prix; n'utilise QUE la valeur retournée (ne jamais inventer un chiffre).
 RÈGLES D'ÉCOUTE:
 - Tu écoutes et tu réponds à CE QUE le client dit (pas de scénarios pré-écrits).
@@ -4405,7 +4425,7 @@ RÈGLES D'ÉCOUTE:
 OBJECTIF (ACCOMPAGNEMENT):
 - Tu aides le client à mieux comprendre son problème en posant des questions simples, une par une.
 - Tu guides petit à petit vers la meilleure suite: conseil sécurité / dépôt / ou rendez-vous.
-- Si le client sait exactement ce qu'il veut (ex: "je veux une vidange", "je veux un devis", "je veux un rendez-vous"), tu vas droit au but et tu réduis les questions. Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (vidange, révision, diagnostic, freins, etc.), prends le rendez-vous DIRECTEMENT sans poser de questions de diagnostic (pas de "depuis quand", pas de symptômes) : confirme prestation + tarif (get_garage_pricing), puis appelle get_opening_hours et annonce les horaires, puis jour → matin/après-midi → plaque.
+- Si le client sait exactement ce qu'il veut (ex: "je veux une vidange", "je veux un devis", "je veux un rendez-vous"), tu vas droit au but et tu réduis les questions. Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (vidange, révision, diagnostic, freins, etc.), prends le rendez-vous DIRECTEMENT sans poser de questions de diagnostic (pas de "depuis quand", pas de symptômes) : confirme prestation + tarif (get_garage_pricing), puis appelle get_opening_hours et annonce les jours et horaires d'ouverture puis les jours de fermeture, puis jour → matin/après-midi → plaque.
 
 RÈGLE ANTI-INVENTION (TRÈS IMPORTANT):
 - Les infos garage (tarifs, services, FAQ, horaires) sont obtenues uniquement via les outils (get_garage_pricing, get_garage_services, get_garage_faq, get_opening_hours). Ne réponds jamais sans avoir appelé l'outil adapté.
@@ -4421,7 +4441,7 @@ RENSEIGNEMENTS SUR LES PRESTATIONS (PRIORITÉ OBLIGATOIRE):
 INTENTION RDV (TRÈS IMPORTANT):
 - Tu ne lances JAMAIS une demande de rendez-vous si le client n'a pas demandé de rendez-vous.
 - Tu déclenches le mode RDV UNIQUEMENT si le client dit explicitement qu'il veut un rendez-vous ou un créneau.
-- RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (ex: "je voudrais un rdv pour une vidange", "prendre rendez-vous pour un diagnostic", "rdv pour les freins"), dis d'abord "D'accord, nous allons faire une demande de rendez-vous." Puis: (1) confirme la prestation et le tarif (get_garage_pricing), (2) appelle get_opening_hours puis annonce les horaires et jours de fermeture, (3) "Quel jour vous conviendrait le mieux ?", (4) "Plutôt le matin ou l'après-midi ?", (5) confirmation de la plaque. Les questions (depuis quand, symptômes) sont UNIQUEMENT quand le client décrit un problème SANS avoir demandé un rdv pour une prestation précise.
+- RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (ex: "je voudrais un rdv pour une vidange", "prendre rendez-vous pour un diagnostic", "rdv pour les freins"), dis d'abord "D'accord, nous allons faire une demande de rendez-vous." Puis: (1) confirme la prestation et le tarif (get_garage_pricing), (2) appelle get_opening_hours puis annonce les jours et horaires d'OUVERTURE (ex. ouvert du lundi au samedi de 8h30 à 16h), puis les jours de fermeture. Ne dis jamais uniquement le jour de fermeture. (3) "Quel jour vous conviendrait le mieux ?", (4) "Plutôt le matin ou l'après-midi ?", (5) confirmation de la plaque. Les questions (depuis quand, symptômes) sont UNIQUEMENT quand le client décrit un problème SANS avoir demandé un rdv pour une prestation précise.
 - DEMANDE D'HORAIRES/TARIFS SEULEMENT: Si le client demande UNIQUEMENT "Quels sont les horaires ?", "Vous êtes ouverts quand ?", "C'est quoi le tarif ?", etc. (sans dire qu'il veut un RDV), tu réponds à la question puis tu dis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client dit NON au rendez-vous, tu DOIS ensuite demander "Souhaitez-vous que le garage vous rappelle ?" (attendre la réponse). INTERDIT dans ce cas: "Quel jour vous conviendrait le mieux ?", "Quel jour vous arrange ?", ou toute question de créneau — le client n'a pas dit oui au rendez-vous.
 - INFO SUR UNE PRESTATION (tarif, en quoi consiste, etc.): Après avoir répondu, tu DOIS proposer : "Souhaitez-vous faire une demande de devis auprès du garage ?" Si le client dit NON : dis "D'accord, pas de devis." puis "Souhaitez-vous que le garage vous rappelle ?" — ne relance pas la proposition de devis. Si OUI (devis accepté) : plaque par SMS/dossier comme ci-dessus ; une fois la demande de devis notée, dis "Avez-vous besoin d'autre chose ?" uniquement. NE DEMANDE JAMAIS "Souhaitez-vous que le garage vous rappelle ?" après un devis accepté (le garage rappellera pour le devis). Si le client dit non à "Avez-vous besoin d'autre chose ?", dis au revoir sans poser la question de rappel.
 - DEVIS EXPLICITE SANS PRIX: Si le client dit "j'aimerais avoir un devis" (ou équivalent) pour une prestation précise SANS avoir demandé le prix, NE PAS annoncer de prix. Proposer d'envoyer un message pour plaque et kilométrage (jamais demander à l'oral). Si client avec plaque : proposer confirmation "Votre plaque est [X]. Est-ce bien correct ?" ; si non ou autre véhicule, annoncer l'envoi du message. Confirmer la demande de devis une fois la confirmation ou l'envoi du message annoncé. NE PAS demander "Souhaitez-vous que le garage vous rappelle ?" après une demande de devis (le garage rappellera pour le devis).
@@ -4998,7 +5018,18 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText;
               recordAssistantQuestionIntent(doneText);
-              // Ne jamais déduire modification/annulation RDV depuis la seule réplique de l'assistant : l'IA peut confondre (ex. "oui je suis d'accord" = consentement pris pour "modifier le RDV"). Les badges Modif./Annul. RDV sont posés uniquement quand le CLIENT a dit modifier/changer/annuler (voir conversation.item.done user).
+              // Confirmation modification RDV : si l'assistant dit "j'ai bien noté votre demande de modification", badge Modif. RDV (sans dépendre des mots exacts du client).
+              if (isAssistantConfirmingModificationRdv(doneText)) {
+                modificationRdvByClient = true;
+                annulationRdvByClient = false;
+                if (LOG_VERBOSE) console.log("ℹ️ Modif. RDV (IA confirme demande de modification, ex. noté votre demande de modification).", { text: doneText.substring(0, 60) });
+              }
+              // Confirmation annulation RDV : si l'assistant dit "je note votre demande d'annulation", badge Annul. RDV.
+              if (isAssistantConfirmingAnnulationRdv(doneText)) {
+                annulationRdvByClient = true;
+                modificationRdvByClient = false;
+                if (LOG_VERBOSE) console.log("ℹ️ Annul. RDV (IA confirme demande d'annulation, ex. note votre demande d'annulation).", { text: doneText.substring(0, 60) });
+              }
               if (isAssistantConfirmingRdv(doneText)) {
                 rdvAcceptedByClient = true;
                 rdvRefusedByClient = false;
@@ -5577,7 +5608,16 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText; // Pour distinguer refus rappel vs refus consentement au prochain tour
               recordAssistantQuestionIntent(doneText);
-              // Ne jamais déduire modification/annulation RDV depuis la seule réplique de l'assistant (voir même règle dans response.output_audio_transcript.done).
+              if (isAssistantConfirmingModificationRdv(doneText)) {
+                modificationRdvByClient = true;
+                annulationRdvByClient = false;
+                if (LOG_VERBOSE) console.log("ℹ️ Modif. RDV (IA confirme demande de modification, output_text.done).", { text: doneText.substring(0, 60) });
+              }
+              if (isAssistantConfirmingAnnulationRdv(doneText)) {
+                annulationRdvByClient = true;
+                modificationRdvByClient = false;
+                if (LOG_VERBOSE) console.log("ℹ️ Annul. RDV (IA confirme demande d'annulation, output_text.done).", { text: doneText.substring(0, 60) });
+              }
               if (isAssistantConfirmingRdv(doneText)) {
                 rdvAcceptedByClient = true;
                 rdvRefusedByClient = false;
@@ -6107,7 +6147,11 @@ But: être naturel et mettre le client en confiance.`,
             // Détection modification / annulation RDV (badges Modif. RDV, Annul. RDV) — même logique que devis_requested
             const userWantsModifyRdv = /\b(modifier|changer|déplacer|reporter|décaler)\s+(mon\s+)?(rdv|rendez-?vous|créneau|date)\b/i.test(userTextNorm) || /\b(je\s+veux\s+)?(modifier|changer)\s+(le\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm);
             const userWantsCancelRdv = /\b(annuler|annulation)\s+(mon\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm) || /\b(je\s+veux\s+)?annuler\s+(le\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm) || /\bplus\s+besoin\s+(du\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm);
-            const assistantAskedModify = lastAssistantText && /\b(modifier|changer|déplacer|reporter)\s+(votre\s+)?(rdv|rendez-?vous)\b/i.test(String(lastAssistantText));
+            const lastAst = String(lastAssistantText || "");
+            const assistantAskedModify = lastAst && (
+              /\b(modifier|changer|déplacer|reporter)\s+(votre\s+)?(rdv|rendez-?vous)\b/i.test(lastAst) ||
+              (/\b(déplacer|modifier|changer|reporter)\b/i.test(lastAst) && /\b(rdv|rendez-?vous|créneau|date)\b/i.test(lastAst))
+            );
             const assistantAskedCancel = lastAssistantText && /\b(annuler|annulation)\s+(votre\s+)?(rdv|rendez-?vous)\b/i.test(String(lastAssistantText));
             // Ne pas confondre consentement ("oui je suis d'accord") avec un oui à "voulez-vous modifier ?"
             const isOnlyConsentPhrase = /^(oui\s+)?(je\s+)?suis\s+d'?accord\.?$/i.test(userTextNorm) || /^d'?accord\.?$/i.test(userTextNorm) || /^oui\s+d'?accord\.?$/i.test(userTextNorm);
