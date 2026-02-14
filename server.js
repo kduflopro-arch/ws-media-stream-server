@@ -813,6 +813,17 @@ wss.on("connection", (ws, req) => {
     if (/\bannulation\b/.test(t) && (t.includes("je note") || t.includes("noté") || t.includes("demande d"))) return true;
     return false;
   }
+  /** Retourne true si le message assistant indique qu'une demande de RDV a été notée (jour/créneau ou confirmation finale). */
+  function isAssistantConfirmingRdv(assistantText) {
+    const t = String(assistantText || "").toLowerCase();
+    if (/\b(je\s+)?note\s+pour\s+(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|demain|après-demain)\b/i.test(t)) return true;
+    if (/\bje\s+note\s+(pour\s+)?(le\s+)?(matin|après-midi)\b/i.test(t)) return true;
+    if (/\b(parfait\s*,?\s*)?c'?est\s+noté\b/i.test(t) && (/\b(rdv|rendez-?vous|demande)\b/.test(t) || /\brappellera\s+pour\s+confirmer\b/.test(t))) return true;
+    if (/\bc'?est\s+une\s+demande\s+de\s+rendez-?vous\b/i.test(t) || /\bdemande\s+de\s+rendez-?vous\s*,?\s*le\s+garage\s+vous\s+rappellera\b/i.test(t)) return true;
+    if (/\b(le\s+garage\s+vous\s+)?rappellera\s+pour\s+confirmer\b/i.test(t) && (/\bnoté\b/.test(t) || /\bdemande\b/.test(t))) return true;
+    if ((/\bj'?ai\s+bien\s+noté\b/.test(t) || /\bje\s+note\s+(votre\s+)?(demande\s+)?(pour\s+)?(le\s+)?(rdv|rendez-?vous)\b/i.test(t)) && /\b(rdv|rendez-?vous|jour|créneau)\b/.test(t)) return true;
+    return false;
+  }
   /** Retourne true si le message assistant indique que la demande de devis a été prise (toutes formulations). */
   function isAssistantConfirmingDevis(assistantText) {
     const t = String(assistantText || "").toLowerCase();
@@ -4988,6 +4999,11 @@ But: être naturel et mettre le client en confiance.`,
               lastAssistantText = doneText;
               recordAssistantQuestionIntent(doneText);
               // Ne jamais déduire modification/annulation RDV depuis la seule réplique de l'assistant : l'IA peut confondre (ex. "oui je suis d'accord" = consentement pris pour "modifier le RDV"). Les badges Modif./Annul. RDV sont posés uniquement quand le CLIENT a dit modifier/changer/annuler (voir conversation.item.done user).
+              if (isAssistantConfirmingRdv(doneText)) {
+                rdvAcceptedByClient = true;
+                rdvRefusedByClient = false;
+                if (LOG_VERBOSE) console.log("ℹ️ RDV demandé (IA confirme RDV noté, ex. je note pour X / demande de rendez-vous).", { text: doneText.substring(0, 60) });
+              }
               if (isAssistantConfirmingDevis(doneText)) {
                 devisAcceptedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté, conversation.item.done).", { text: doneText.substring(0, 60) });
@@ -5562,6 +5578,11 @@ But: être naturel et mettre le client en confiance.`,
               lastAssistantText = doneText; // Pour distinguer refus rappel vs refus consentement au prochain tour
               recordAssistantQuestionIntent(doneText);
               // Ne jamais déduire modification/annulation RDV depuis la seule réplique de l'assistant (voir même règle dans response.output_audio_transcript.done).
+              if (isAssistantConfirmingRdv(doneText)) {
+                rdvAcceptedByClient = true;
+                rdvRefusedByClient = false;
+                if (LOG_VERBOSE) console.log("ℹ️ RDV demandé (IA confirme RDV noté, output_text.done).", { text: doneText.substring(0, 60) });
+              }
               if (isAssistantConfirmingDevis(doneText)) {
                 devisAcceptedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté).", { text: doneText.substring(0, 60) });
