@@ -4167,6 +4167,7 @@ INTENTION RDV (TRÈS IMPORTANT):
 - NE JAMAIS supposer qu'un consentement = demande de rendez-vous. Le consentement est juste une autorisation d'enregistrement.
 - INTERDICTION FORMELLE: Si le client dit juste "oui" ou "d'accord" après ta demande de consentement, tu NE DOIS PAS interpréter cela comme une demande de rendez-vous. Tu demandes simplement "En quoi puis-je vous aider ?" (après avoir mentionné le RDV enregistré si applicable).
 - INTERDICTION FORMELLE - APRÈS CONSENTEMENT: Ne dis JAMAIS après le consentement une phrase qui suppose un besoin du client (ex: "Vous souhaitez faire une vidange, c'est bien ça ?", "Vous voulez un rendez-vous pour une révision ?"). Le "oui" du client = uniquement accord pour l'enregistrement. Tu demandes UNIQUEMENT une question ouverte: "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?" ou "Dites-moi, en quoi puis-je vous aider ?"
+- INTERDIT - CONSENTEMENT ≠ MODIFICATION RDV: Si le client a dit uniquement "oui je suis d'accord" ou "d'accord" (consentement à l'enregistrement), tu NE DOIS JAMAIS dire "Vous voulez modifier votre rendez-vous" ni "D'accord, vous voulez modifier votre rendez-vous". Tu demandes UNIQUEMENT "En quoi puis-je vous aider ?" (après avoir mentionné le RDV enregistré si le client en a un).
 
 STYLE (échange humain):
 - Parle comme au téléphone avec une vraie personne: naturel, simple, fluide.
@@ -4421,6 +4422,7 @@ INTENTION RDV (TRÈS IMPORTANT):
 - NE JAMAIS supposer qu'un consentement = demande de rendez-vous. Le consentement est juste une autorisation d'enregistrement.
 - INTERDICTION FORMELLE: Si le client dit juste "oui" ou "d'accord" après ta demande de consentement, tu NE DOIS PAS interpréter cela comme une demande de rendez-vous. Tu demandes simplement "En quoi puis-je vous aider ?" (après avoir mentionné le RDV enregistré si applicable).
 - INTERDICTION FORMELLE - APRÈS CONSENTEMENT: Ne dis JAMAIS après le consentement une phrase qui suppose un besoin du client (ex: "Vous souhaitez faire une vidange, c'est bien ça ?", "Vous voulez un rendez-vous pour une révision ?"). Le "oui" du client = uniquement accord pour l'enregistrement. Tu demandes UNIQUEMENT une question ouverte: "En quoi puis-je vous aider ?" ou "Quel est votre besoin ?" ou "Dites-moi, en quoi puis-je vous aider ?"
+- INTERDIT - CONSENTEMENT ≠ MODIFICATION RDV: Si le client a dit uniquement "oui je suis d'accord" ou "d'accord" (consentement à l'enregistrement), tu NE DOIS JAMAIS dire "Vous voulez modifier votre rendez-vous" ni "D'accord, vous voulez modifier votre rendez-vous". Tu demandes UNIQUEMENT "En quoi puis-je vous aider ?" (après avoir mentionné le RDV enregistré si le client en a un).
 
 STYLE (échange humain):
 - Parle comme au téléphone avec une vraie personne: naturel, simple, fluide.
@@ -4985,16 +4987,7 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText;
               recordAssistantQuestionIntent(doneText);
-              if (isAssistantModificationRdv(doneText)) {
-                modificationRdvByClient = true;
-                annulationRdvByClient = false;
-                if (LOG_VERBOSE) console.log("ℹ️ Modif. RDV (détection depuis réplique IA).", { text: doneText.substring(0, 60) });
-              }
-              if (isAssistantAnnulationRdv(doneText)) {
-                annulationRdvByClient = true;
-                modificationRdvByClient = false;
-                if (LOG_VERBOSE) console.log("ℹ️ Annul. RDV (détection depuis réplique IA).", { text: doneText.substring(0, 60) });
-              }
+              // Ne jamais déduire modification/annulation RDV depuis la seule réplique de l'assistant : l'IA peut confondre (ex. "oui je suis d'accord" = consentement pris pour "modifier le RDV"). Les badges Modif./Annul. RDV sont posés uniquement quand le CLIENT a dit modifier/changer/annuler (voir conversation.item.done user).
               if (isAssistantConfirmingDevis(doneText)) {
                 devisAcceptedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté, conversation.item.done).", { text: doneText.substring(0, 60) });
@@ -5568,16 +5561,7 @@ But: être naturel et mettre le client en confiance.`,
               enqueueIngest("assistant", doneText);
               lastAssistantText = doneText; // Pour distinguer refus rappel vs refus consentement au prochain tour
               recordAssistantQuestionIntent(doneText);
-              if (isAssistantModificationRdv(doneText)) {
-                modificationRdvByClient = true;
-                annulationRdvByClient = false;
-                if (LOG_VERBOSE) console.log("ℹ️ Modif. RDV (détection depuis réplique IA, output_text.done).", { text: doneText.substring(0, 60) });
-              }
-              if (isAssistantAnnulationRdv(doneText)) {
-                annulationRdvByClient = true;
-                modificationRdvByClient = false;
-                if (LOG_VERBOSE) console.log("ℹ️ Annul. RDV (détection depuis réplique IA, output_text.done).", { text: doneText.substring(0, 60) });
-              }
+              // Ne jamais déduire modification/annulation RDV depuis la seule réplique de l'assistant (voir même règle dans response.output_audio_transcript.done).
               if (isAssistantConfirmingDevis(doneText)) {
                 devisAcceptedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté).", { text: doneText.substring(0, 60) });
@@ -6104,12 +6088,15 @@ But: être naturel et mettre le client en confiance.`,
             const userWantsCancelRdv = /\b(annuler|annulation)\s+(mon\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm) || /\b(je\s+veux\s+)?annuler\s+(le\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm) || /\bplus\s+besoin\s+(du\s+)?(rdv|rendez-?vous)\b/i.test(userTextNorm);
             const assistantAskedModify = lastAssistantText && /\b(modifier|changer|déplacer|reporter)\s+(votre\s+)?(rdv|rendez-?vous)\b/i.test(String(lastAssistantText));
             const assistantAskedCancel = lastAssistantText && /\b(annuler|annulation)\s+(votre\s+)?(rdv|rendez-?vous)\b/i.test(String(lastAssistantText));
-            if (userWantsModifyRdv || (assistantAskedModify && (userAffirmative || rdvExplicitPositive))) {
+            // Ne pas confondre consentement ("oui je suis d'accord") avec un oui à "voulez-vous modifier ?"
+            const isOnlyConsentPhrase = /^(oui\s+)?(je\s+)?suis\s+d'?accord\.?$/i.test(userTextNorm) || /^d'?accord\.?$/i.test(userTextNorm) || /^oui\s+d'?accord\.?$/i.test(userTextNorm);
+            const userSaidYesToModifyOrCancel = (userAffirmative || rdvExplicitPositive) && !isOnlyConsentPhrase;
+            if (userWantsModifyRdv || (assistantAskedModify && userSaidYesToModifyOrCancel)) {
               modificationRdvByClient = true;
               annulationRdvByClient = false;
               if (LOG_VERBOSE) console.log("ℹ️ Demande de modification de RDV.", { userText: userText?.substring(0, 50) });
             }
-            if (userWantsCancelRdv || (assistantAskedCancel && (userAffirmative || rdvExplicitPositive))) {
+            if (userWantsCancelRdv || (assistantAskedCancel && userSaidYesToModifyOrCancel)) {
               annulationRdvByClient = true;
               modificationRdvByClient = false;
               if (LOG_VERBOSE) console.log("ℹ️ Demande d'annulation de RDV.", { userText: userText?.substring(0, 50) });
