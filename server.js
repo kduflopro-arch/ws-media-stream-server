@@ -893,12 +893,20 @@ wss.on("connection", (ws, req) => {
       if (RUN_ANALYSIS_DELAY_MS > 0) {
         await new Promise((r) => setTimeout(r, RUN_ANALYSIS_DELAY_MS));
       }
-      // Pas de secours : rdv_requested = true uniquement si le client a explicitement accepté / demandé un RDV (pas d'inférence depuis l'intent seul)
-      // Badges (comme devis_requested) : déterminés uniquement par le WS, envoyés au finalize pour écriture en base
-      const rdvRequestedFromWs = rdvAcceptedByClient && !rdvRefusedByClient;
+      // Calculer assistantAskedForDayOrSlot avant les badges : si l'assistant a demandé jour/créneau, le client a déclenché le flux RDV (même s'il raccroche avant de répondre) → badge RDV.
+      const lastIntentAtFinalize = (() => {
+        const raw = String(lastAssistantText || "");
+        const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
+        const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase();
+        const asksRdv = (/\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target)) && target.includes("?");
+        return asksRdv ? "rdv" : (getMostRecentAssistantIntent(25000));
+      })();
+      const assistantAskedForDayOrSlot = (lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || ""));
+      // Badges : rdv si client a accepté un RDV OU si l'assistant a déjà demandé jour/créneau (demande RDV non aboutie → badge RDV quand même)
+      const rdvRequestedFromWs = (rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient);
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
       console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient });
-      console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs });
+      console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, assistantAskedForDayOrSlot });
       // Si l'IA a déjà dit une phrase post-consentement ("En quoi puis-je vous aider ?", "Bonjour Monsieur/Madame...") alors le client a forcément donné son accord
       const lastLow = (lastAssistantText || "").toLowerCase().trim();
       const looksLikePostConsent = lastLow.includes("en quoi puis-je vous aider") || lastLow.includes("quel est votre besoin") || (lastLow.includes("dites-moi") && (lastLow.includes("souci") || lastLow.includes("puis-je vous aider"))) || /^bonjour\s+(monsieur|madame)\s+/i.test(String(lastAssistantText || "").trim());
@@ -909,14 +917,6 @@ wss.on("connection", (ws, req) => {
       }
       // no_request = client n'a pas fait de demande. Ne pas envoyer no_request si l'assistant a déjà demandé le jour/créneau :
       // dans ce cas le client a forcément déclenché le flux RDV (parole ou item pas encore reçu avant stream stop) → run-analysis mettra rdv_incomplete.
-      const lastIntentAtFinalize = (() => {
-        const raw = String(lastAssistantText || "");
-        const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
-        const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase();
-        const asksRdv = (/\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target)) && target.includes("?");
-        return asksRdv ? "rdv" : (getMostRecentAssistantIntent(25000));
-      })();
-      const assistantAskedForDayOrSlot = (lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || ""));
       // Si l'assistant a eu au moins 2 tours de parole, il y a eu un échange : ne pas envoyer no_request (conversation.item.done user peut ne pas être arrivé avant stream stop). Run-analysis déterminera l'issue.
       const hasMultiTurnExchange = assistantTurnCount >= 2;
       const noRequest = userSpeakCount < 1 && !assistantAskedForDayOrSlot && !hasMultiTurnExchange;
