@@ -915,14 +915,13 @@ wss.on("connection", (ws, req) => {
       if (consentRequired && !consentGiven && effectiveConsentGranted) {
         console.log("✅ Consentement inféré (IA a répondu après accueil + client a parlé au moins 1 fois):", lastAssistantText ? lastAssistantText.substring(0, 80) : "");
       }
-      // no_request = client n'a pas fait de demande. Ne pas envoyer no_request si l'assistant a déjà demandé le jour/créneau :
-      // dans ce cas le client a forcément déclenché le flux RDV (parole ou item pas encore reçu avant stream stop) → run-analysis mettra rdv_incomplete.
-      // Si l'assistant a eu au moins 2 tours de parole, il y a eu un échange : ne pas envoyer no_request (conversation.item.done user peut ne pas être arrivé avant stream stop). Run-analysis déterminera l'issue.
+      // no_request = client n'a pas fait de demande. rdv_incomplete = demande RDV mais client a raccroché avant de donner jour/créneau → tout géré par le WS (pas de secours run-analysis).
       const hasMultiTurnExchange = assistantTurnCount >= 2;
       const noRequest = userSpeakCount < 1 && !assistantAskedForDayOrSlot && !hasMultiTurnExchange;
       const noRequestReason = "Le client n'a fait aucune demande";
-      if (assistantAskedForDayOrSlot && userSpeakCount < 1) console.log("📌 Pas de no_request : l'assistant a demandé jour/créneau → run-analysis pour rdv_incomplete:", { userSpeakCount, lastAssistantText: (lastAssistantText || "").slice(0, 80) });
-      if (hasMultiTurnExchange && userSpeakCount < 1) console.log("📌 Pas de no_request : échange multi-tours (assistantTurnCount >= 2) → run-analysis pour issue:", { userSpeakCount, assistantTurnCount });
+      const rdvIncomplete = assistantAskedForDayOrSlot && !rdvAcceptedByClient; // Demande RDV, l'assistant a demandé jour/créneau, le client n'a pas donné de préférence
+      const rdvIncompleteReason = "Le client a raccroché avant d'indiquer ses préférences de date pour le rendez-vous.";
+      if (rdvIncomplete) console.log("📌 rdv_incomplete (WS envoie call_outcome + raison):", { userSpeakCount, rdvAcceptedByClient, lastAssistantText: (lastAssistantText || "").slice(0, 60) });
       if (noRequest) console.log("📌 no_request (client n'a pas parlé):", { userSpeakCount, assistantTurnCount });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
@@ -948,6 +947,7 @@ wss.on("connection", (ws, req) => {
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
           consent_granted: effectiveConsentGranted,
           ...(noRequest ? { no_request: true, no_request_reason: noRequestReason } : {}),
+          ...(rdvIncomplete ? { call_outcome: "rdv_incomplete", rdv_incomplete_reason: rdvIncompleteReason } : {}),
         }),
       }).catch((err) => {
         console.error("❌ Erreur lors de l'appel à realtime-finalize:", err);
