@@ -748,7 +748,7 @@ wss.on("connection", (ws, req) => {
   let devisAcceptedByClient = false; // Client a accepté une demande de devis (envoyé au finalize → badge "Devis demandé")
   let modificationRdvByClient = false; // Client a demandé à modifier un RDV (badge Modif. RDV)
   let annulationRdvByClient = false; // Client a demandé à annuler un RDV (badge Annul. RDV)
-  let transferToGarageTriggered = false; // Client a demandé un transfert vers le garage (badge "Transfert vers le garage")
+  let transferToGarageStatus = null; // 'success' | 'failure' | null — envoyé au finalize pour badge "réussi" / "échec"
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
   let userSpeakCount = 0; // Nombre de fois que le client a parlé (conversation.item.done user) → si < 1 au finalize = no_request
@@ -946,7 +946,7 @@ wss.on("connection", (ws, req) => {
       // Badges : rdv si client a accepté un RDV OU si l'assistant a déjà demandé jour/créneau (demande RDV non aboutie → badge RDV quand même)
       const rdvRequestedFromWs = (rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient);
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
-      console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage: transferToGarageTriggered });
+      console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage_status: transferToGarageStatus });
       console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, assistantAskedForDayOrSlot });
       // Si l'IA a déjà dit une phrase post-consentement ("En quoi puis-je vous aider ?", "Bonjour Monsieur/Madame...") alors le client a forcément donné son accord
       const lastLow = (lastAssistantText || "").toLowerCase().trim();
@@ -984,7 +984,7 @@ wss.on("connection", (ws, req) => {
           callback_type: callbackTypeFromWs,
           modification_rdv: modificationRdvByClient,
           annulation_rdv: annulationRdvByClient,
-          transfer_to_garage: transferToGarageTriggered,
+          ...(transferToGarageStatus ? { transfer_to_garage_status: transferToGarageStatus } : {}),
           plate_confirmed_by_client: plateConfirmedByClient,
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
           consent_granted: effectiveConsentGranted,
@@ -5971,10 +5971,11 @@ But: être naturel et mettre le client en confiance.`,
                             let out = "";
                             if (res.ok && data.ok) {
                               out = "Transfert en cours. L'appel est en train d'être redirigé vers le garage.";
-                              transferToGarageTriggered = true;
+                              transferToGarageStatus = "success";
                               console.log("✅ Transfert vers le garage déclenché:", callSid);
                             } else {
                               out = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
+                              transferToGarageStatus = "failure";
                               console.warn("⚠️ call-transfer échec:", res.status, data);
                             }
                             try {
@@ -5991,6 +5992,7 @@ But: être naturel et mettre le client en confiance.`,
                             } catch (e) { console.error("❌ Envoi function_call_output (transfer):", e); }
                           }).catch((err) => {
                             console.error("❌ Erreur call-transfer:", err);
+                            transferToGarageStatus = "failure";
                             const out = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
                             try {
                               openaiWs.send(JSON.stringify({
@@ -6012,6 +6014,7 @@ But: être naturel et mettre le client en confiance.`,
                   });
                   output = "Transfert annoncé. En attente de la fin de l'annonce puis redirection.";
                 } else {
+                  transferToGarageStatus = "failure";
                   output = "Transfert non configuré (URL ou token manquant). Propose au client que le garage le rappelle.";
                 }
               } else output = "Outil inconnu.";
