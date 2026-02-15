@@ -6005,6 +6005,7 @@ But: être naturel et mettre le client en confiance.`,
                     onComplete: () => {
                       const waitForOutboundDrain = () => {
                         if (outboundQueuedBytes === 0 && outboundQueue.length === 0) {
+                          transferTriggered = true; // AVANT le fetch : au redirect client vers hold, le stream s'arrête ; on doit déjà avoir le flag pour différer le finalize
                           fetch(`${baseUrl}/api/twilio/call-transfer`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
@@ -6014,11 +6015,11 @@ But: être naturel et mettre le client en confiance.`,
                             let out = "";
                             if (res.ok && data.ok) {
                               out = "Transfert en cours. L'appel est en train d'être redirigé vers le garage.";
-                              transferTriggered = true; // pour envoyer transfer_to_garage: true au finalize (statut success/failure viendra des webhooks)
                               console.log("✅ Transfert vers le garage déclenché:", callSid);
                             } else {
                               out = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
                               transferToGarageStatus = "failure";
+                              transferTriggered = false; // pas de redirect → stream peut encore être actif ; on ne diffère pas le finalize
                               console.warn("⚠️ call-transfer échec:", res.status, data);
                             }
                             try {
@@ -6036,6 +6037,7 @@ But: être naturel et mettre le client en confiance.`,
                           }).catch((err) => {
                             console.error("❌ Erreur call-transfer:", err);
                             transferToGarageStatus = "failure";
+                            transferTriggered = false;
                             const out = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
                             try {
                               openaiWs.send(JSON.stringify({
