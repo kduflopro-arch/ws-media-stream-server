@@ -732,6 +732,7 @@ wss.on("connection", (ws, req) => {
   const RUN_ANALYSIS_SECRET_ENV = process.env.RUN_ANALYSIS_SECRET ?? ""; // même valeur que sur AutoGuru (Vercel)
   let autoguruIngestUrl = "";
   let autoguruIngestToken = "";
+  let callToken = ""; // Twilio CallToken (appel entrant) → transfert affiche le numéro client au garage
   let clientInfo = null; // Infos client (nom, rendez-vous à venir)
   let assistantName = "Sandra";
   let assistantVoice = "female"; // "female" | "male"
@@ -5974,7 +5975,7 @@ But: être naturel et mettre le client en confiance.`,
                           fetch(`${baseUrl}/api/twilio/call-transfer`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ callSid, garageId, token }),
+                            body: JSON.stringify({ callSid, garageId, token, ...(callToken ? { callToken } : {}) }),
                           }).then(async (res) => {
                             const data = await res.json().catch(() => ({}));
                             let out = "";
@@ -6587,6 +6588,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalServicesIncludesSummary = startParams.servicesIncludesSummary || "";
         const finalFaqsSummary = startParams.faqsSummary || "";
         const finalClosedDaysText = startParams.closedDaysText || "";
+        const finalCallToken = startParams.callToken || "";
 
         console.log("🎬 Stream start:", {
           streamCallSid,
@@ -6638,6 +6640,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalServicesRequiringStockSummary === "string") servicesRequiringStockSummary = String(finalServicesRequiringStockSummary || "").trim();
         if (typeof finalServicesIncludesSummary === "string") servicesIncludesSummary = String(finalServicesIncludesSummary || "").trim();
         if (typeof finalFaqsSummary === "string") faqsSummary = String(finalFaqsSummary || "").trim();
+        if (typeof finalCallToken === "string" && finalCallToken.trim()) callToken = String(finalCallToken).trim();
 
         // Si le client revient après un transfert raté (garage n'a pas répondu / répondeur), annoncer UNIQUEMENT ce message (pas la phrase d'accueil)
         if (transferFailed) {
@@ -7443,7 +7446,12 @@ But: être naturel et mettre le client en confiance.`,
         } else {
           console.log("ℹ️ À la fin de l'appel: pas d'envoi SMS plaque supplémentaire demandé (un SMS a pu avoir été envoyé pendant l'appel si l'IA l'a proposé)");
         }
-        finalizeCallToAutoGuru("twilio_stop");
+        // Ne pas finaliser ici si un transfert a été déclenché et que le client va peut‑être être reconnecté (garage n'a pas répondu) : le finalize sera envoyé à la fin du 2e stream. Si le garage a répondu, le finalize sera envoyé par le webhook transfer-call-ended.
+        if (transferTriggered && !transferFailed) {
+          console.log("⏳ Finalize différé (transfert en cours) — sera envoyé par webhook ou à la fin du 2e stream");
+        } else {
+          finalizeCallToAutoGuru("twilio_stop");
+        }
         if (outboundTimer) {
           clearInterval(outboundTimer);
           outboundTimer = null;
@@ -7491,7 +7499,12 @@ But: être naturel et mettre le client en confiance.`,
           console.error("❌ Erreur envoi SMS plaque (ws close):", err);
         });
     }
-    finalizeCallToAutoGuru("ws_close");
+    // Même règle : différer si transfert en cours (pas encore transferFailed)
+    if (transferTriggered && !transferFailed) {
+      console.log("⏳ Finalize différé (ws_close, transfert en cours)");
+    } else {
+      finalizeCallToAutoGuru("ws_close");
+    }
     if (outboundTimer) {
       clearInterval(outboundTimer);
       outboundTimer = null;
