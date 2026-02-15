@@ -599,11 +599,12 @@ wss.on("connection", (ws, req) => {
   let deferredFinalizeTimer = null; // fallback finalize si on a différé (client raccroche sans 2e stream)
   let lastUserActivityMs = 0;
   let callStartTimeMs = nowMs(); // Initialiser le temps de début d'appel
+  lastUserActivityMs = callStartTimeMs; // Si le client ne parle jamais, timeSinceLastUserActivity = callDurationMs (évite valeur énorme)
   const GOODBYE_DELAY_MS = 2000; // 2 s après l'au revoir pour couper l'appel
   const GOODBYE_POST_AUDIO_DELAY_MS = Number(process.env.GOODBYE_POST_AUDIO_DELAY_MS) || 1000; // 1 s après queue vide (raccrocher dès que Minimax a fini de parler)
   const GOODBYE_MAX_WAIT_MS = Number(process.env.GOODBYE_MAX_WAIT_MS) || 20000; // Secours : raccrocher au plus tard 20 s après "au revoir" si la queue ne se vide pas
   const MIN_CALL_DURATION_MS = 30000; // Minimum 30 secondes d'appel avant hangup automatique (inactivité sans au revoir)
-  const MIN_CALL_DURATION_FOR_GOODBYE_MS = Number(process.env.MIN_CALL_DURATION_FOR_GOODBYE_MS) || 15000; // Si l'IA a dit "au revoir", on peut raccrocher après 15 s
+  const MIN_CALL_DURATION_FOR_GOODBYE_MS = Number(process.env.MIN_CALL_DURATION_FOR_GOODBYE_MS) || 10000; // Si l'IA a dit "au revoir", on peut raccrocher après 10 s (appels courts)
   const MIN_USER_INACTIVITY_MS = 5000; // Client doit être inactif depuis au moins 5 secondes
   let goodbyeFallbackTimer = null; // Timer de secours : hangup forcé si queue audio ne se vide pas après "au revoir"
   
