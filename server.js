@@ -180,6 +180,13 @@ async function handleRunAnalysis(callId, res) {
     return send(200, { ok: true, message: "no_transcript" });
   }
 
+  // Idempotence : refetch juste avant l’analyse pour éviter double exécution si un autre run-analysis a déjà terminé.
+  const { data: refetched } = await supabase.schema("autoguru").from("calls").select("status, call_summary, ai_conclusion").eq("id", callId).maybeSingle();
+  const alreadyDone = refetched?.status === "done" && (String(refetched?.call_summary ?? "").trim().length > 0) && (String(refetched?.ai_conclusion ?? "").trim().length > 0);
+  if (alreadyDone) {
+    return send(200, { ok: true, message: "call_already_analyzed", status: "done" });
+  }
+
   const openaiKey = (process.env.OPENAI_API_KEY || "").trim().replace(/\n/g, "").replace(/\r/g, "");
   if (!openaiKey) {
     console.error("[run-analysis] OPENAI_API_KEY manquant");
@@ -804,20 +811,18 @@ wss.on("connection", (ws, req) => {
     if (/\bje\s+note\s+une\s+demande\s+pour\s+.+\s+à\s+\d+\s*heures?\b/i.test(t) && (t.includes("modifier") || t.includes("nouvelle date") || t.includes("déplacer"))) return true;
     return false;
   }
-  /** Retourne true si l'assistant confirme avoir noté une modification de RDV (pas une question). */
+  /** Retourne true si l'assistant confirme avoir noté une modification de RDV (phrase de confirmation présente, même si le message se termine par une question). */
   function isAssistantConfirmingModificationRdv(assistantText) {
     const t = String(assistantText || "").toLowerCase().trim();
-    if (t.endsWith("?")) return false; // phrase interrogative = pas une confirmation
     if (/\b(noté|note)\s+(votre\s+)?(demande\s+de\s+)?modification\b/i.test(t)) return true;
     if (/\b(bien\s+noté|j'?ai\s+bien\s+noté)\b.*\bmodification\b/i.test(t)) return true;
     if (/\bdemande\s+de\s+modification\s+(pour|au)\b/i.test(t) && (/\bnoté\b/.test(t) || /\b(rappellera|rappel)\b/.test(t))) return true;
     if (/\brappellera\s+pour\s+confirmer\s+(la\s+)?nouvelle\s+(date|heure)\b/i.test(t)) return true;
     return false;
   }
-  /** Retourne true si l'assistant confirme avoir noté une annulation de RDV (pas une question). */
+  /** Retourne true si l'assistant confirme avoir noté une annulation de RDV (phrase de confirmation présente, même si le message se termine par une question). */
   function isAssistantConfirmingAnnulationRdv(assistantText) {
     const t = String(assistantText || "").toLowerCase().trim();
-    if (t.endsWith("?")) return false;
     if (/\b(noté|note)\s+(votre\s+)?(demande\s+)?d\W*annulation\b/i.test(t)) return true;
     if (/\b(bien\s+noté|j'?ai\s+bien\s+noté)\b.*\bannulation\b/i.test(t)) return true;
     if (/\bdemande\s+d\W*annulation\s+(pour|du)\b/i.test(t) && (/\bnoté\b/.test(t) || /\bnote\b/.test(t))) return true;
