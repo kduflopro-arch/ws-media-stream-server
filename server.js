@@ -3914,6 +3914,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           ? "TRANSFERT VERS LE GARAGE: activé. Si le client demande à être transféré vers le garage, à parler à un humain ou à quelqu'un du garage, tu DOIS appeler l'outil transfer_to_garage EN PREMIER, puis dire au client: 'Je vous transfère vers le garage, un instant.' L'appel sera alors redirigé. Ne dis pas que tu transfère sans avoir appelé l'outil. Si le transfert échoue (réponse de l'outil indique un échec), propose: 'Souhaitez-vous que le garage vous rappelle ?'"
           : "TRANSFERT VERS LE GARAGE: désactivé par le garage. Si le client demande à être transféré ou à parler à un humain, tu DOIS dire: 'Pour le moment, je ne peux pas transférer directement vers le garage, mais je peux transmettre un message et demander qu'on vous rappelle. Souhaitez-vous que le garage vous rappelle ?' Tu ne dis jamais que tu peux transférer.";
 
+        const transferFailedLine = transferFailed
+          ? "RECONNEXION APRÈS TRANSFERT RATÉ: Tu viens de dire 'Le garage n'a pas répondu. Voulez-vous être rappelé par le garage ?'. Le client avait déjà donné son accord (consentement) au début de l'appel. NE REDEMANDE JAMAIS le consentement ni la phrase d'accueil. Après que le client réponde (oui ou non au rappel), dis brièvement 'Je note' ou 'D\'accord' si oui, puis UNIQUEMENT: 'Avez-vous besoin d'autre chose ?' Si le client dit non aux deux (pas rappel + rien d'autre), dis 'Au revoir et bonne journée !'"
+          : "";
+
         // Construire la section infos client pour le prompt
         const buildClientInfoLine = () => {
           if (!clientInfo || !clientInfo.name) return "";
@@ -4121,6 +4125,7 @@ ${todayDateLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
 ${transferLine}
+${transferFailedLine ? `${transferFailedLine}\n` : ""}
 
 DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil.
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
@@ -4430,6 +4435,7 @@ ${consentLine}
 ${todayDateLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
+${transferFailedLine ? `${transferFailedLine}\n` : ""}
 DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil.
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${newClientInfoLine}\n\n
@@ -6618,6 +6624,10 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalClosedDaysText === "string") closedDaysText = String(finalClosedDaysText || "").trim();
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         const transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
+        if (transferFailed) {
+          transferToGarageStatus = "failure"; // Session reconnexion après transfert raté → finalize enverra "failure" (écrase le "success" du 1er stream)
+          consentGiven = true; // Client avait déjà donné son accord dans l'appel initial → ne pas redemander le consentement ni rejouer la phrase d'accueil
+        }
         if (typeof finalCollectVehicleInfo === "string" && finalCollectVehicleInfo.trim()) collectVehicleInfo = finalCollectVehicleInfo.trim().toLowerCase() === "true";
         if (typeof finalPricingSummary === "string") pricingSummary = String(finalPricingSummary || "").trim();
         if (typeof finalServicesSummary === "string") servicesSummary = String(finalServicesSummary || "").trim();
