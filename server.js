@@ -749,6 +749,7 @@ wss.on("connection", (ws, req) => {
   let modificationRdvByClient = false; // Client a demandé à modifier un RDV (badge Modif. RDV)
   let annulationRdvByClient = false; // Client a demandé à annuler un RDV (badge Annul. RDV)
   let transferToGarageStatus = null; // 'success' | 'failure' | null — envoyé au finalize pour badge "réussi" / "échec"
+  let transferFailed = false; // true si reconnexion après transfert raté (garage n'a pas répondu) — utilisé dans connectToOpenAI
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
   let userSpeakCount = 0; // Nombre de fois que le client a parlé (conversation.item.done user) → si < 1 au finalize = no_request
@@ -6623,7 +6624,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalGarageHoursText === "string") garageHoursText = String(finalGarageHoursText || "").trim();
         if (typeof finalClosedDaysText === "string") closedDaysText = String(finalClosedDaysText || "").trim();
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
-        const transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
+        transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
         if (transferFailed) {
           transferToGarageStatus = "failure"; // Session reconnexion après transfert raté → finalize enverra "failure" (écrase le "success" du 1er stream)
           consentGiven = true; // Client avait déjà donné son accord dans l'appel initial → ne pas redemander le consentement ni rejouer la phrase d'accueil
