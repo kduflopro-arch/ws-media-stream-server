@@ -3909,7 +3909,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           : "Info horaires (interne): garage indiqué ouvert.";
 
         const transferLine = allowTransfer
-          ? "TRANSFERT VERS LE GARAGE: activé. Si le client demande à être transféré vers le garage, à parler à un humain ou à quelqu'un du garage, tu DOIS dire que tu le transfère (ex: 'Je vous transfère vers le garage, un instant.') puis le transfert sera effectué. Si le garage ne répond pas, propose: 'Souhaitez-vous que le garage vous rappelle ?'"
+          ? "TRANSFERT VERS LE GARAGE: activé. Si le client demande à être transféré vers le garage, à parler à un humain ou à quelqu'un du garage, tu DOIS appeler l'outil transfer_to_garage EN PREMIER, puis dire au client: 'Je vous transfère vers le garage, un instant.' L'appel sera alors redirigé. Ne dis pas que tu transfère sans avoir appelé l'outil. Si le transfert échoue (réponse de l'outil indique un échec), propose: 'Souhaitez-vous que le garage vous rappelle ?'"
           : "TRANSFERT VERS LE GARAGE: désactivé par le garage. Si le client demande à être transféré ou à parler à un humain, tu DOIS dire: 'Pour le moment, je ne peux pas transférer directement vers le garage, mais je peux transmettre un message et demander qu'on vous rappelle. Souhaitez-vous que le garage vous rappelle ?' Tu ne dis jamais que tu peux transférer.";
 
         // Construire la section infos client pour le prompt
@@ -4371,6 +4371,7 @@ ${garageClosed
           { type: "function", name: "get_garage_faq", description: "Récupère les questions fréquentes et réponses. À appeler pour une question type FAQ.", parameters: { type: "object", properties: {} } },
           { type: "function", name: "get_opening_hours", description: "Récupère les horaires d'ouverture et les jours de fermeture. À appeler quand le client demande les horaires ou pour annoncer les créneaux avant un RDV.", parameters: { type: "object", properties: {} } },
           { type: "function", name: "get_garage_services_includes", description: "Récupère les prestations incluses (ex: révision comprend diagnostic). À appeler pour éviter doublons ou expliquer qu'une prestation en inclut une autre.", parameters: { type: "object", properties: {} } },
+          ...(allowTransfer ? [{ type: "function", name: "transfer_to_garage", description: "Transfère l'appel vers le garage (un humain). À appeler UNIQUEMENT quand le client demande explicitement à être transféré, à parler à quelqu'un du garage ou à un humain. Après avoir appelé cet outil, dis 'Je vous transfère vers le garage, un instant.' et ne dis rien d'autre.", parameters: { type: "object", properties: {} } }] : []),
         ];
 
         const sessionUpdate = {
@@ -5944,7 +5945,32 @@ But: être naturel et mettre le client en confiance.`,
               else if (toolName === "get_garage_faq") output = faqsSummary || "FAQ non renseignée.";
               else if (toolName === "get_opening_hours") output = [garageHoursText || "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : ""].filter(Boolean).join("\n");
               else if (toolName === "get_garage_services_includes") output = [servicesIncludesSummary || "", servicesRequiringStockSummary ? `Prestations avec stock: ${servicesRequiringStockSummary}` : ""].filter(Boolean).join("\n") || "Prestations incluses non renseignées.";
-              else output = "Outil inconnu.";
+              else if (toolName === "transfer_to_garage") {
+                const baseUrl = (typeof autoguruIngestUrl === "string" && autoguruIngestUrl) ? autoguruIngestUrl.replace(/\/api\/twilio\/realtime-ingest.*$/, "").replace(/\/$/, "") : "";
+                const token = (typeof autoguruIngestToken === "string" && autoguruIngestToken) ? autoguruIngestToken : "";
+                if (baseUrl && token && callSid && garageId) {
+                  try {
+                    const res = await fetch(`${baseUrl}/api/twilio/call-transfer`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ callSid, garageId, token }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok && data.ok) {
+                      output = "Transfert en cours. L'appel est en train d'être redirigé vers le garage.";
+                      console.log("✅ Transfert vers le garage déclenché:", callSid);
+                    } else {
+                      output = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
+                      console.warn("⚠️ call-transfer échec:", res.status, data);
+                    }
+                  } catch (err) {
+                    console.error("❌ Erreur call-transfer:", err);
+                    output = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
+                  }
+                } else {
+                  output = "Transfert non configuré (URL ou token manquant). Propose au client que le garage le rappelle.";
+                }
+              } else output = "Outil inconnu.";
               if (LOG_VERBOSE) console.log("🔧 Tool call:", toolName, "→", output.length, "car.");
               try {
                 openaiWs.send(JSON.stringify({
