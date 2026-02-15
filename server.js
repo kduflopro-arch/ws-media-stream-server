@@ -266,9 +266,11 @@ async function handleRunAnalysis(callId, res) {
     const callOutcome = (analysis.callOutcome ?? "").trim();
     const rdvIncompleteReason = (analysis.rdvIncompleteReason ?? "").trim();
     const isRdvIncomplete = callOutcome === "rdv_incomplete" && rdvIncompleteReason;
-    const noRequestSetByWs = (call.call_outcome === "no_request");
-    // Ne pas écraser call_outcome / rdv_incomplete_reason si le finalize a déjà posé no_request (client a parlé < 2 fois)
-    // Pas de secours : si l'analyse retourne rdv_incomplete, on garde rdv_incomplete (jamais forcer "completed")
+    // Re-fetch call_outcome juste avant la mise à jour : le finalize a pu écrire rdv_incomplete/no_request après notre premier read (race).
+    const { data: freshCall } = await supabase.schema("autoguru").from("calls").select("call_outcome, rdv_incomplete_reason").eq("id", callId).maybeSingle();
+    const noRequestSetByWs = (freshCall?.call_outcome === "no_request");
+    const rdvIncompleteSetByWs = (freshCall?.call_outcome === "rdv_incomplete");
+    // Ne pas écraser call_outcome / rdv_incomplete_reason si le finalize (WS) a déjà posé no_request ou rdv_incomplete.
     const updatePayload = {
       status: "done",
       updated_at: new Date().toISOString(),
@@ -281,7 +283,7 @@ async function handleRunAnalysis(callId, res) {
         : null,
       symptoms: Array.isArray(analysis.symptoms) ? analysis.symptoms : null,
       client_insights: clientInsights,
-      ...(noRequestSetByWs
+      ...(noRequestSetByWs || rdvIncompleteSetByWs
         ? {}
         : {
             call_outcome: isRdvIncomplete ? "rdv_incomplete" : "completed",
