@@ -6625,12 +6625,16 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalServicesIncludesSummary === "string") servicesIncludesSummary = String(finalServicesIncludesSummary || "").trim();
         if (typeof finalFaqsSummary === "string") faqsSummary = String(finalFaqsSummary || "").trim();
 
-        // Si le client revient après un transfert raté (garage n'a pas répondu), annoncer avec MiniMax
-        if (transferFailed && PREMIUM_TTS_ENABLED) {
+        // Si le client revient après un transfert raté (garage n'a pas répondu / répondeur), annoncer UNIQUEMENT ce message (pas la phrase d'accueil)
+        if (transferFailed) {
           const transferFailedMsg = "Le garage n'a pas répondu. Voulez-vous être rappelé par le garage ?";
           initialAssistantGreetingText = transferFailedMsg;
           hasSentInitialGreeting = true;
-          enqueuePremiumTts(transferFailedMsg, { interrupt: true, source: "transfer_failed", allowWithoutUser: true });
+          if (PREMIUM_TTS_ENABLED) {
+            enqueuePremiumTts(transferFailedMsg, { interrupt: true, source: "transfer_failed", allowWithoutUser: true });
+          } else if (typeof enqueueElevenLabsTts === "function") {
+            enqueueElevenLabsTts(transferFailedMsg, { interrupt: true });
+          }
           if (typeof markGreeted === "function") markGreeted(callSid, Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000)));
           console.log("🔄 Message transfert raté joué (reconnexion après pas de réponse garage).", { callSid });
         }
@@ -6721,7 +6725,7 @@ But: être naturel et mettre le client en confiance.`,
                     ws.__greetingFallbackTimer = null;
                     console.log("👋 Timer greeting générique annulé (greeting avec nom client sera joué).");
                   }
-                  if (!hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
+                  if (!transferFailed && !hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
                     const rawName = String(garageName || "AutoGuru").trim();
                     const garageNom = /^garage\s+/i.test(rawName) ? rawName.replace(/^garage\s+/i, "").trim() : rawName;
                     // Utiliser uniquement le nom de famille (last_name), pas le nom complet
@@ -6831,8 +6835,8 @@ But: être naturel et mettre le client en confiance.`,
           // #region agent log
           fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:4350',message:'CHECK GREETING CONDITIONS (générique)',data:{greetOncePerCall,hasGreeted:hasGreetedRecently(callSid),premiumTtsEnabled:PREMIUM_TTS_ENABLED,realtimeUseEleven:REALTIME_USE_ELEVEN,hasInitialGreeting:!!initialAssistantGreetingText,willGreet:(!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
           // #endregion
-          if ((!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
-            // CORRECTION: Jouer le greeting IMMÉDIATEMENT (pas de délai de 500ms)
+          if (!transferFailed && (!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
+            // CORRECTION: Jouer le greeting IMMÉDIATEMENT (pas de délai de 500ms). Ne pas rejouer si transfert raté (déjà annoncé).
             // Si les infos client arrivent après, on pourra jouer un greeting personnalisé
             const rawName = String(garageName || "AutoGuru").trim();
             const garageNom = /^garage\s+/i.test(rawName) ? rawName.replace(/^garage\s+/i, "").trim() : rawName;
@@ -6869,10 +6873,10 @@ But: être naturel et mettre le client en confiance.`,
         
         // Démarrage selon mode pipeline
         if (PIPELINE_MODE === "stt_llm_tts") {
-          // Greeting direct via TTS premium (évite le Realtime)
+          // Greeting direct via TTS premium (évite le Realtime). Ne pas rejouer si transfert raté.
           const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
           const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
-          if (!greetOncePerCall || !hasGreetedRecently(callSid)) {
+          if (!transferFailed && (!greetOncePerCall || !hasGreetedRecently(callSid))) {
             const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "150");
             setTimeout(() => {
               const rawName = String(garageName || "AutoGuru").trim();
