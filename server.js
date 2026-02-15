@@ -600,10 +600,12 @@ wss.on("connection", (ws, req) => {
   let lastUserActivityMs = 0;
   let callStartTimeMs = nowMs(); // Initialiser le temps de début d'appel
   const GOODBYE_DELAY_MS = 2000; // 2 s après l'au revoir pour couper l'appel
-  const GOODBYE_POST_AUDIO_DELAY_MS = Number(process.env.GOODBYE_POST_AUDIO_DELAY_MS) || 4500; // 4,5 s après queue vide (laisser Minimax/TTS finir côté client)
+  const GOODBYE_POST_AUDIO_DELAY_MS = Number(process.env.GOODBYE_POST_AUDIO_DELAY_MS) || 1000; // 1 s après queue vide (raccrocher dès que Minimax a fini de parler)
+  const GOODBYE_MAX_WAIT_MS = Number(process.env.GOODBYE_MAX_WAIT_MS) || 20000; // Secours : raccrocher au plus tard 20 s après "au revoir" si la queue ne se vide pas
   const MIN_CALL_DURATION_MS = 30000; // Minimum 30 secondes d'appel avant hangup automatique (inactivité sans au revoir)
   const MIN_CALL_DURATION_FOR_GOODBYE_MS = Number(process.env.MIN_CALL_DURATION_FOR_GOODBYE_MS) || 15000; // Si l'IA a dit "au revoir", on peut raccrocher après 15 s
   const MIN_USER_INACTIVITY_MS = 5000; // Client doit être inactif depuis au moins 5 secondes
+  let goodbyeFallbackTimer = null; // Timer de secours : hangup forcé si queue audio ne se vide pas après "au revoir"
   
   let mediaCount = 0;
   let appendedBytes = 0; // bytes ajoutés depuis le dernier commit
@@ -5142,10 +5144,16 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
+                if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                goodbyeFallbackTimer = setTimeout(() => {
+                  goodbyeFallbackTimer = null;
+                  console.log("📞 Hangup fallback après au revoir (timeout " + GOODBYE_MAX_WAIT_MS + " ms)");
+                  triggerHangup("auto_goodbye");
+                }, GOODBYE_MAX_WAIT_MS);
                 // Attendre queue audio vide stable (Minimax + Twilio ont fini), puis 4 s avant de raccrocher
                 let checkCount = 0;
                 let emptyChecksConsecutive = 0;
-                const MIN_EMPTY_CHECKS = Number(process.env.GOODBYE_MIN_EMPTY_CHECKS) || 24; // 24 x 500ms = 12 s de queue vide stable (Minimax peut avoir du retard)
+                const MIN_EMPTY_CHECKS = Number(process.env.GOODBYE_MIN_EMPTY_CHECKS) || 4; // 4 x 500ms = 2 s de queue vide → raccrocher juste après la fin de Minimax
                 const MAX_CHECK_COUNT = 60; // 60 x 500ms = 30 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
                   // Utiliser isRealGoodbye pour éviter raccrochage en cours d'échange (formule en fin de message uniquement)
@@ -5180,6 +5188,8 @@ But: être naturel et mettre le client en confiance.`,
                       return;
                     } else {
                       console.warn("⚠️ Impossible d'envoyer 'au revoir' à l'IA (WebSocket fermé), raccrochage direct");
+                      if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                      goodbyeFallbackTimer = null;
                       triggerHangup("auto_goodbye");
                       return;
                     }
@@ -5210,6 +5220,8 @@ But: être naturel et mettre le client en confiance.`,
                   // #region agent log
                   fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3486',message:'HANGUP DÉCLENCHÉ (response.done)',data:{checkCount,hadAudioPending:hasAudioPending,hasSaidGoodbye,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                   // #endregion
+                  if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                  goodbyeFallbackTimer = null;
                   setTimeout(() => triggerHangup("auto_goodbye"), GOODBYE_POST_AUDIO_DELAY_MS);
                 };
                 // Délai initial avant la 1re vérification : laisser Minimax envoyer sa dernière phrase dans la queue
@@ -5240,6 +5252,12 @@ But: être naturel et mettre le client en confiance.`,
                   console.log("👋 Client a confirmé qu'il n'a plus besoin d'aide, faire dire 'au revoir' à l'IA avant de raccrocher");
                   // Annuler le timer précédent s'il existe
                   if (goodbyeTimer) clearTimeout(goodbyeTimer);
+                  if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                  goodbyeFallbackTimer = setTimeout(() => {
+                    goodbyeFallbackTimer = null;
+                    console.log("📞 Hangup fallback après au revoir (timeout " + GOODBYE_MAX_WAIT_MS + " ms)");
+                    triggerHangup("auto_goodbye");
+                  }, GOODBYE_MAX_WAIT_MS);
                   
                   // Faire dire "au revoir" à l'IA via OpenAI
                   if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
@@ -5263,7 +5281,7 @@ But: être naturel et mettre le client en confiance.`,
                     setTimeout(() => {
                       let checkCount = 0;
                       let emptyChecksConsecutive = 0;
-                      const MIN_EMPTY_CHECKS = 18; // 18 x 500ms = 9 s queue vide stable (Minimax)
+                      const MIN_EMPTY_CHECKS = Number(process.env.GOODBYE_MIN_EMPTY_CHECKS) || 4; // 4 x 500ms = 2 s queue vide → raccrocher après fin Minimax
                       const MAX_CHECK_COUNT = 60; // 60 x 500ms = 30 s max
                       const checkAudioAndHangupAfterGoodbye = () => {
                         const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
@@ -5287,13 +5305,16 @@ But: être naturel et mettre le client en confiance.`,
                         // #region agent log
                         fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3965',message:'HANGUP DÉCLENCHÉ après au revoir',data:{checkCount,hadAudioPending:hasAudioPending,reason:'auto_goodbye_after_message'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                         // #endregion
+                        if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                        goodbyeFallbackTimer = null;
                         setTimeout(() => triggerHangup("auto_goodbye"), GOODBYE_POST_AUDIO_DELAY_MS);
                       };
                       checkAudioAndHangupAfterGoodbye();
                     }, 1000); // Attendre 1 seconde pour que l'IA commence à répondre
                   } else {
                     console.warn("⚠️ Impossible d'envoyer 'au revoir' à l'IA (WebSocket fermé)");
-                    // Si le WebSocket est fermé, raccrocher directement
+                    if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                    goodbyeFallbackTimer = null;
                     triggerHangup("auto_goodbye");
                   }
                 }
@@ -5729,10 +5750,16 @@ But: être naturel et mettre le client en confiance.`,
                 });
                 // Annuler le timer précédent s'il existe
                 if (goodbyeTimer) clearTimeout(goodbyeTimer);
+                if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                goodbyeFallbackTimer = setTimeout(() => {
+                  goodbyeFallbackTimer = null;
+                  console.log("📞 Hangup fallback après au revoir (timeout " + GOODBYE_MAX_WAIT_MS + " ms)");
+                  triggerHangup("auto_goodbye");
+                }, GOODBYE_MAX_WAIT_MS);
                 // Attendre queue audio vide stable (5 s), puis 4 s avant de raccrocher
                 let checkCount = 0;
                 let emptyChecksConsecutive = 0;
-                const MIN_EMPTY_CHECKS = 18; // 18 x 500ms = 9 s de queue vide stable (Minimax)
+                const MIN_EMPTY_CHECKS = Number(process.env.GOODBYE_MIN_EMPTY_CHECKS) || 4; // 4 x 500ms = 2 s queue vide → raccrocher après fin Minimax
                 const MAX_CHECK_COUNT = 60; // 60 x 500ms = 30 s max
                 const checkAudioAndHangup = () => {
                   const lastText = premiumTtsLastText || doneText || "";
@@ -5755,6 +5782,8 @@ But: être naturel et mettre le client en confiance.`,
                       return;
                     } else {
                       console.warn("⚠️ Impossible d'envoyer 'au revoir' à l'IA (WebSocket fermé), raccrochage direct");
+                      if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                      goodbyeFallbackTimer = null;
                       triggerHangup("auto_goodbye");
                       return;
                     }
@@ -5781,6 +5810,8 @@ But: être naturel et mettre le client en confiance.`,
                   // #region agent log
                   fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'server.js:3719',message:'HANGUP DÉCLENCHÉ (conversation.item.done)',data:{checkCount,hadAudioPending:hasAudioPending,hasSaidGoodbye,reason:'auto_goodbye'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
                   // #endregion
+                  if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                  goodbyeFallbackTimer = null;
                   setTimeout(() => triggerHangup("auto_goodbye"), GOODBYE_POST_AUDIO_DELAY_MS);
                 };
                 setTimeout(checkAudioAndHangup, 2000); // Délai initial : laisser Minimax envoyer sa dernière phrase
