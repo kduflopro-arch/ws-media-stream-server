@@ -3908,6 +3908,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           ? `Info horaires (interne): le garage est actuellement indiqué comme fermé. (${garageClosedReason || "closed"}) ${garageClosedText || ""} Tu NE le mentionnes PAS au début. Tu le mentionnes uniquement en fin d'appel, selon les règles ci-dessous.`
           : "Info horaires (interne): garage indiqué ouvert.";
 
+        const transferLine = allowTransfer
+          ? "TRANSFERT VERS LE GARAGE: activé. Si le client demande à être transféré vers le garage, à parler à un humain ou à quelqu'un du garage, tu DOIS dire que tu le transfère (ex: 'Je vous transfère vers le garage, un instant.') puis le transfert sera effectué. Si le garage ne répond pas, propose: 'Souhaitez-vous que le garage vous rappelle ?'"
+          : "TRANSFERT VERS LE GARAGE: désactivé par le garage. Si le client demande à être transféré ou à parler à un humain, tu DOIS dire: 'Pour le moment, je ne peux pas transférer directement vers le garage, mais je peux transmettre un message et demander qu'on vous rappelle. Souhaitez-vous que le garage vous rappelle ?' Tu ne dis jamais que tu peux transférer.";
+
         // Construire la section infos client pour le prompt
         const buildClientInfoLine = () => {
           if (!clientInfo || !clientInfo.name) return "";
@@ -4114,6 +4118,8 @@ ${consentLine}
 ${todayDateLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
+${transferLine}
+
 DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil.
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${clientInfoLine ? `${clientInfoLine}\n\n` : ""}
@@ -6507,6 +6513,7 @@ But: être naturel et mettre le client en confiance.`,
           fromNumber: finalFromNumber,
           garageClosed: finalGarageClosed,
           garageClosedReason: finalGarageClosedReason,
+          allowTransfer: finalAllowTransfer,
           collectVehicleInfo: finalCollectVehicleInfo,
           hasPricingSummary: Boolean(finalPricingSummary && String(finalPricingSummary).trim()),
           customParameters: startParams,
