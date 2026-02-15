@@ -596,6 +596,7 @@ wss.on("connection", (ws, req) => {
   // Variables pour le hangup automatique
   let goodbyeDetected = false;
   let goodbyeTimer = null;
+  let deferredFinalizeTimer = null; // fallback finalize si on a différé (client raccroche sans 2e stream)
   let lastUserActivityMs = 0;
   let callStartTimeMs = nowMs(); // Initialiser le temps de début d'appel
   const GOODBYE_DELAY_MS = 2000; // 2 s après l'au revoir pour couper l'appel
@@ -7446,9 +7447,15 @@ But: être naturel et mettre le client en confiance.`,
         } else {
           console.log("ℹ️ À la fin de l'appel: pas d'envoi SMS plaque supplémentaire demandé (un SMS a pu avoir été envoyé pendant l'appel si l'IA l'a proposé)");
         }
-        // Ne pas finaliser ici si un transfert a été déclenché et que le client va peut‑être être reconnecté (garage n'a pas répondu) : le finalize sera envoyé à la fin du 2e stream. Si le garage a répondu, le finalize sera envoyé par le webhook transfer-call-ended.
+        // Ne pas finaliser ici si un transfert a été déclenché et que le client va peut‑être être reconnecté (garage n'a pas répondu) : le finalize sera envoyé à la fin du 2e stream. Si le garage a répondu, le finalize sera envoyé par le webhook transfer-join. Si le client a raccroché sans 2e stream, un fallback finalize après 20 s évite que l'appel reste "en cours".
         if (transferTriggered && !transferFailed) {
-          console.log("⏳ Finalize différé (transfert en cours) — sera envoyé par webhook ou à la fin du 2e stream");
+          console.log("⏳ Finalize différé (transfert en cours) — sera envoyé par webhook, 2e stream, ou fallback 20s");
+          const DEFERRED_FINALIZE_FALLBACK_MS = Number(process.env.DEFERRED_FINALIZE_FALLBACK_MS) || 20000;
+          deferredFinalizeTimer = setTimeout(() => {
+            deferredFinalizeTimer = null;
+            console.log("⏳ Finalize fallback (pas de 2e stream ou webhook dans les 20s) — envoi finalize");
+            finalizeCallToAutoGuru("twilio_stop_deferred_fallback");
+          }, DEFERRED_FINALIZE_FALLBACK_MS);
         } else {
           finalizeCallToAutoGuru("twilio_stop");
         }
@@ -7502,8 +7509,16 @@ But: être naturel et mettre le client en confiance.`,
     // Même règle : différer si transfert en cours (pas encore transferFailed)
     if (transferTriggered && !transferFailed) {
       console.log("⏳ Finalize différé (ws_close, transfert en cours)");
+      // Le fallback (setTimeout) enverra le finalize si pas de 2e stream
     } else {
+      if (deferredFinalizeTimer) {
+        clearTimeout(deferredFinalizeTimer);
+        deferredFinalizeTimer = null;
+      }
       finalizeCallToAutoGuru("ws_close");
+    }
+    if (deferredFinalizeTimer) {
+      // Garder le timer pour le fallback (connexion fermée mais finalize à envoyer dans 20s)
     }
     if (outboundTimer) {
       clearInterval(outboundTimer);
