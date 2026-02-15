@@ -918,12 +918,14 @@ wss.on("connection", (ws, req) => {
     try {
       if (finalizeSent) return;
       finalizeSent = true;
+      // Capturer immédiatement le call_sid de CET appel pour ne jamais envoyer celui d'un nouvel appel (race si nouveau stream start pendant le délai ci‑dessous).
+      const sidToFinalize = callSid;
+      if (!sidToFinalize) return;
       const ingestUrl = autoguruIngestUrl || AUTOGURU_INGEST_URL_ENV;
       if (!ingestUrl) return;
       const token = autoguruIngestToken;
       const secret = AUTOGURU_INGEST_SECRET_ENV;
       if (!token && !secret) return;
-      if (!callSid) return;
       const finalizeUrl = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/realtime-finalize");
       await ingestChain.catch(() => {});
       // Laisser le temps à Vercel d'enregistrer tous les events (ingest) avant que run-analysis lise le transcript
@@ -943,7 +945,7 @@ wss.on("connection", (ws, req) => {
       // Badges : rdv si client a accepté un RDV OU si l'assistant a déjà demandé jour/créneau (demande RDV non aboutie → badge RDV quand même)
       const rdvRequestedFromWs = (rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient);
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
-      console.log("🧾 Finalize:", callSid?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient });
+      console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient });
       console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, assistantAskedForDayOrSlot });
       // Si l'IA a déjà dit une phrase post-consentement ("En quoi puis-je vous aider ?", "Bonjour Monsieur/Madame...") alors le client a forcément donné son accord
       const lastLow = (lastAssistantText || "").toLowerCase().trim();
@@ -966,7 +968,7 @@ wss.on("connection", (ws, req) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(token ? { token } : { secret }),
-          callSid,
+          callSid: sidToFinalize,
           garageId: garageId || null,
           fromNumber: fromNumber || null,
           appointmentMode: appointmentMode || null,
