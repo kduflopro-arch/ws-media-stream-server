@@ -600,7 +600,8 @@ wss.on("connection", (ws, req) => {
   let callStartTimeMs = nowMs(); // Initialiser le temps de début d'appel
   const GOODBYE_DELAY_MS = 2000; // 2 s après l'au revoir pour couper l'appel
   const GOODBYE_POST_AUDIO_DELAY_MS = Number(process.env.GOODBYE_POST_AUDIO_DELAY_MS) || 4500; // 4,5 s après queue vide (laisser Minimax/TTS finir côté client)
-  const MIN_CALL_DURATION_MS = 30000; // Minimum 30 secondes d'appel avant hangup automatique
+  const MIN_CALL_DURATION_MS = 30000; // Minimum 30 secondes d'appel avant hangup automatique (inactivité sans au revoir)
+  const MIN_CALL_DURATION_FOR_GOODBYE_MS = Number(process.env.MIN_CALL_DURATION_FOR_GOODBYE_MS) || 15000; // Si l'IA a dit "au revoir", on peut raccrocher après 15 s
   const MIN_USER_INACTIVITY_MS = 5000; // Client doit être inactif depuis au moins 5 secondes
   
   let mediaCount = 0;
@@ -748,7 +749,8 @@ wss.on("connection", (ws, req) => {
   let devisAcceptedByClient = false; // Client a accepté une demande de devis (envoyé au finalize → badge "Devis demandé")
   let modificationRdvByClient = false; // Client a demandé à modifier un RDV (badge Modif. RDV)
   let annulationRdvByClient = false; // Client a demandé à annuler un RDV (badge Annul. RDV)
-  let transferToGarageStatus = null; // 'success' | 'failure' | null — envoyé au finalize pour badge "réussi" / "échec"
+  let transferToGarageStatus = null; // 'success' | 'failure' | null — mis par webhooks Twilio (transfer-join human = success, transfer-garage-status = failure)
+  let transferTriggered = false; // true si on a appelé call-transfer avec succès → envoyer transfer_to_garage: true au finalize
   let transferFailed = false; // true si reconnexion après transfert raté (garage n'a pas répondu) — utilisé dans connectToOpenAI
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
@@ -985,6 +987,7 @@ wss.on("connection", (ws, req) => {
           callback_type: callbackTypeFromWs,
           modification_rdv: modificationRdvByClient,
           annulation_rdv: annulationRdvByClient,
+          ...(transferTriggered ? { transfer_to_garage: true } : {}),
           ...(transferToGarageStatus ? { transfer_to_garage_status: transferToGarageStatus } : {}),
           plate_confirmed_by_client: plateConfirmedByClient,
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
@@ -5127,9 +5130,8 @@ But: être naturel et mettre le client en confiance.`,
               }
               // #endregion
               
-              // CORRECTION: Si l'IA dit "au revoir", raccrocher immédiatement après que l'audio soit terminé
-              // Ne pas attendre l'inactivité du client - l'IA a déjà dit au revoir, donc l'appel est terminé
-              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS) {
+              // CORRECTION: Si l'IA dit "au revoir", raccrocher après que l'audio soit terminé (seuil plus bas que l'inactivité seule)
+              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_FOR_GOODBYE_MS) {
                 goodbyeDetected = true;
                 console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique après que l'audio soit terminé", {
                   callDuration: Math.round(callDurationMs / 1000) + "s",
@@ -5295,8 +5297,9 @@ But: être naturel et mettre le client en confiance.`,
                 }
               } else if (isGoodbye && !goodbyeDetected) {
                 // Log pour debug si les conditions ne sont pas remplies
+                const minDurationForLog = isGoodbye ? MIN_CALL_DURATION_FOR_GOODBYE_MS : MIN_CALL_DURATION_MS;
                 console.log("⚠️ Fin d'échange détectée mais conditions non remplies:", {
-                  callDuration: Math.round(callDurationMs / 1000) + "s (min: " + Math.round(MIN_CALL_DURATION_MS / 1000) + "s)",
+                  callDuration: Math.round(callDurationMs / 1000) + "s (min: " + Math.round(minDurationForLog / 1000) + "s)",
                   userInactive: Math.round(timeSinceLastUserActivity / 1000) + "s (min: " + Math.round(MIN_USER_INACTIVITY_FOR_GOODBYE_MS / 1000) + "s)",
                   textPreview: doneText.substring(0, 100)
                 });
@@ -5714,9 +5717,8 @@ But: être naturel et mettre le client en confiance.`,
               }
               // #endregion
               
-              // CORRECTION: Si l'IA dit "au revoir", raccrocher immédiatement après que l'audio soit terminé
-              // Ne pas attendre l'inactivité du client - l'IA a déjà dit au revoir, donc l'appel est terminé
-              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS) {
+              // Si l'IA a dit "au revoir", raccrocher après que l'audio soit terminé (seuil 15 s)
+              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_FOR_GOODBYE_MS) {
                 goodbyeDetected = true;
                 console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique après que l'audio soit terminé", {
                   callDuration: Math.round(callDurationMs / 1000) + "s",
@@ -5978,7 +5980,7 @@ But: être naturel et mettre le client en confiance.`,
                             let out = "";
                             if (res.ok && data.ok) {
                               out = "Transfert en cours. L'appel est en train d'être redirigé vers le garage.";
-                              transferToGarageStatus = "success";
+                              transferTriggered = true; // pour envoyer transfer_to_garage: true au finalize (statut success/failure viendra des webhooks)
                               console.log("✅ Transfert vers le garage déclenché:", callSid);
                             } else {
                               out = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
@@ -6626,7 +6628,8 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
         if (transferFailed) {
-          transferToGarageStatus = "failure"; // Session reconnexion après transfert raté → finalize enverra "failure" (écrase le "success" du 1er stream)
+          transferToGarageStatus = "failure"; // Session reconnexion après transfert raté → finalize enverra "failure"
+          transferTriggered = true; // pour envoyer transfer_to_garage: true au finalize
           consentGiven = true; // Client avait déjà donné son accord dans l'appel initial → ne pas redemander le consentement ni rejouer la phrase d'accueil
         }
         if (typeof finalCollectVehicleInfo === "string" && finalCollectVehicleInfo.trim()) collectVehicleInfo = finalCollectVehicleInfo.trim().toLowerCase() === "true";
