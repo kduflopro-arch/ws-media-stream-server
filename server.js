@@ -5948,50 +5948,91 @@ But: être naturel et mettre le client en confiance.`,
               else if (toolName === "transfer_to_garage") {
                 const baseUrl = (typeof autoguruIngestUrl === "string" && autoguruIngestUrl) ? autoguruIngestUrl.replace(/\/api\/twilio\/realtime-ingest.*$/, "").replace(/\/$/, "") : "";
                 const token = (typeof autoguruIngestToken === "string" && autoguruIngestToken) ? autoguruIngestToken : "";
+                const prevItemId = previousItemId;
                 if (baseUrl && token && callSid && garageId) {
-                  try {
-                    const res = await fetch(`${baseUrl}/api/twilio/call-transfer`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ callSid, garageId, token }),
-                    });
-                    const data = await res.json().catch(() => ({}));
-                    if (res.ok && data.ok) {
-                      output = "Transfert en cours. L'appel est en train d'être redirigé vers le garage.";
-                      console.log("✅ Transfert vers le garage déclenché:", callSid);
-                    } else {
-                      output = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
-                      console.warn("⚠️ call-transfer échec:", res.status, data);
-                    }
-                  } catch (err) {
-                    console.error("❌ Erreur call-transfer:", err);
-                    output = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
-                  }
+                  // Annoncer le transfert avec MiniMax, puis attendre la fin du TTS avant de lancer le transfert
+                  enqueuePremiumTts("Transfert vers le garage, un instant.", {
+                    interrupt: true,
+                    source: "transfer_to_garage",
+                    allowWithoutUser: true,
+                    onComplete: () => {
+                      const waitForOutboundDrain = () => {
+                        if (outboundQueuedBytes === 0 && outboundQueue.length === 0) {
+                          fetch(`${baseUrl}/api/twilio/call-transfer`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ callSid, garageId, token }),
+                          }).then(async (res) => {
+                            const data = await res.json().catch(() => ({}));
+                            let out = "";
+                            if (res.ok && data.ok) {
+                              out = "Transfert en cours. L'appel est en train d'être redirigé vers le garage.";
+                              console.log("✅ Transfert vers le garage déclenché:", callSid);
+                            } else {
+                              out = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
+                              console.warn("⚠️ call-transfer échec:", res.status, data);
+                            }
+                            try {
+                              openaiWs.send(JSON.stringify({
+                                type: "conversation.item.create",
+                                item: { type: "function_call_output", call_id: callId, output: out },
+                                previous_item_id: prevItemId,
+                              }));
+                              if (!res.ok || !data.ok) {
+                                setTimeout(() => {
+                                  if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) requestResponseCreate("after_transfer_failed");
+                                }, 150);
+                              }
+                            } catch (e) { console.error("❌ Envoi function_call_output (transfer):", e); }
+                          }).catch((err) => {
+                            console.error("❌ Erreur call-transfer:", err);
+                            const out = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
+                            try {
+                              openaiWs.send(JSON.stringify({
+                                type: "conversation.item.create",
+                                item: { type: "function_call_output", call_id: callId, output: out },
+                                previous_item_id: prevItemId,
+                              }));
+                              setTimeout(() => {
+                                if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) requestResponseCreate("after_transfer_failed");
+                              }, 150);
+                            } catch (e) { console.error("❌ Envoi function_call_output (transfer):", e); }
+                          });
+                          return;
+                        }
+                        setTimeout(waitForOutboundDrain, 200);
+                      };
+                      waitForOutboundDrain();
+                    },
+                  });
+                  output = "Transfert annoncé. En attente de la fin de l'annonce puis redirection.";
                 } else {
                   output = "Transfert non configuré (URL ou token manquant). Propose au client que le garage le rappelle.";
                 }
               } else output = "Outil inconnu.";
               if (LOG_VERBOSE) console.log("🔧 Tool call:", toolName, "→", output.length, "car.");
-              try {
-                openaiWs.send(JSON.stringify({
-                  type: "conversation.item.create",
-                  item: { type: "function_call_output", call_id: callId, output },
-                  previous_item_id: previousItemId,
-                }));
-                // Déclencher la réponse de l'IA après envoi du résultat d'outil (sinon le modèle ne génère pas la phrase pour le client)
-                let attempt = 0;
-                const maxAttempts = 5;
-                const scheduleResponseAfterTool = () => {
-                  attempt += 1;
-                  if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
-                    requestResponseCreate("after_function_call_output");
-                  } else if (openaiWs && openaiWs.readyState === WebSocket.OPEN && responseInProgress && attempt < maxAttempts) {
-                    setTimeout(scheduleResponseAfterTool, 200);
-                  }
-                };
-                setTimeout(scheduleResponseAfterTool, 150);
-              } catch (err) {
-                console.error("❌ Envoi function_call_output:", err);
+              const transferDeferred = toolName === "transfer_to_garage" && baseUrl && token && callSid && garageId;
+              if (!transferDeferred) {
+                try {
+                  openaiWs.send(JSON.stringify({
+                    type: "conversation.item.create",
+                    item: { type: "function_call_output", call_id: callId, output },
+                    previous_item_id: previousItemId,
+                  }));
+                  let attempt = 0;
+                  const maxAttempts = 5;
+                  const scheduleResponseAfterTool = () => {
+                    attempt += 1;
+                    if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                      requestResponseCreate("after_function_call_output");
+                    } else if (openaiWs && openaiWs.readyState === WebSocket.OPEN && responseInProgress && attempt < maxAttempts) {
+                      setTimeout(scheduleResponseAfterTool, 200);
+                    }
+                  };
+                  setTimeout(scheduleResponseAfterTool, 150);
+                } catch (err) {
+                  console.error("❌ Envoi function_call_output:", err);
+                }
               }
               // Ne pas traiter comme du texte (pas de TTS)
             } else if (msg.item) {
@@ -6522,6 +6563,7 @@ But: être naturel et mettre le client en confiance.`,
           startParams.hoursText ||
           "";
         const finalAllowTransfer = startParams.allowTransfer || "";
+        const finalTransferFailed = startParams.transfer_failed || "";
         const finalCollectVehicleInfo = startParams.collectVehicleInfo || "";
         const finalPricingSummary = startParams.pricingSummary || "";
         const finalServicesSummary = startParams.servicesSummary || "";
@@ -6540,6 +6582,7 @@ But: être naturel et mettre le client en confiance.`,
           garageClosed: finalGarageClosed,
           garageClosedReason: finalGarageClosedReason,
           allowTransfer: finalAllowTransfer,
+          transferFailed: finalTransferFailed === "true",
           collectVehicleInfo: finalCollectVehicleInfo,
           hasPricingSummary: Boolean(finalPricingSummary && String(finalPricingSummary).trim()),
           customParameters: startParams,
@@ -6567,12 +6610,23 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalGarageHoursText === "string") garageHoursText = String(finalGarageHoursText || "").trim();
         if (typeof finalClosedDaysText === "string") closedDaysText = String(finalClosedDaysText || "").trim();
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
+        const transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
         if (typeof finalCollectVehicleInfo === "string" && finalCollectVehicleInfo.trim()) collectVehicleInfo = finalCollectVehicleInfo.trim().toLowerCase() === "true";
         if (typeof finalPricingSummary === "string") pricingSummary = String(finalPricingSummary || "").trim();
         if (typeof finalServicesSummary === "string") servicesSummary = String(finalServicesSummary || "").trim();
         if (typeof finalServicesRequiringStockSummary === "string") servicesRequiringStockSummary = String(finalServicesRequiringStockSummary || "").trim();
         if (typeof finalServicesIncludesSummary === "string") servicesIncludesSummary = String(finalServicesIncludesSummary || "").trim();
         if (typeof finalFaqsSummary === "string") faqsSummary = String(finalFaqsSummary || "").trim();
+
+        // Si le client revient après un transfert raté (garage n'a pas répondu), annoncer avec MiniMax
+        if (transferFailed && PREMIUM_TTS_ENABLED) {
+          const transferFailedMsg = "Le garage n'a pas répondu. Voulez-vous être rappelé par le garage ?";
+          initialAssistantGreetingText = transferFailedMsg;
+          hasSentInitialGreeting = true;
+          enqueuePremiumTts(transferFailedMsg, { interrupt: true, source: "transfer_failed", allowWithoutUser: true });
+          if (typeof markGreeted === "function") markGreeted(callSid, Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000)));
+          console.log("🔄 Message transfert raté joué (reconnexion après pas de réponse garage).", { callSid });
+        }
 
         // Récupérer les infos client (nom, rendez-vous) pour l'IA
         // IMPORTANT: faire cette requête de manière asynchrone, ne pas bloquer le démarrage du stream
