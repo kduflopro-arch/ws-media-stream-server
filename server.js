@@ -5940,6 +5940,7 @@ But: être naturel et mettre le client en confiance.`,
               const toolName = msg.item.name;
               const previousItemId = msg.item.id;
               let output = "";
+              let transferOutputDeferred = false;
               if (toolName === "get_garage_pricing") output = pricingSummary || "Tarifs non renseignés.";
               else if (toolName === "get_garage_services") output = servicesSummary || "Services non renseignés.";
               else if (toolName === "get_garage_faq") output = faqsSummary || "FAQ non renseignée.";
@@ -5950,6 +5951,7 @@ But: être naturel et mettre le client en confiance.`,
                 const token = (typeof autoguruIngestToken === "string" && autoguruIngestToken) ? autoguruIngestToken : "";
                 const prevItemId = previousItemId;
                 if (baseUrl && token && callSid && garageId) {
+                  transferOutputDeferred = true;
                   // Annoncer le transfert avec MiniMax, puis attendre la fin du TTS avant de lancer le transfert
                   enqueuePremiumTts("Transfert vers le garage, un instant.", {
                     interrupt: true,
@@ -6011,8 +6013,7 @@ But: être naturel et mettre le client en confiance.`,
                 }
               } else output = "Outil inconnu.";
               if (LOG_VERBOSE) console.log("🔧 Tool call:", toolName, "→", output.length, "car.");
-              const transferDeferred = toolName === "transfer_to_garage" && baseUrl && token && callSid && garageId;
-              if (!transferDeferred) {
+              if (!transferOutputDeferred) {
                 try {
                   openaiWs.send(JSON.stringify({
                     type: "conversation.item.create",
