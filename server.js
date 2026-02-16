@@ -3919,12 +3919,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         // Données garage (tarifs, services, FAQ, horaires, prestations incluses): reçues au "start" et stockées en mémoire.
         // Elles ne sont jamais envoyées dans le prompt à OpenAI — l'IA les récupère à la demande via les tools (get_garage_pricing, etc.).
         const closedInfoLine = garageClosed
-          ? `Info horaires (interne): le garage est actuellement indiqué comme fermé. (${garageClosedReason || "closed"}) ${garageClosedText || ""} Tu NE le mentionnes PAS au début. Tu le mentionnes uniquement en fin d'appel, selon les règles ci-dessous.`
+          ? `GARAGE FERMÉ (${garageClosedReason || "closed"}): le garage est actuellement fermé. ${garageClosedText || ""} Si le client demande à être transféré, à parler à un humain ou à quelqu'un du garage, tu DOIS dire exactement: "Le garage est actuellement fermé mais je peux gérer votre demande." Puis propose un rappel si besoin. Tu ne transfères JAMAIS quand le garage est fermé (tu n'as pas l'outil transfer_to_garage dans ce cas).`
           : "Info horaires (interne): garage indiqué ouvert.";
 
         const transferLine = allowTransfer
           ? "TRANSFERT VERS LE GARAGE: activé. Si le client demande à être transféré vers le garage, à parler à un humain ou à quelqu'un du garage, tu DOIS appeler l'outil transfer_to_garage EN PREMIER, puis dire au client: 'Je vous transfère vers le garage, un instant.' L'appel sera alors redirigé. Ne dis pas que tu transfère sans avoir appelé l'outil. Si le transfert échoue (réponse de l'outil indique un échec), propose: 'Souhaitez-vous que le garage vous rappelle ?'"
-          : "TRANSFERT VERS LE GARAGE: désactivé par le garage. Si le client demande à être transféré ou à parler à un humain, tu DOIS dire: 'Pour le moment, je ne peux pas transférer directement vers le garage, mais je peux transmettre un message et demander qu'on vous rappelle. Souhaitez-vous que le garage vous rappelle ?' Tu ne dis jamais que tu peux transférer.";
+          : (garageClosed
+            ? "TRANSFERT VERS LE GARAGE: interdit (garage fermé). Si le client demande à être transféré ou à parler à un humain, tu DOIS dire exactement: 'Le garage est actuellement fermé mais je peux gérer votre demande.' Puis propose: 'Souhaitez-vous que le garage vous rappelle ?' Tu ne transfères jamais."
+            : "TRANSFERT VERS LE GARAGE: désactivé par le garage. Si le client demande à être transféré ou à parler à un humain, tu DOIS dire: 'Pour le moment, je ne peux pas transférer directement vers le garage, mais je peux transmettre un message et demander qu'on vous rappelle. Souhaitez-vous que le garage vous rappelle ?' Tu ne dis jamais que tu peux transférer.");
 
         const transferFailedLine = transferFailed
           ? "RECONNEXION APRÈS TRANSFERT RATÉ: Tu viens de dire 'Le garage n'a pas répondu. Voulez-vous être rappelé par le garage ?'. Le client avait déjà donné son accord (consentement) au début de l'appel. NE REDEMANDE JAMAIS le consentement ni la phrase d'accueil. Après que le client réponde (oui ou non au rappel), dis brièvement 'Je note' ou 'D\'accord' si oui, puis: 'Avez-vous besoin d'autre chose ?' Si le client demande des infos (tarifs, horaires, devis, RDV), RÉPONDS NORMALEMENT en t'appuyant sur les données du garage (tarifs, horaires, procédure). Si le client dit non aux deux (pas rappel + rien d'autre), dis 'Au revoir et bonne journée !'"
@@ -6666,6 +6668,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalGarageHoursText === "string") garageHoursText = String(finalGarageHoursText || "").trim();
         if (typeof finalClosedDaysText === "string") closedDaysText = String(finalClosedDaysText || "").trim();
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
+        if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
         if (transferFailed) {
           transferToGarageStatus = "failure"; // Session reconnexion après transfert raté → finalize enverra "failure"
