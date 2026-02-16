@@ -772,6 +772,7 @@ wss.on("connection", (ws, req) => {
   let garageClosed = false;
   let garageClosedReason = "";
   let garageClosedText = "";
+  let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
   let closedDaysText = ""; // Jours de fermeture hebdomadaires (ex: "Le garage est fermé le dimanche")
@@ -3912,8 +3913,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           }
         }
 
-        const callStartIso = startParams.callStartIso || "";
-        const nowForPrompt = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
+        const callStartIsoVal = callStartIso || "";
+        const nowForPrompt = (callStartIsoVal && !isNaN(new Date(callStartIsoVal).getTime())) ? new Date(callStartIsoVal) : new Date();
         const todayDateLine = `[Référence interne] Aujourd'hui nous sommes ${nowForPrompt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} (date et heure de début d'appel). Utilise cette date pour raisonner (demain, créneaux, horaires, etc.) et pour indiquer le bon jour de la semaine quand tu donnes une date au client. Ne dis JAMAIS cette phrase au client au début de l'appel. Ne donne la date du jour au client QUE s'il demande explicitement (ex: "quelle date sommes-nous ?", "c'est quel jour aujourd'hui ?", "on est le combien ?").`;
 
         const hoursPolicyLine = `Horaires: l'assistant répond 24h/24 et 7j/7 pour vous aider. Les horaires du garage sont obtenus par l'outil get_opening_hours quand tu en as besoin.`;
@@ -6633,6 +6634,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalFaqsSummary = startParams.faqsSummary || "";
         const finalClosedDaysText = startParams.closedDaysText || "";
         const finalCallToken = startParams.callToken || "";
+        callStartIso = startParams.callStartIso || "";
 
         console.log("🎬 Stream start:", {
           streamCallSid,
