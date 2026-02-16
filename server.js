@@ -3912,8 +3912,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           }
         }
 
-        const nowForPrompt = new Date();
-        const todayDateLine = `[Référence interne] Aujourd'hui nous sommes ${nowForPrompt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}. Utilise cette date pour raisonner (demain, créneaux, etc.) et pour indiquer le bon jour de la semaine quand tu donnes une date au client. Ne dis JAMAIS cette phrase au client au début de l'appel. Ne donne la date du jour au client QUE s'il demande explicitement (ex: "quelle date sommes-nous ?", "c'est quel jour aujourd'hui ?", "on est le combien ?").`;
+        const callStartIso = startParams.callStartIso || "";
+        const nowForPrompt = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
+        const todayDateLine = `[Référence interne] Aujourd'hui nous sommes ${nowForPrompt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} (date et heure de début d'appel). Utilise cette date pour raisonner (demain, créneaux, horaires, etc.) et pour indiquer le bon jour de la semaine quand tu donnes une date au client. Ne dis JAMAIS cette phrase au client au début de l'appel. Ne donne la date du jour au client QUE s'il demande explicitement (ex: "quelle date sommes-nous ?", "c'est quel jour aujourd'hui ?", "on est le combien ?").`;
 
         const hoursPolicyLine = `Horaires: l'assistant répond 24h/24 et 7j/7 pour vous aider. Les horaires du garage sont obtenus par l'outil get_opening_hours quand tu en as besoin.`;
         // Données garage (tarifs, services, FAQ, horaires, prestations incluses): reçues au "start" et stockées en mémoire.
@@ -7497,17 +7498,33 @@ But: être naturel et mettre le client en confiance.`,
         } else {
           console.log("ℹ️ À la fin de l'appel: pas d'envoi SMS plaque supplémentaire demandé (un SMS a pu avoir été envoyé pendant l'appel si l'IA l'a proposé)");
         }
+        const streamDurationMsStop = Date.now() - callStartTimeMs;
+        const RECONNECT_SHORT_FRAMES = 150;
+        const RECONNECT_SHORT_MS = 8000;
+        const DEFERRED_MS = Number(process.env.DEFERRED_FINALIZE_FALLBACK_MS) || 20000;
+        // Stream stop sur un stream reconnect très court (Twilio ouvre/ferme plusieurs connexions) → différer le finalize pour laisser le « vrai » stream continuer
+        if (transferFailed && (mediaCount < RECONNECT_SHORT_FRAMES || streamDurationMsStop < RECONNECT_SHORT_MS)) {
+          console.log("⏳ Finalize différé (Stream stop, reconnect stream très court)", { mediaCount, streamDurationMs: streamDurationMsStop });
+          const sidForTimer = callSid;
+          const t = setTimeout(() => {
+            deferredFinalizeTimersByCallSid.delete(sidForTimer);
+            finalizeCallToAutoGuru("twilio_stop_reconnect_deferred");
+          }, DEFERRED_MS);
+          deferredFinalizeTimersByCallSid.set(callSid, t);
+          if (outboundTimer) { clearInterval(outboundTimer); outboundTimer = null; }
+          if (openaiWs) { try { openaiWs.close(); } catch (_) {} }
+          return;
+        }
         // Ne pas finaliser ici si un transfert a été déclenché et que le client va peut‑être être reconnecté (garage n'a pas répondu) : le finalize sera envoyé à la fin du 2e stream. Si le garage a répondu, le finalize sera envoyé par le webhook transfer-join. Si le client a raccroché sans 2e stream, un fallback finalize après 20 s évite que l'appel reste "en cours".
         if (transferTriggered && !transferFailed) {
           console.log("⏳ Finalize différé (transfert en cours) — sera envoyé par webhook, 2e stream, ou fallback 20s");
-          const DEFERRED_FINALIZE_FALLBACK_MS = Number(process.env.DEFERRED_FINALIZE_FALLBACK_MS) || 20000;
           const sidForTimer = callSid;
           deferredFinalizeTimer = setTimeout(() => {
             deferredFinalizeTimer = null;
             deferredFinalizeTimersByCallSid.delete(sidForTimer);
             console.log("⏳ Finalize fallback (pas de 2e stream ou webhook dans les 20s) — envoi finalize");
             finalizeCallToAutoGuru("twilio_stop_deferred_fallback");
-          }, DEFERRED_FINALIZE_FALLBACK_MS);
+          }, DEFERRED_MS);
           deferredFinalizeTimersByCallSid.set(callSid, deferredFinalizeTimer);
         } else {
           finalizeCallToAutoGuru("twilio_stop");
