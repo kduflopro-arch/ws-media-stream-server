@@ -561,6 +561,8 @@ const wss = new WebSocketServer({
 
 // Timers de finalize différé par callSid : annulés quand un 2e stream (reconnect après transfert raté) démarre
 const deferredFinalizeTimersByCallSid = new Map(); // callSid -> timerId
+// Dernier stream démarré par callSid (timestamp) : pour ne pas envoyer de finalize différé si un stream plus récent est actif
+const latestStreamStartTimeByCallSid = new Map(); // callSid -> callStartTimeMs
 
 wss.on("connection", (ws, req) => {
   if (LOG_VERBOSE) {
@@ -6662,6 +6664,7 @@ But: être naturel et mettre le client en confiance.`,
         
         // Mettre à jour les variables pour utiliser dans OpenAI
         callSid = finalCallSid;
+        latestStreamStartTimeByCallSid.set(finalCallSid, callStartTimeMs); // pour ne pas envoyer finalize différé si un stream plus récent existe
         garageId = finalGarageId;
         garageName = finalGarageName;
         fromNumber = finalFromNumber;
@@ -7512,14 +7515,21 @@ But: être naturel et mettre le client en confiance.`,
         const RECONNECT_SHORT_MS = 8000;
         const DEFERRED_MS = Number(process.env.DEFERRED_FINALIZE_FALLBACK_MS) || 20000;
         // Stream stop sur un stream reconnect très court (Twilio ouvre/ferme plusieurs connexions) → différer le finalize pour laisser le « vrai » stream continuer
+        // Ne pas programmer de finalize différé si un stream plus récent pour ce call est déjà actif (évite finalize en milieu d'appel)
+        const latestStart = latestStreamStartTimeByCallSid.get(callSid);
+        const newerStreamActive = typeof latestStart === "number" && latestStart > callStartTimeMs;
         if (transferFailed && (mediaCount < RECONNECT_SHORT_FRAMES || streamDurationMsStop < RECONNECT_SHORT_MS)) {
-          console.log("⏳ Finalize différé (Stream stop, reconnect stream très court)", { mediaCount, streamDurationMs: streamDurationMsStop });
-          const sidForTimer = callSid;
-          const t = setTimeout(() => {
-            deferredFinalizeTimersByCallSid.delete(sidForTimer);
-            finalizeCallToAutoGuru("twilio_stop_reconnect_deferred");
-          }, DEFERRED_MS);
-          deferredFinalizeTimersByCallSid.set(callSid, t);
+          if (newerStreamActive) {
+            console.log("⏳ Pas de finalize différé (stream plus récent actif pour ce call) — Stream stop", { mediaCount, streamDurationMs: streamDurationMsStop });
+          } else {
+            console.log("⏳ Finalize différé (Stream stop, reconnect stream très court)", { mediaCount, streamDurationMs: streamDurationMsStop });
+            const sidForTimer = callSid;
+            const t = setTimeout(() => {
+              deferredFinalizeTimersByCallSid.delete(sidForTimer);
+              finalizeCallToAutoGuru("twilio_stop_reconnect_deferred");
+            }, DEFERRED_MS);
+            deferredFinalizeTimersByCallSid.set(callSid, t);
+          }
           if (outboundTimer) { clearInterval(outboundTimer); outboundTimer = null; }
           if (openaiWs) { try { openaiWs.close(); } catch (_) {} }
           return;
@@ -7590,14 +7600,21 @@ But: être naturel et mettre le client en confiance.`,
     const RECONNECT_SHORT_STREAM_MS = 8000;
     const DEFERRED_RECONNECT_FINALIZE_MS = Number(process.env.DEFERRED_FINALIZE_FALLBACK_MS) || 20000;
     // Session reconnect (transfert raté) : si le stream a été très court, possible 2e connexion Twilio → différer le finalize pour laisser le 2e stream prendre le relais
+    // Ne pas programmer de finalize différé si un stream plus récent pour ce call est déjà actif (évite finalize en milieu d'appel)
+    const latestStartWs = latestStreamStartTimeByCallSid.get(callSid);
+    const newerStreamActiveWs = typeof latestStartWs === "number" && latestStartWs > callStartTimeMs;
     if (transferFailed && (mediaCount < RECONNECT_SHORT_STREAM_FRAMES || streamDurationMs < RECONNECT_SHORT_STREAM_MS)) {
-      console.log("⏳ Finalize différé (reconnect stream très court, possible 2e connexion)", { mediaCount, streamDurationMs });
-      const sidForTimer = callSid;
-      const t = setTimeout(() => {
-        deferredFinalizeTimersByCallSid.delete(sidForTimer);
-        finalizeCallToAutoGuru("ws_close_reconnect_deferred");
-      }, DEFERRED_RECONNECT_FINALIZE_MS);
-      deferredFinalizeTimersByCallSid.set(callSid, t);
+      if (newerStreamActiveWs) {
+        console.log("⏳ Pas de finalize différé (stream plus récent actif pour ce call) — ws_close", { mediaCount, streamDurationMs });
+      } else {
+        console.log("⏳ Finalize différé (reconnect stream très court, possible 2e connexion)", { mediaCount, streamDurationMs });
+        const sidForTimer = callSid;
+        const t = setTimeout(() => {
+          deferredFinalizeTimersByCallSid.delete(sidForTimer);
+          finalizeCallToAutoGuru("ws_close_reconnect_deferred");
+        }, DEFERRED_RECONNECT_FINALIZE_MS);
+        deferredFinalizeTimersByCallSid.set(callSid, t);
+      }
       if (outboundTimer) { clearInterval(outboundTimer); outboundTimer = null; }
       if (openaiWs) { openaiWs.close(); }
       return;
