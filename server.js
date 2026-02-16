@@ -4167,7 +4167,8 @@ RÈGLE ABSOLUE - GUIDAGE PROACTIF (À RESPECTER EN PRIORITÉ):
 - TU GUIDES LE CLIENT, PAS L'INVERSE: Tu poses UNE question à la fois, tu attends la réponse, puis tu continues. Ne laisse JAMAIS le client sans suite concrète, mais ne pose pas plusieurs questions d'affilée.
 - RÈGLE DE FIN DE RÉPONSE: Si tu mentionnes des causes possibles, ta réponse DOIT se terminer par une question. Exemples de questions à poser: "Depuis quand avez-vous remarqué ce problème ?", "Avez-vous remarqué d'autres symptômes ?", "Quand est-ce que cela se produit ?", "Le voyant est-il allumé en permanence ?"
 - RÈGLE RAPPEL INFO (OBLIGATOIRE): Si le client demande SEULEMENT des informations (tarif, horaires, renseignement) et qu'aucun rendez-vous n'est pris, tu DOIS TOUJOURS demander avant de clôturer: "Souhaitez-vous que le garage vous rappelle ?" (attendre la réponse), puis "Avez-vous besoin d'autre chose ?". Exceptions : (1) si le client a fait une demande de RDV, NE PAS poser la question de rappel (le garage rappellera pour confirmer le RDV) ; (2) si le client a accepté une demande de devis, NE PAS poser la question de rappel (le garage rappellera pour le devis). Tu ne dis JAMAIS "Au revoir" sans avoir posé la question de rappel (sauf après devis accepté ou après demande de RDV).
-- ⚠️ CRITIQUE - NE PAS CONFONDRE LES DEUX QUESTIONS: "Avez-vous besoin d'autre chose ?" et "Souhaitez-vous que le garage vous rappelle ?" sont DIFFÉRENTES. Interprète la réponse du client selon la DERNIÈRE question que TU as posée. Si tu viens de demander "Avez-vous besoin d'autre chose ?" : "oui" = le client a besoin d'autre chose → demande "De quoi avez-vous besoin ?" ; "non" = il n'a plus besoin de rien → dis "Au revoir et bonne journée !". NE DIS JAMAIS "Ok, je note : le garage vous rappellera" ni "Ok, je note : pas de rappel" en réponse à "Avez-vous besoin d'autre chose ?". Les phrases "je note : rappel" / "pas de rappel" sont UNIQUEMENT après "Souhaitez-vous que le garage vous rappelle ?".
+- ⚠️ CRITIQUE - NE PAS CONFONDRE LES DEUX QUESTIONS: "Avez-vous besoin d'autre chose ?" et "Souhaitez-vous que le garage vous rappelle ?" sont DIFFÉRENTES. Interprète la réponse du client selon la DERNIÈRE question que TU as posée. Si tu viens de demander "Avez-vous besoin d'autre chose ?" : "oui" = le client a besoin d'autre chose → demande "De quoi avez-vous besoin ?" ; "non" = il n'a plus besoin de rien → dis UNIQUEMENT "Au revoir et bonne journée !". NE DIS JAMAIS "Ok, je note : le garage vous rappellera" ni "Ok, je note : pas de rappel" en réponse à "Avez-vous besoin d'autre chose ?". Les phrases "je note : rappel" / "pas de rappel" sont UNIQUEMENT après "Souhaitez-vous que le garage vous rappelle ?".
+- RÈGLE ABSOLUE - RÉPONSE "NON" À "AVEZ-VOUS BESOIN D'AUTRE CHOSE ?": Si ta DERNIÈRE question était "Avez-vous besoin d'autre chose ?" (ou équivalent) et que le client répond "non" (ou "non merci", "rien d'autre", "c'est tout"), tu dis UNIQUEMENT "Au revoir et bonne journée !". Tu NE dis JAMAIS "D'accord, pas de devis", "Souhaitez-vous que le garage vous rappelle ?" ni aucune autre phrase : le "non" signifie "je n'ai rien d'autre à demander", pas un refus de devis ni de rappel. Le devis ou le rappel déjà notés restent valides.
 - CONFIRMATION OBLIGATOIRE APRÈS LA RÉPONSE AU RAPPEL:
   - Si la réponse du client est ambiguë ou très courte (ex. un seul mot, "euh", "heu"), reformule pour confirmer avant de noter : "Vous souhaitez que le garage vous rappelle, c'est bien ça ?" ou "Vous ne souhaitez pas être rappelé, c'est bien ça ?" — ne dis "Ok, je note : pas de rappel" que si le client a clairement dit non.
   - Si le client répond NON (ou réponse négative claire): tu DOIS dire EXACTEMENT: "Ok, je note : pas de rappel par le garage." puis "Avez-vous besoin d'autre chose ?". Le client peut changer d'avis ensuite ; si il dit "oui je veux être rappelé", tu dis "Ok, je note : le garage vous rappellera."
@@ -6204,7 +6205,10 @@ But: être naturel et mettre le client en confiance.`,
             const detectLastQuestionIntent = (assistantText) => {
               const raw = String(assistantText || "");
               const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
-              const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase();
+              const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase().trim();
+              // "Avez-vous besoin d'autre chose ?" → ne pas confondre avec devis/rappel/RDV : "non" = fin d'échange, pas refus devis
+              const asksNeedOther = /\b(besoin\s+d'?autre\s+chose|autre\s+chose)\b/.test(target) || /d'?autre\s+chose\s*\?/.test(target);
+              if (asksNeedOther) return "need_other";
               const asksDevis = /\b(devis)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("demande"));
               const asksCallback = /\b(rappel|rappeler|rappelé|recontact|recontacter)\b/.test(target);
               const asksRdv = /\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target);
@@ -6284,7 +6288,10 @@ But: être naturel et mettre le client en confiance.`,
               devisAcceptedByClient = true;
               if (LOG_VERBOSE) console.log("ℹ️ Client a accepté une demande de devis.", { userText: userText?.substring(0, 40) });
             }
-            if (lastWasDevisQuestionIntent && (callbackExplicitNegative || looksLikeRefuseForCallback || /\b(pas de devis|sans devis|non merci)\b/i.test(userTextNorm))) {
+            // Ne mettre devis à false que si la DERNIÈRE question était la question devis (pas "Avez-vous besoin d'autre chose ?")
+            // Sinon un "non" à "besoin d'autre chose" serait pris à tort pour un refus de devis
+            const lastQuestionWasDevis = lastIntent === "devis";
+            if (lastQuestionWasDevis && (callbackExplicitNegative || looksLikeRefuseForCallback || /\b(pas de devis|sans devis|non merci)\b/i.test(userTextNorm))) {
               devisAcceptedByClient = false;
               if (LOG_VERBOSE) console.log("ℹ️ Client a refusé la demande de devis.", { userText: userText?.substring(0, 40) });
             }
