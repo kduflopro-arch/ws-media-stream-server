@@ -7534,16 +7534,24 @@ But: être naturel et mettre le client en confiance.`,
           if (openaiWs) { try { openaiWs.close(); } catch (_) {} }
           return;
         }
-        // Ne pas finaliser ici si un transfert a été déclenché et que le client va peut‑être être reconnecté (garage n'a pas répondu) : le finalize sera envoyé à la fin du 2e stream. Si le garage a répondu, le finalize sera envoyé par le webhook transfer-join. Si le client a raccroché sans 2e stream, un fallback finalize après 20 s évite que l'appel reste "en cours".
+        // Ne pas finaliser ici si un transfert a été déclenché et que le client va peut‑être être reconnecté (garage n'a pas répondu) : le finalize sera envoyé à la fin du 2e stream. Si le garage a répondu, le finalize sera envoyé par le webhook transfer-join. Fallback plus long (45s) pour laisser le temps au garage de ne pas répondre (timeout 30s) puis au client de se reconnecter à l'IA.
         if (transferTriggered && !transferFailed) {
-          console.log("⏳ Finalize différé (transfert en cours) — sera envoyé par webhook, 2e stream, ou fallback 20s");
+          const DEFERRED_MS_TRANSFER = Number(process.env.DEFERRED_FINALIZE_FALLBACK_MS_TRANSFER) || 45000;
+          console.log("⏳ Finalize différé (transfert en cours) — webhook, 2e stream, ou fallback", DEFERRED_MS_TRANSFER / 1000, "s");
           const sidForTimer = callSid;
+          const streamStartTimeForTimer = callStartTimeMs;
           deferredFinalizeTimer = setTimeout(() => {
             deferredFinalizeTimer = null;
             deferredFinalizeTimersByCallSid.delete(sidForTimer);
-            console.log("⏳ Finalize fallback (pas de 2e stream ou webhook dans les 20s) — envoi finalize");
+            // Ne pas envoyer le finalize si un stream reconnect (client repris par l'IA) a démarré entre-temps
+            const latestStart = latestStreamStartTimeByCallSid.get(sidForTimer);
+            if (typeof latestStart === "number" && latestStart > streamStartTimeForTimer) {
+              console.log("⏳ Fallback finalize annulé (stream reconnect actif pour ce call, IA encore en appel)");
+              return;
+            }
+            console.log("⏳ Finalize fallback (pas de 2e stream ou webhook) — envoi finalize");
             finalizeCallToAutoGuru("twilio_stop_deferred_fallback");
-          }, DEFERRED_MS);
+          }, DEFERRED_MS_TRANSFER);
           deferredFinalizeTimersByCallSid.set(callSid, deferredFinalizeTimer);
         } else {
           finalizeCallToAutoGuru("twilio_stop");
