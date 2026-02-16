@@ -3923,7 +3923,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           : "Info horaires (interne): garage indiqué ouvert.";
 
         const transferLine = allowTransfer
-          ? "TRANSFERT VERS LE GARAGE: activé. Si le client demande à être transféré vers le garage, à parler à un humain ou à quelqu'un du garage, tu DOIS appeler l'outil transfer_to_garage EN PREMIER, puis dire au client: 'Je vous transfère vers le garage, un instant.' L'appel sera alors redirigé. Ne dis pas que tu transfère sans avoir appelé l'outil. Si le transfert échoue (réponse de l'outil indique un échec), propose: 'Souhaitez-vous que le garage vous rappelle ?'"
+          ? "TRANSFERT VERS LE GARAGE: activé. AVANT d'appeler transfer_to_garage, tu DOIS appeler get_opening_hours. Si le résultat indique 'État actuel: le garage est actuellement FERMÉ', ne transfère PAS et dis: 'Le garage est actuellement fermé mais je peux gérer votre demande. Souhaitez-vous que le garage vous rappelle ?' Si le garage est OUVERT, appelle transfer_to_garage puis dis: 'Je vous transfère vers le garage, un instant.' Si le transfert échoue (réponse de l'outil indique un échec), propose: 'Souhaitez-vous que le garage vous rappelle ?'"
           : (garageClosed
             ? "TRANSFERT VERS LE GARAGE: interdit (garage fermé). Si le client demande à être transféré ou à parler à un humain, tu DOIS dire exactement: 'Le garage est actuellement fermé mais je peux gérer votre demande.' Puis propose: 'Souhaitez-vous que le garage vous rappelle ?' Tu ne transfères jamais."
             : "TRANSFERT VERS LE GARAGE: désactivé par le garage. Si le client demande à être transféré ou à parler à un humain, tu DOIS dire: 'Pour le moment, je ne peux pas transférer directement vers le garage, mais je peux transmettre un message et demander qu'on vous rappelle. Souhaitez-vous que le garage vous rappelle ?' Tu ne dis jamais que tu peux transférer.");
@@ -5994,7 +5994,10 @@ But: être naturel et mettre le client en confiance.`,
               if (toolName === "get_garage_pricing") output = pricingSummary || "Tarifs non renseignés.";
               else if (toolName === "get_garage_services") output = servicesSummary || "Services non renseignés.";
               else if (toolName === "get_garage_faq") output = faqsSummary || "FAQ non renseignée.";
-              else if (toolName === "get_opening_hours") output = [garageHoursText || "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : ""].filter(Boolean).join("\n");
+              else if (toolName === "get_opening_hours") {
+                const stateLine = garageClosed ? "État actuel: le garage est actuellement FERMÉ (hors horaires ou vacances)." : "État actuel: le garage est actuellement OUVERT.";
+                output = [garageHoursText || "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
+              }
               else if (toolName === "get_garage_services_includes") output = [servicesIncludesSummary || "", servicesRequiringStockSummary ? `Prestations avec stock: ${servicesRequiringStockSummary}` : ""].filter(Boolean).join("\n") || "Prestations incluses non renseignées.";
               else if (toolName === "transfer_to_garage") {
                 const baseUrl = (typeof autoguruIngestUrl === "string" && autoguruIngestUrl) ? autoguruIngestUrl.replace(/\/api\/twilio\/realtime-ingest.*$/, "").replace(/\/$/, "") : "";
@@ -7555,6 +7558,23 @@ But: être naturel et mettre le client en confiance.`,
         .catch((err) => {
           console.error("❌ Erreur envoi SMS plaque (ws close):", err);
         });
+    }
+    const streamDurationMs = Date.now() - callStartTimeMs;
+    const RECONNECT_SHORT_STREAM_FRAMES = 150;
+    const RECONNECT_SHORT_STREAM_MS = 8000;
+    const DEFERRED_RECONNECT_FINALIZE_MS = Number(process.env.DEFERRED_FINALIZE_FALLBACK_MS) || 20000;
+    // Session reconnect (transfert raté) : si le stream a été très court, possible 2e connexion Twilio → différer le finalize pour laisser le 2e stream prendre le relais
+    if (transferFailed && (mediaCount < RECONNECT_SHORT_STREAM_FRAMES || streamDurationMs < RECONNECT_SHORT_STREAM_MS)) {
+      console.log("⏳ Finalize différé (reconnect stream très court, possible 2e connexion)", { mediaCount, streamDurationMs });
+      const sidForTimer = callSid;
+      const t = setTimeout(() => {
+        deferredFinalizeTimersByCallSid.delete(sidForTimer);
+        finalizeCallToAutoGuru("ws_close_reconnect_deferred");
+      }, DEFERRED_RECONNECT_FINALIZE_MS);
+      deferredFinalizeTimersByCallSid.set(callSid, t);
+      if (outboundTimer) { clearInterval(outboundTimer); outboundTimer = null; }
+      if (openaiWs) { openaiWs.close(); }
+      return;
     }
     // Même règle : différer si transfert en cours (pas encore transferFailed)
     if (transferTriggered && !transferFailed) {
