@@ -640,6 +640,7 @@ wss.on("connection", (ws, req) => {
   let outboundQueuedBytes = 0;
   let hasSentInitialGreeting = false;
   let initialAssistantGreetingText = "";
+  let rdvNotificationFollowupPlayed = false; // une seule fois par appel pour ne pas rejouer "Je vois que vous avez un RDV..." en plein flux
   let loggedFirstAudioDelta = false;
   let outboundTimer = null;
   let lastResponseAt = 0;
@@ -4008,6 +4009,7 @@ IMPORTANT - SALUTATION (À RESPECTER STRICTEMENT):
 
 IMPORTANT - MENTION DES RENDEZ-VOUS EN DÉBUT D'APPEL:
 - Si le client a un "rendez-vous enregistré" (confirmé par le garage) listé ci-dessus (section "Rendez-vous à venir"), APRÈS la salutation tu DOIS en une phrase courte le mentionner : "Je vois que vous avez un rendez-vous enregistré pour le [date] à [heure]." Puis demande "En quoi puis-je vous aider ?"
+- ⚠️ INTERDIT EN PLEIN FLUX RDV: Une fois que tu as commencé une prise de rendez-vous (tu as demandé le jour ou "Plutôt le matin ou l'après-midi ?"), ne redis JAMAIS la phrase d'accueil complète ("Bonjour [Nom]. Je vois que vous avez un rendez-vous enregistré pour le... En quoi puis-je vous aider ?"). Continue uniquement la prise de RDV (jour → matin/après-midi → plaque). Ne repasse pas en mode accueil au milieu de la conversation.
 - ⚠️ CRITIQUE - NE PAS CONFONDRE: Le "rendez-vous enregistré" que tu mentionnes est UNIQUEMENT INFORMATIF (déjà dans le dossier). Si le client demande ensuite un NOUVEAU rendez-vous (ex. diagnostic, vidange), la date/heure de ce RDV existant N'EST PAS sa préférence pour le nouveau RDV. Tu DOIS demander "Quel jour vous conviendrait le mieux ?" puis "Plutôt le matin ou l'après-midi ?" et noter UNIQUEMENT ce que le client dit pour cette nouvelle demande.
 - Si le client a uniquement une "demande en attente de confirmation par le garage", NE PAS en parler en début d'appel. Ne mentionne cette demande que si le client le demande explicitement (ex: "Est-ce que j'ai un rendez-vous ?", "Où en est ma demande ?", "Vous avez bien ma demande ?"). Dans ce cas, informe-le : "Vous avez une demande de rendez-vous en attente pour le [date] à [heure], le garage vous rappellera pour confirmer."
 - ORTHOGRAPHE (dates/heures seulement): espace avant le chiffre: "le 11 février", "à 8 heures", "mercredi 11" (jamais le11, à8, mercredi11). Fourchettes de prix: TOUJOURS en chiffres, jamais en lettres — "entre 50 et 190 euros", "de 80 à 150 euros" (jamais "cent quatre vingt dix euros"). Espace avant et après les chiffres. Ne pas couper les mots (tarif, mais, cent, samedi, Monsieur, noms).
@@ -4019,9 +4021,10 @@ IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - IMPORTANT: L'envoi du message pour la plaque se fait AUTOMATIQUEMENT à la fin de l'appel, SANS besoin de consentement du client. Tu dois simplement informer le client que tu vas lui envoyer un message.
 - ⚠️⚠️⚠️ RÈGLE CRITIQUE - ORDRE LORS DE LA PRISE DE RENDEZ-VOUS ⚠️⚠️⚠️:
 - ORDRE OBLIGATOIRE: (1) D'abord demander le JOUR puis l'HEURE (matin/après-midi), (2) ENSUITE seulement demander la confirmation de la plaque. Ne demande JAMAIS la plaque avant d'avoir le jour et la préférence matin/après-midi.
+- ⚠️ APRÈS QUE LE CLIENT A DONNÉ LE JOUR UNIQUEMENT (ex. "vendredi", "lundi"): tu DOIS demander "Plutôt le matin ou l'après-midi ?" avant TOUTE phrase sur la plaque. Ne dis JAMAIS "Vous confirmez que c'est bien la bonne plaque" ni "Est-ce bien correct ?" pour la plaque tant que tu n'as pas posé la question matin/après-midi et reçu la réponse du client.
 - Si le client a déjà une plaque enregistrée (voir "Plaque d'immatriculation enregistrée" ci-dessus):
-  * Lors de la prise de rendez-vous: d'abord "Quel jour vous conviendrait le mieux ?" puis "Plutôt le matin ou l'après-midi ?". Une fois le jour et le créneau obtenus, tu dis: "Pour confirmer, votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?"
-  * Tu DOIS dire EXACTEMENT pour la plaque: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?" — mais UNIQUEMENT après avoir demandé le jour et le matin ou l'après-midi.
+  * Lors de la prise de rendez-vous: d'abord "Quel jour vous conviendrait le mieux ?" puis "Plutôt le matin ou l'après-midi ?". Une fois le jour ET le créneau (matin ou après-midi) obtenus, tu dis: "Pour confirmer, votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?"
+  * Tu DOIS dire EXACTEMENT pour la plaque: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?" — mais UNIQUEMENT après avoir demandé le jour ET le matin ou l'après-midi ET reçu les deux réponses.
   * Si le client confirme que c'est la bonne plaque (ex: "oui", "d'accord", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne", "oui c'est pour cette voiture"), utilise cette plaque pour le rendez-vous. NE PROPOSE PAS d'envoyer un message dans ce cas.
   * Si le client dit que ce n'est PAS la bonne plaque OU que c'est pour un autre véhicule (ex: "ce n'est pas la bonne", "j'ai changé de voiture", "c'est une autre voiture"), alors tu dis: "D'accord, je vais vous envoyer un message pour que vous puissiez m'indiquer la plaque de ce véhicule."
   * ⚠️ RÈGLE RÉPONSE COURTE après "Est-ce bien correct ?" : si le client répond par UN SEUL MOT (ex: "non", "nan", "oui") ou une réponse très courte, la reconnaissance vocale peut se tromper ("oui" entendu "non"). Dans le doute, reformule UNE FOIS : "Vous confirmez que c'est bien la bonne plaque pour ce rendez-vous ?" avant de proposer d'envoyer un message. Ne propose d'envoyer un message que si le client a clairement dit que ce n'est pas la bonne plaque ou que c'est pour un autre véhicule (phrase explicite).
@@ -6863,12 +6866,13 @@ But: être naturel et mettre le client en confiance.`,
                     const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
                     console.log(`👋 Greeting avec nom client joué via ${providerName}.`, { callSid, consentRequired, salutationName, lastName, clientName: clientInfo.name });
                     if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
-                  } else if ((initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
-                    // Greeting déjà joué et consentement donné : si le client a un rendez-vous enregistré (pas en attente), le notifier
+                  } else if (!rdvNotificationFollowupPlayed && (initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
+                    // Greeting déjà joué et consentement donné : notifier le RDV enregistré au plus une fois par appel (évite de rejouer en plein flux RDV)
                     const appointments = clientInfo.appointments || [];
                     if (appointments.length > 0) {
                       const apt = appointments[0];
                       if (apt.en_attente_confirmation_garage !== true) {
+                        rdvNotificationFollowupPlayed = true;
                         const date = new Date(apt.appointment_date);
                         const dateStr = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
                         const rdvNotification = `Je vois que vous avez un rendez-vous enregistré pour le ${dateStr} à ${apt.appointment_time}. En quoi puis-je vous aider ?`;
