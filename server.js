@@ -740,6 +740,12 @@ wss.on("connection", (ws, req) => {
   const AUTOGURU_INGEST_URL_ENV = process.env.AUTOGURU_INGEST_URL ?? ""; // ex: https://<autoguru>/api/twilio/realtime-ingest
   const AUTOGURU_INGEST_SECRET_ENV = process.env.AUTOGURU_INGEST_SECRET ?? "";
   const RUN_ANALYSIS_SECRET_ENV = process.env.RUN_ANALYSIS_SECRET ?? ""; // même valeur que sur AutoGuru (Vercel)
+  /** En-têtes pour les appels vers l'API AutoGuru (Vercel), dont TTS et run-analysis (Bearer). */
+  function autoguruApiHeaders(overrides = {}) {
+    const h = { "Content-Type": "application/json", ...overrides };
+    if (RUN_ANALYSIS_SECRET_ENV) h["Authorization"] = "Bearer " + RUN_ANALYSIS_SECRET_ENV;
+    return h;
+  }
   let autoguruIngestUrl = "";
   let autoguruIngestToken = "";
   let callToken = ""; // Twilio CallToken (appel entrant) → transfert affiche le numéro client au garage
@@ -913,7 +919,7 @@ wss.on("connection", (ws, req) => {
       if (!clean) return;
       await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: autoguruApiHeaders(),
         body: JSON.stringify({
           ...(token ? { token } : { secret }),
           callSid,
@@ -981,7 +987,7 @@ wss.on("connection", (ws, req) => {
       if (noRequest) console.log("📌 no_request (client n'a pas parlé):", { userSpeakCount, assistantTurnCount });
       const finalizeResponse = await fetch(finalizeUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: autoguruApiHeaders(),
         body: JSON.stringify({
           ...(token ? { token } : { secret }),
           callSid: sidToFinalize,
@@ -1028,7 +1034,7 @@ wss.on("connection", (ws, req) => {
             console.log("🔄 Run-analysis: envoi POST pour appel", result.callId, "(réponse dans 30–120 s)");
             fetch(runAnalysisUrl, {
               method: "POST",
-              headers: { "Authorization": "Bearer " + runAnalysisSecret },
+              headers: autoguruApiHeaders(),
             }).then((r) => {
               if (r.ok) console.log("✅ Run-analysis terminé pour appel", result.callId);
               else console.warn("⚠️ Run-analysis non ok:", r.status, runAnalysisUrl.slice(0, 60) + "...");
@@ -1059,7 +1065,7 @@ wss.on("connection", (ws, req) => {
       const hangupUrl = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/hangup");
       await fetch(hangupUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: autoguruApiHeaders(),
         body: JSON.stringify({
           ...(token ? { token } : { secret }),
           callSid,
@@ -1095,7 +1101,7 @@ wss.on("connection", (ws, req) => {
       if (LOG_VERBOSE) console.log("📩 requestPlateSmsIfNeeded:", { trigger, forceSend, plateSmsSendOnFinalize, shouldForce });
       const resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: autoguruApiHeaders(),
         body: JSON.stringify({
           ...(token ? { token } : { secret }),
           callSid,
@@ -1124,7 +1130,7 @@ wss.on("connection", (ws, req) => {
             const forceUrl = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/plate-sms/request");
             const forceResp = await fetch(forceUrl, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: autoguruApiHeaders(),
               body: JSON.stringify({
                 ...(token ? { token } : { secret }),
                 callSid,
@@ -1220,7 +1226,7 @@ wss.on("connection", (ws, req) => {
       );
       const resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: autoguruApiHeaders(),
         body: JSON.stringify({
           ...(token ? { token } : { secret }),
           garageId: garageId || null,
@@ -1377,7 +1383,7 @@ wss.on("connection", (ws, req) => {
       const url = String(ingestUrl).replace(/\/api\/twilio\/realtime-ingest\/?$/i, "/api/twilio/plate-sms/status");
       const resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: autoguruApiHeaders(),
         body: JSON.stringify({
           ...(token ? { token } : { secret }),
           callSid,
@@ -6024,7 +6030,7 @@ But: être naturel et mettre le client en confiance.`,
                           transferTriggered = true; // AVANT le fetch : au redirect client vers hold, le stream s'arrête ; on doit déjà avoir le flag pour différer le finalize
                           fetch(`${baseUrl}/api/twilio/call-transfer`, {
                             method: "POST",
-                            headers: { "Content-Type": "application/json" },
+                            headers: autoguruApiHeaders(),
                             body: JSON.stringify({ callSid, garageId, token, ...(callToken ? { callToken } : {}) }),
                           }).then(async (res) => {
                             const data = await res.json().catch(() => ({}));
@@ -6756,10 +6762,9 @@ But: être naturel et mettre le client en confiance.`,
               console.log("🔍 Appel API client-info:", clientInfoUrl.replace(/secret=\S+|token=\S+/, "***"));
               
               const headers = {};
-              if (secretToUse) {
-                headers["x-secret"] = secretToUse;
-              }
-              
+              if (RUN_ANALYSIS_SECRET_ENV) headers["Authorization"] = "Bearer " + RUN_ANALYSIS_SECRET_ENV;
+              if (secretToUse) headers["x-secret"] = secretToUse;
+
               const response = await fetch(clientInfoUrl, {
                 method: "GET",
                 headers,
