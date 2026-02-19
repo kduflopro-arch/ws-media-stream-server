@@ -3954,7 +3954,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             ? "TRANSFERT VERS LE GARAGE: interdit (garage fermé). Si le client demande à être transféré ou à parler à un humain, tu DOIS dire exactement: 'Le garage est actuellement fermé mais je peux gérer votre demande.' Puis propose: 'Souhaitez-vous que le garage vous rappelle ?' Tu ne transfères jamais."
             : "TRANSFERT VERS LE GARAGE: désactivé par le garage. Si le client demande à être transféré ou à parler à un humain, tu DOIS dire: 'Pour le moment, je ne peux pas transférer directement vers le garage, mais je peux transmettre un message et demander qu'on vous rappelle. Souhaitez-vous que le garage vous rappelle ?' Tu ne dis jamais que tu peux transférer.");
         const validationDevisLine = `VALIDATION DE DEVIS (priorité haute): Si le client appelle POUR VALIDER un devis déjà établi par le garage (ex: "j'appelle pour valider mon devis", "je valide le devis", "j'ai reçu le devis je confirme"), tu DOIS:
-- Si transfert activé: dis EXACTEMENT "D'accord, je vais vous mettre en relation avec le garage pour la validation de votre devis." puis appelle immédiatement transfer_to_garage (après get_opening_hours si le garage est ouvert). Ne demande pas "Souhaitez-vous que je vous transfère ?". Si le garage ne répond pas (réponse de l'outil indique un échec), dis EXACTEMENT: "Le garage ne répond pas mais j'ai pris note pour votre demande, une personne vous rappellera le plus vite que possible." Ne demande PAS "Souhaitez-vous que le garage vous rappelle ?".
+- Si transfert activé: appelle transfer_to_garage avec validation_devis: true (et non validation_devis: false). Appelle immédiatement après get_opening_hours si le garage est ouvert. Ne demande pas "Souhaitez-vous que je vous transfère ?". Si le garage ne répond pas (réponse de l'outil indique un échec), dis EXACTEMENT: "Le garage ne répond pas mais j'ai pris note pour votre demande, une personne vous rappellera le plus vite que possible." Ne demande PAS "Souhaitez-vous que le garage vous rappelle ?".
 - Si transfert désactivé: dis EXACTEMENT: "D'accord, je prends note. Le garage vous rappellera le plus rapidement possible." Ne demande PAS "Souhaitez-vous que le garage vous rappelle ?".`;
 
         const transferFailedLine = transferFailed
@@ -4427,7 +4427,7 @@ ${garageClosed
           { type: "function", name: "get_garage_faq", description: "Récupère les questions fréquentes et réponses. À appeler pour une question type FAQ.", parameters: { type: "object", properties: {} } },
           { type: "function", name: "get_opening_hours", description: "Récupère les horaires d'ouverture et les jours de fermeture. À appeler quand le client demande les horaires ou pour annoncer les créneaux avant un RDV.", parameters: { type: "object", properties: {} } },
           { type: "function", name: "get_garage_services_includes", description: "Récupère les prestations incluses (ex: révision comprend diagnostic). À appeler pour éviter doublons ou expliquer qu'une prestation en inclut une autre.", parameters: { type: "object", properties: {} } },
-          ...(allowTransfer ? [{ type: "function", name: "transfer_to_garage", description: "Transfère l'appel vers le garage (un humain). À appeler UNIQUEMENT quand le client demande explicitement à être transféré, à parler à quelqu'un du garage ou à un humain. Après avoir appelé cet outil, dis 'Je vous transfère vers le garage, un instant.' et ne dis rien d'autre.", parameters: { type: "object", properties: {} } }] : []),
+          ...(allowTransfer ? [{ type: "function", name: "transfer_to_garage", description: "Transfère l'appel vers le garage (un humain). À appeler quand le client demande à être transféré, à parler à quelqu'un du garage ou pour VALIDER un devis. Argument validation_devis: true si le client appelle POUR VALIDER un devis déjà établi (ex: 'j'appelle pour valider mon devis').", parameters: { type: "object", properties: { validation_devis: { type: "boolean", description: "true si le client appelle pour valider un devis déjà établi par le garage" } } } }] : []),
         ];
 
         const sessionUpdate = {
@@ -6050,13 +6050,21 @@ But: être naturel et mettre le client en confiance.`,
               }
               else if (toolName === "get_garage_services_includes") output = [servicesIncludesSummary || "", servicesRequiringStockSummary ? `Prestations avec stock: ${servicesRequiringStockSummary}` : ""].filter(Boolean).join("\n") || "Prestations incluses non renseignées.";
               else if (toolName === "transfer_to_garage") {
+                // L'IA peut passer validation_devis: true dans les arguments de l'outil
+                try {
+                  const args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {};
+                  if (args.validation_devis === true) {
+                    validationDevisByClient = true;
+                    if (LOG_VERBOSE) console.log("ℹ️ Validation devis (IA a passé validation_devis: true dans transfer_to_garage).");
+                  }
+                } catch (_) { /* ignore */ }
                 const baseUrl = (typeof autoguruIngestUrl === "string" && autoguruIngestUrl) ? autoguruIngestUrl.replace(/\/api\/twilio\/realtime-ingest.*$/, "").replace(/\/$/, "") : "";
                 const token = (typeof autoguruIngestToken === "string" && autoguruIngestToken) ? autoguruIngestToken : "";
                 const prevItemId = previousItemId;
                 if (baseUrl && token && callSid && garageId) {
                   transferOutputDeferred = true;
-                  // Annoncer le transfert avec MiniMax, puis attendre la fin du TTS avant de lancer le transfert
-                  enqueuePremiumTts("Transfert vers le garage, un instant.", {
+                  const ttsPhrase = validationDevisByClient ? "D'accord, je vais vous mettre en relation avec le garage pour la validation de votre devis. Je vous transfère, un instant." : "Transfert vers le garage, un instant.";
+                  enqueuePremiumTts(ttsPhrase, {
                     interrupt: true,
                     source: "transfer_to_garage",
                     allowWithoutUser: true,
