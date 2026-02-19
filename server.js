@@ -3022,6 +3022,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)(\d{1,2})(?=\s|$|[a-zàâæçéèêëîïôùûü])/gi, "$1 $2");
     // Mois + chiffre sans espace (ex: "février11")
     t = t.replace(/\b(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)(\d{1,2})(?=\s|$|[a-zàâæçéèêëîïôùûü])/gi, "$1 $2");
+    // Dates: convertir le jour en lettres pour une meilleure prononciation TTS (ex: "samedi 21 février" -> "samedi vingt-et-un février")
+    const dayToFrench = (d) => { const n = Number(d); return n === 1 ? "premier" : numberToFrenchWordsTts(n); };
+    t = t.replace(/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+(\d{1,2})\s+(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\b/gi, (_, j, d, m) => `${j} ${dayToFrench(d)} ${m}`);
+    t = t.replace(/\ble\s+(\d{1,2})\s+(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\b/gi, (_, d, m) => `le ${dayToFrench(d)} ${m}`);
     // Pas de règle générale déterminant+lettre: ça casse des mots (mais→ma is, cent→ce nt, Duflo→Du flo, samedi→sa medi, Monsieur→Mon sieur)
     // CORRECTION FRANÇAIS (ordre: plus long d'abord) — mots coupés/collés par le modèle → français correct pour Minimax
     t = t.replace(/lors\s+du\s+de\s+vis/gi, "lors du devis");
@@ -3248,6 +3252,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       
       return timeExpression;
     });
+    // Supprimer les secondes ":00" laissées après conversion d'heure (ex: "dix heures quatre:00" -> "dix heures quatre")
+    t = t.replace(/\bheures\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf|onze|douze|treize|quatorze|quinze|seize|vingt|trente|quarante|cinquante):00\b/gi, "heures $1");
     // Format "8h" sans minutes
     t = t.replace(/\b(\d{1,2})\s*[hH]\b/gi, (_, h) => {
       const hoursNum = Number(h);
@@ -3940,7 +3946,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             : "TRANSFERT VERS LE GARAGE: désactivé par le garage. Si le client demande à être transféré ou à parler à un humain, tu DOIS dire: 'Pour le moment, je ne peux pas transférer directement vers le garage, mais je peux transmettre un message et demander qu'on vous rappelle. Souhaitez-vous que le garage vous rappelle ?' Tu ne dis jamais que tu peux transférer.");
 
         const transferFailedLine = transferFailed
-          ? "RECONNEXION APRÈS TRANSFERT RATÉ: Tu viens de dire 'Le garage n'a pas répondu. Voulez-vous être rappelé par le garage ?'. Le client avait déjà donné son accord (consentement) au début de l'appel. NE REDEMANDE JAMAIS le consentement ni la phrase d'accueil. Après que le client réponde (oui ou non au rappel), dis brièvement 'Je note' ou 'D\'accord' si oui, puis: 'Avez-vous besoin d'autre chose ?' Si le client demande des infos (tarifs, horaires, devis, RDV), RÉPONDS NORMALEMENT en t'appuyant sur les données du garage (tarifs, horaires, procédure). Si le client dit non aux deux (pas rappel + rien d'autre), dis 'Au revoir et bonne journée !'"
+          ? "RECONNEXION APRÈS TRANSFERT RATÉ: Tu viens de dire 'Le garage n'a pas répondu. Voulez-vous être rappelé par le garage ?'. Le client avait déjà donné son accord (consentement) au début de l'appel. NE REDEMANDE JAMAIS le consentement ni la phrase d'accueil. NE REDONNE PAS la date du rendez-vous enregistré au client, sauf si le client le demande explicitement (ex: 'C'est quand mon rendez-vous ?', 'Quelle est la date ?'). Après que le client réponde (oui ou non au rappel), dis brièvement 'Je note' ou 'D\'accord' si oui, puis: 'Avez-vous besoin d'autre chose ?' Si le client demande des infos (tarifs, horaires, devis, RDV), RÉPONDS NORMALEMENT en t'appuyant sur les données du garage (tarifs, horaires, procédure). Si le client dit non aux deux (pas rappel + rien d'autre), dis 'Au revoir et bonne journée !'"
           : "";
 
         // Construire la section infos client pour le prompt
@@ -3952,11 +3958,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             ? appointments.map((apt) => {
                 const date = new Date(apt.appointment_date);
                 const dateStr = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+                const aptTime = (apt.appointment_time || "").slice(0, 5);
                 const service = apt.service_requested ? ` (${apt.service_requested})` : "";
                 const statutRdv = apt.en_attente_confirmation_garage === true
                   ? " — DEMANDE EN ATTENTE de confirmation par le garage (pas encore enregistrée)"
                   : " — Rendez-vous ENREGISTRÉ (déjà confirmé par le garage)";
-                return `- ${dateStr} à ${apt.appointment_time}${service}${statutRdv}`;
+                return `- ${dateStr} à ${aptTime}${service}${statutRdv}`;
               }).join("\n")
             : "Aucun rendez-vous à venir.";
           
@@ -6851,7 +6858,8 @@ But: être naturel et mettre le client en confiance.`,
                       if (apt.en_attente_confirmation_garage === true) {
                         appointmentLine = ""; // Ne pas communiquer la demande en attente au client en début d'appel ; l'IA ne la mentionne que si le client le demande.
                       } else {
-                        appointmentLine = `Je vois que vous avez un rendez-vous enregistré pour le ${dateStr} à ${apt.appointment_time}.`;
+                        const aptTime = (apt.appointment_time || "").slice(0, 5);
+                        appointmentLine = `Je vois que vous avez un rendez-vous enregistré pour le ${dateStr} à ${aptTime}.`;
                       }
                     }
                     const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
@@ -6871,8 +6879,9 @@ But: être naturel et mettre le client en confiance.`,
                     const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
                     console.log(`👋 Greeting avec nom client joué via ${providerName}.`, { callSid, consentRequired, salutationName, lastName, clientName: clientInfo.name });
                     if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
-                  } else if (!rdvNotificationFollowupPlayed && (initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
+                  } else if (!transferFailed && !rdvNotificationFollowupPlayed && (initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
                     // Greeting déjà joué et consentement donné : notifier le RDV enregistré au plus une fois par appel (évite de rejouer en plein flux RDV)
+                    // IMPORTANT: Ne pas jouer en reconnexion après transfert raté (le client connaît déjà son RDV)
                     const appointments = clientInfo.appointments || [];
                     if (appointments.length > 0) {
                       const apt = appointments[0];
@@ -6880,7 +6889,8 @@ But: être naturel et mettre le client en confiance.`,
                         rdvNotificationFollowupPlayed = true;
                         const date = new Date(apt.appointment_date);
                         const dateStr = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-                        const rdvNotification = `Je vois que vous avez un rendez-vous enregistré pour le ${dateStr} à ${apt.appointment_time}. En quoi puis-je vous aider ?`;
+                        const aptTime = (apt.appointment_time || "").slice(0, 5);
+                        const rdvNotification = `Je vois que vous avez un rendez-vous enregistré pour le ${dateStr} à ${aptTime}. En quoi puis-je vous aider ?`;
                         enqueuePremiumTts(rdvNotification, { interrupt: true, source: "rdv_notification_followup", allowWithoutUser: true });
                         console.log("👋 Notification RDV enregistré jouée (consentement donné).", { callSid });
                       }
