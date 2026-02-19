@@ -764,6 +764,7 @@ wss.on("connection", (ws, req) => {
   let rdvRefusedByClient = false; // Client a refusé de prendre rendez-vous (envoyé au finalize → rdv_requested false)
   let rdvAcceptedByClient = false; // Client a accepté explicitement la prise de rendez-vous (badge RDV)
   let devisAcceptedByClient = false; // Client a accepté une demande de devis (envoyé au finalize → badge "Devis demandé")
+  let validationDevisByClient = false; // Client appelle pour valider un devis déjà établi (urgence maximale, carte dorée)
   let modificationRdvByClient = false; // Client a demandé à modifier un RDV (badge Modif. RDV)
   let annulationRdvByClient = false; // Client a demandé à annuler un RDV (badge Annul. RDV)
   let transferToGarageStatus = null; // 'success' | 'failure' | null — mis par webhooks Twilio (transfer-join human = success, transfer-garage-status = failure)
@@ -967,7 +968,7 @@ wss.on("connection", (ws, req) => {
       // Badges : rdv si client a accepté un RDV OU si l'assistant a déjà demandé jour/créneau (demande RDV non aboutie → badge RDV quand même)
       const rdvRequestedFromWs = (rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient);
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
-      console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage_status: transferToGarageStatus });
+      console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, validation_devis: validationDevisByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage_status: transferToGarageStatus });
       console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, assistantAskedForDayOrSlot });
       // Si l'IA a déjà dit une phrase post-consentement ("En quoi puis-je vous aider ?", "Bonjour Monsieur/Madame...") alors le client a forcément donné son accord
       const lastLow = (lastAssistantText || "").toLowerCase().trim();
@@ -999,6 +1000,7 @@ wss.on("connection", (ws, req) => {
           callback_refused_rappele: callbackRefusedByClient,
           callback_accepted_rappele: callbackAcceptedByClient,
           devis_requested: devisAcceptedByClient,
+          validation_devis: validationDevisByClient,
           rdv_refused: rdvRefusedByClient,
           rdv_accepted: rdvAcceptedByClient,
           rdv_requested: rdvRequestedFromWs,
@@ -3940,10 +3942,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           : "Info horaires (interne): garage indiqué ouvert.";
 
         const transferLine = allowTransfer
-          ? "TRANSFERT VERS LE GARAGE: activé. AVANT d'appeler transfer_to_garage, tu DOIS appeler get_opening_hours. Si le résultat indique 'État actuel: le garage est actuellement FERMÉ', ne transfère PAS et dis: 'Le garage est actuellement fermé mais je peux gérer votre demande. Souhaitez-vous que le garage vous rappelle ?' Si le garage est OUVERT, appelle transfer_to_garage puis dis: 'Je vous transfère vers le garage, un instant.' Si le transfert échoue (réponse de l'outil indique un échec), propose: 'Souhaitez-vous que le garage vous rappelle ?'"
+          ? "TRANSFERT VERS LE GARAGE: activé. AVANT d'appeler transfer_to_garage, tu DOIS appeler get_opening_hours. Si le résultat indique 'État actuel: le garage est actuellement FERMÉ', ne transfère PAS et dis: 'Le garage est actuellement fermé mais je peux gérer votre demande. Souhaitez-vous que le garage vous rappelle ?' Si le garage est OUVERT, appelle transfer_to_garage puis dis: 'Je vous transfère vers le garage, un instant.' Si le transfert échoue (réponse de l'outil indique un échec), suis la consigne dans la réponse de l'outil (validation devis ou proposition de rappel)."
           : (garageClosed
             ? "TRANSFERT VERS LE GARAGE: interdit (garage fermé). Si le client demande à être transféré ou à parler à un humain, tu DOIS dire exactement: 'Le garage est actuellement fermé mais je peux gérer votre demande.' Puis propose: 'Souhaitez-vous que le garage vous rappelle ?' Tu ne transfères jamais."
             : "TRANSFERT VERS LE GARAGE: désactivé par le garage. Si le client demande à être transféré ou à parler à un humain, tu DOIS dire: 'Pour le moment, je ne peux pas transférer directement vers le garage, mais je peux transmettre un message et demander qu'on vous rappelle. Souhaitez-vous que le garage vous rappelle ?' Tu ne dis jamais que tu peux transférer.");
+        const validationDevisLine = `VALIDATION DE DEVIS (priorité haute): Si le client appelle POUR VALIDER un devis déjà établi par le garage (ex: "j'appelle pour valider mon devis", "je valide le devis", "j'ai reçu le devis je confirme"), tu DOIS:
+- Si transfert activé: proposer le transfert vers le garage. Si le garage ne répond pas (réponse de l'outil transfer_to_garage indique un échec), dis EXACTEMENT: "Le garage ne répond pas mais j'ai pris note pour votre demande, une personne vous rappellera le plus vite que possible." Ne demande PAS "Souhaitez-vous que le garage vous rappelle ?".
+- Si transfert désactivé: dis EXACTEMENT: "D'accord, je prends note. Le garage vous rappellera le plus rapidement possible." Ne demande PAS "Souhaitez-vous que le garage vous rappelle ?".`;
 
         const transferFailedLine = transferFailed
           ? "RECONNEXION APRÈS TRANSFERT RATÉ: Tu viens de dire 'Le garage n'a pas répondu. Voulez-vous être rappelé par le garage ?'. Le client avait déjà donné son accord (consentement) au début de l'appel. NE REDEMANDE JAMAIS le consentement ni la phrase d'accueil. NE REDONNE PAS la date du rendez-vous enregistré au client, sauf si le client le demande explicitement (ex: 'C'est quand mon rendez-vous ?', 'Quelle est la date ?'). Après que le client réponde (oui ou non au rappel), dis brièvement 'Je note' ou 'D\'accord' si oui, puis: 'Avez-vous besoin d'autre chose ?' Si le client demande des infos (tarifs, horaires, devis, RDV), RÉPONDS NORMALEMENT en t'appuyant sur les données du garage (tarifs, horaires, procédure). Si le client dit non aux deux (pas rappel + rien d'autre), dis 'Au revoir et bonne journée !'"
@@ -4159,6 +4164,8 @@ ${todayDateLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
 ${transferLine}
+${validationDevisLine}
+
 ${transferFailedLine ? `${transferFailedLine}\n` : ""}
 
 DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil.
@@ -4470,6 +4477,9 @@ ${consentLine}
 ${todayDateLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
+${transferLine}
+${validationDevisLine}
+
 ${transferFailedLine ? `${transferFailedLine}\n` : ""}
 DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil.
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
@@ -6046,7 +6056,9 @@ But: être naturel et mettre le client en confiance.`,
                               out = "Transfert en cours. L'appel est en train d'être redirigé vers le garage.";
                               console.log("✅ Transfert vers le garage déclenché:", callSid);
                             } else {
-                              out = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
+                              out = validationDevisByClient
+                                ? "Le transfert n'a pas pu être effectué. Tu DOIS dire EXACTEMENT au client: 'Le garage ne répond pas mais j'ai pris note pour votre demande, une personne vous rappellera le plus vite que possible.' Ne propose PAS le rappel."
+                                : "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
                               transferToGarageStatus = "failure";
                               transferTriggered = false; // pas de redirect → stream peut encore être actif ; on ne diffère pas le finalize
                               console.warn("⚠️ call-transfer échec:", res.status, data);
@@ -6067,7 +6079,9 @@ But: être naturel et mettre le client en confiance.`,
                             console.error("❌ Erreur call-transfer:", err);
                             transferToGarageStatus = "failure";
                             transferTriggered = false;
-                            const out = "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
+                            const out = validationDevisByClient
+                              ? "Le transfert n'a pas pu être effectué. Tu DOIS dire EXACTEMENT au client: 'Le garage ne répond pas mais j'ai pris note pour votre demande, une personne vous rappellera le plus vite que possible.' Ne propose PAS le rappel."
+                              : "Le transfert n'a pas pu être effectué. Propose au client que le garage le rappelle.";
                             try {
                               openaiWs.send(JSON.stringify({
                                 type: "conversation.item.create",
@@ -6334,6 +6348,15 @@ But: être naturel et mettre le client en confiance.`,
               annulationRdvByClient = true;
               modificationRdvByClient = false;
               if (LOG_VERBOSE) console.log("ℹ️ Demande d'annulation de RDV.", { userText: userText?.substring(0, 50) });
+            }
+            // Détection validation de devis : client appelle pour valider un devis déjà établi par le garage
+            const userWantsValidateDevis = /\b(valider|confirmer|accepter)\s+(le\s+|mon\s+)?devis\b/i.test(userTextNorm) ||
+              /\bj'appelle\s+pour\s+valider\s+(mon\s+)?devis\b/i.test(userTextNorm) ||
+              (/\bj'ai\s+reçu\s+(le\s+)?devis\b/i.test(userTextNorm) && /\b(je\s+)?(confirme|valide|accepte)\b/i.test(userTextNorm)) ||
+              (/\bdevis\s+(déjà\s+)?(établi|envoyé|reçu)\b/i.test(userTextNorm) && /\b(valider|confirmer|accepter)\b/i.test(userTextNorm));
+            if (userWantsValidateDevis) {
+              validationDevisByClient = true;
+              if (LOG_VERBOSE) console.log("ℹ️ Validation de devis (client appelle pour valider un devis déjà établi).", { userText: userText?.substring(0, 50) });
             }
             // Secours: si l'IA a demandé la plaque pour le devis et que le client donne/confirme sa plaque → devis demandé
             if (!devisAcceptedByClient && lastAssistantText) {
