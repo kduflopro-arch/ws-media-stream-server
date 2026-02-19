@@ -6048,7 +6048,7 @@ But: être naturel et mettre le client en confiance.`,
                           fetch(`${baseUrl}/api/twilio/call-transfer`, {
                             method: "POST",
                             headers: autoguruApiHeaders(),
-                            body: JSON.stringify({ callSid, garageId, token, ...(callToken ? { callToken } : {}) }),
+                            body: JSON.stringify({ callSid, garageId, token, ...(callToken ? { callToken } : {}), ...(validationDevisByClient ? { validation_devis: true } : {}) }),
                           }).then(async (res) => {
                             const data = await res.json().catch(() => ({}));
                             let out = "";
@@ -6350,8 +6350,10 @@ But: être naturel et mettre le client en confiance.`,
               if (LOG_VERBOSE) console.log("ℹ️ Demande d'annulation de RDV.", { userText: userText?.substring(0, 50) });
             }
             // Détection validation de devis : client appelle pour valider un devis déjà établi par le garage
-            const userWantsValidateDevis = /\b(valider|confirmer|accepter)\s+(le\s+|mon\s+)?devis\b/i.test(userTextNorm) ||
+            const userWantsValidateDevis = /\b(valider|confirmer|accepter)\s+(le\s+|mon\s+|un\s+)?devis\b/i.test(userTextNorm) ||
+              /\b(aimerais|voudrais|veux|souhaite)\s+(valider|confirmer|accepter)\s+(un\s+|mon\s+|le\s+)?devis\b/i.test(userTextNorm) ||
               /\bj'appelle\s+pour\s+valider\s+(mon\s+)?devis\b/i.test(userTextNorm) ||
+              /\bdevis\s+(que\s+)?(le\s+garage\s+)?(m['']a\s+)?(a\s+)?(fait|établi|envoyé)\b/i.test(userTextNorm) ||
               (/\bj'ai\s+reçu\s+(le\s+)?devis\b/i.test(userTextNorm) && /\b(je\s+)?(confirme|valide|accepte)\b/i.test(userTextNorm)) ||
               (/\bdevis\s+(déjà\s+)?(établi|envoyé|reçu)\b/i.test(userTextNorm) && /\b(valider|confirmer|accepter)\b/i.test(userTextNorm));
             if (userWantsValidateDevis) {
@@ -6674,6 +6676,7 @@ But: être naturel et mettre le client en confiance.`,
           "";
         const finalAllowTransfer = startParams.allowTransfer || "";
         const finalTransferFailed = startParams.transfer_failed || "";
+        const finalValidationDevis = startParams.validation_devis || "";
         const finalCollectVehicleInfo = startParams.collectVehicleInfo || "";
         const finalPricingSummary = startParams.pricingSummary || "";
         const finalServicesSummary = startParams.servicesSummary || "";
@@ -6725,6 +6728,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
+        if (typeof finalValidationDevis === "string" && finalValidationDevis.trim().toLowerCase() === "true") validationDevisByClient = true;
         if (transferFailed) {
           transferToGarageStatus = "failure"; // Session reconnexion après transfert raté → finalize enverra "failure"
           transferTriggered = true; // pour envoyer transfer_to_garage: true au finalize
@@ -6747,7 +6751,9 @@ But: être naturel et mettre le client en confiance.`,
 
         // Si le client revient après un transfert raté (garage n'a pas répondu / répondeur), annoncer UNIQUEMENT ce message (pas la phrase d'accueil)
         if (transferFailed) {
-          const transferFailedMsg = "Le garage n'a pas répondu. Voulez-vous être rappelé par le garage ?";
+          const transferFailedMsg = validationDevisByClient
+            ? "Le garage ne répond pas mais j'ai pris note pour votre demande, une personne vous rappellera le plus vite que possible. Avez-vous besoin d'autre chose ?"
+            : "Le garage n'a pas répondu. Voulez-vous être rappelé par le garage ?";
           initialAssistantGreetingText = transferFailedMsg;
           hasSentInitialGreeting = true;
           if (PREMIUM_TTS_ENABLED) {
