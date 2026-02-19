@@ -2927,12 +2927,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const tens = Math.floor(n2 / 10) * 10;
         const unit = n2 % 10;
         if (unit === 0) return tensMap[tens];
-        if (unit === 1) return `${tensMap[tens]} et un`;
+        if (unit === 1) return `${tensMap[tens]}-et-un`;
         return `${tensMap[tens]}-${units[unit]}`;
       }
       if (n2 < 80) {
         const rest = n2 - 60;
-        if (rest === 11) return "soixante et onze";
+        if (rest === 11) return "soixante-et-onze";
         return `soixante-${units[rest]}`;
       }
       if (n2 < 100) {
@@ -2961,11 +2961,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     return `${thousandWord} ${threeDigits(rest)}`;
   }
 
-  // Variante "TTS-friendly": pour 80-99 garder les tirets (quatre-vingt-trois) pour une prononciation plus naturelle ; sinon remplacer par espaces
+  // Variante "TTS-friendly": nombres composés avec tirets (vingt-et-un, trente-et-un, quatre-vingt-trois, etc.) pour une prononciation correcte
   function numberToFrenchWordsTts(n) {
     const num = typeof n === "number" ? n : Number(String(n).replace(/\s+/g, ""));
     const raw = numberToFrenchWords(n);
-    if (num >= 80 && num <= 99) return raw; // "quatre-vingt-trois" plus naturel que "quatre vingt trois"
+    // Garder les tirets pour 21-99 (vingt-et-un, trente-et-un, quatre-vingt-trois, etc.)
+    if (num >= 21 && num <= 99) return raw;
     return raw.replace(/-/g, " ").replace(/\s+/g, " ").trim();
   }
 
@@ -3018,6 +3019,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bsoixante\s+dix\s+(neuf|huit|sept|six|cinq|quatre|trois|deux|un)\b/gi, (_, u) => `soixante-dix-${u}`);
     t = t.replace(/\bsoixante\s+(onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf)\b/gi, (_, u) => `soixante-${u}`);
     t = t.replace(/\bsoixante\s+dix\b/gi, "soixante-dix");
+    // Nombres composés avec "et" → tirets (vingt et un → vingt-et-un, soixante et onze → soixante-et-onze)
+    t = t.replace(/\bvingt\s+et\s+un\b/gi, "vingt-et-un");
+    t = t.replace(/\btrente\s+et\s+un\b/gi, "trente-et-un");
+    t = t.replace(/\bquarante\s+et\s+un\b/gi, "quarante-et-un");
+    t = t.replace(/\bcinquante\s+et\s+un\b/gi, "cinquante-et-un");
+    t = t.replace(/\bsoixante\s+et\s+un\b/gi, "soixante-et-un");
+    t = t.replace(/\bsoixante\s+et\s+onze\b/gi, "soixante-et-onze");
     // Espace obligatoire après une virgule (demie,9 -> demie, 9)
     t = t.replace(/,([a-zàâæçéèêëîïôùûü0-9])/gi, ", $1");
     // "pour" + chiffre sans espace (pour9 -> pour 9)
@@ -6065,7 +6073,7 @@ But: être naturel et mettre le client en confiance.`,
                 const prevItemId = previousItemId;
                 if (baseUrl && token && callSid && garageId) {
                   transferOutputDeferred = true;
-                  const ttsPhrase = validationDevisByClient ? "D'accord, je vais vous mettre en relation avec le garage pour la validation de votre devis. Je vous transfère, un instant." : "Transfert vers le garage, un instant.";
+                  const ttsPhrase = validationDevisByClient ? "D'accord, je vais vous mettre en relation avec le garage pour la validation de votre devis." : "Transfert vers le garage, un instant.";
                   enqueuePremiumTts(ttsPhrase, {
                     interrupt: true,
                     source: "transfer_to_garage",
