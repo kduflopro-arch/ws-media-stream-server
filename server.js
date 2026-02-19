@@ -886,6 +886,13 @@ wss.on("connection", (ws, req) => {
     if (t.includes("bien noté") && t.includes("devis")) return true;
     return false;
   }
+  /** validation_devis = true dès que l'IA dit qu'elle va mettre en relation pour validation devis */
+  function isAssistantSayingValidationDevisTransfer(assistantText) {
+    const t = String(assistantText || "").toLowerCase();
+    return /\bmettre\s+en\s+relation\s+(avec\s+)?(le\s+)?garage\s+pour\s+(la\s+)?validation\s+(de\s+)?(votre|ton)\s+devis\b/i.test(t)
+      || /\b(je\s+)?(vais|va)\s+(vous|te)\s+mettre\s+en\s+relation.*validation.*devis\b/i.test(t)
+      || /\b(vous|te)\s+mettre\s+en\s+relation.*(garage|validation).*devis\b/i.test(t);
+  }
 
   function maybeSpeakCallbackAck() {
     if (callbackAckSpoken) return;
@@ -3947,7 +3954,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             ? "TRANSFERT VERS LE GARAGE: interdit (garage fermé). Si le client demande à être transféré ou à parler à un humain, tu DOIS dire exactement: 'Le garage est actuellement fermé mais je peux gérer votre demande.' Puis propose: 'Souhaitez-vous que le garage vous rappelle ?' Tu ne transfères jamais."
             : "TRANSFERT VERS LE GARAGE: désactivé par le garage. Si le client demande à être transféré ou à parler à un humain, tu DOIS dire: 'Pour le moment, je ne peux pas transférer directement vers le garage, mais je peux transmettre un message et demander qu'on vous rappelle. Souhaitez-vous que le garage vous rappelle ?' Tu ne dis jamais que tu peux transférer.");
         const validationDevisLine = `VALIDATION DE DEVIS (priorité haute): Si le client appelle POUR VALIDER un devis déjà établi par le garage (ex: "j'appelle pour valider mon devis", "je valide le devis", "j'ai reçu le devis je confirme"), tu DOIS:
-- Si transfert activé: proposer le transfert vers le garage. Si le garage ne répond pas (réponse de l'outil transfer_to_garage indique un échec), dis EXACTEMENT: "Le garage ne répond pas mais j'ai pris note pour votre demande, une personne vous rappellera le plus vite que possible." Ne demande PAS "Souhaitez-vous que le garage vous rappelle ?".
+- Si transfert activé: dis EXACTEMENT "D'accord, je vais vous mettre en relation avec le garage pour la validation de votre devis." puis appelle immédiatement transfer_to_garage (après get_opening_hours si le garage est ouvert). Ne demande pas "Souhaitez-vous que je vous transfère ?". Si le garage ne répond pas (réponse de l'outil indique un échec), dis EXACTEMENT: "Le garage ne répond pas mais j'ai pris note pour votre demande, une personne vous rappellera le plus vite que possible." Ne demande PAS "Souhaitez-vous que le garage vous rappelle ?".
 - Si transfert désactivé: dis EXACTEMENT: "D'accord, je prends note. Le garage vous rappellera le plus rapidement possible." Ne demande PAS "Souhaitez-vous que le garage vous rappelle ?".`;
 
         const transferFailedLine = transferFailed
@@ -5108,6 +5115,10 @@ But: être naturel et mettre le client en confiance.`,
                 devisAcceptedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté, conversation.item.done).", { text: doneText.substring(0, 60) });
               }
+              if (isAssistantSayingValidationDevisTransfer(doneText)) {
+                validationDevisByClient = true;
+                if (LOG_VERBOSE) console.log("ℹ️ Validation devis (IA dit mise en relation pour validation devis).", { text: doneText.substring(0, 80) });
+              }
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               // MAIS seulement si c'est pour un autre véhicule (pas si le client confirme la plaque existante)
               const low = String(doneText || "").toLowerCase();
@@ -5574,6 +5585,10 @@ But: être naturel et mettre le client en confiance.`,
                 if (extracted && extracted.trim()) {
                   const clean = extracted.trim();
                   if (LOG_VERBOSE) console.log("📝 Texte assistant depuis conversation.item.done:", clean.substring(0, 160));
+                  if (isAssistantSayingValidationDevisTransfer(clean)) {
+                    validationDevisByClient = true;
+                    if (LOG_VERBOSE) console.log("ℹ️ Validation devis (IA dit mise en relation pour validation devis, conversation.item.done).", { text: clean.substring(0, 80) });
+                  }
                   // Enregistrer la dernière parole client uniquement maintenant que l'IA a répondu (seules les phrases auxquelles l'IA répond sont retenues)
                   if (lastUserTextPendingIngest && lastUserTextPendingIngest.trim()) {
                     enqueueIngest("user", lastUserTextPendingIngest);
@@ -5714,6 +5729,10 @@ But: être naturel et mettre le client en confiance.`,
               if (isAssistantConfirmingDevis(doneText)) {
                 devisAcceptedByClient = true;
                 if (LOG_VERBOSE) console.log("ℹ️ Devis demandé (IA confirme devis noté).", { text: doneText.substring(0, 60) });
+              }
+              if (isAssistantSayingValidationDevisTransfer(doneText)) {
+                validationDevisByClient = true;
+                if (LOG_VERBOSE) console.log("ℹ️ Validation devis (IA dit mise en relation pour validation devis, output_text.done).", { text: doneText.substring(0, 80) });
               }
               // Si l'assistant propose d'envoyer un message pour la plaque, envoyer directement sans consentement
               // MAIS seulement si ce n'est pas une confirmation de plaque existante
@@ -6144,6 +6163,12 @@ But: être naturel et mettre le client en confiance.`,
                     extractedText += content.text;
                   } else if (typeof content === "string") {
                     extractedText += content;
+                  }
+                }
+                if (extractedText.trim()) {
+                  if (isAssistantSayingValidationDevisTransfer(extractedText)) {
+                    validationDevisByClient = true;
+                    if (LOG_VERBOSE) console.log("ℹ️ Validation devis (IA dit mise en relation pour validation devis, output_item).", { text: extractedText.substring(0, 80) });
                   }
                 }
                 if (extractedText.trim() && REALTIME_USE_ELEVEN) {
