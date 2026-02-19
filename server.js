@@ -3781,6 +3781,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // Connecter à OpenAI Realtime API
   async function connectToOpenAI() {
     let connectionTimeout = null;
+    let connectionTimeoutTriggered = false;
     if (!OPENAI_API_KEY) {
       console.error("❌ OpenAI API key manquante");
       return;
@@ -3844,21 +3845,22 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         return;
       }
       
-      // Ajouter un timeout pour la connexion
+      // Timeout configurable (défaut 15s, Render/OpenAI peut être lent)
+      const OPENAI_WS_TIMEOUT_MS = Number(process.env.OPENAI_WS_CONNECTION_TIMEOUT_MS) || 15000;
       connectionTimeout = setTimeout(() => {
         if (openaiWs && openaiWs.readyState !== WebSocket.OPEN) {
-          console.error("❌ Timeout connexion OpenAI WebSocket (10s)");
-          console.error("❌ État WebSocket:", openaiWs.readyState);
-          console.error("❌ États possibles: 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED");
+          connectionTimeoutTriggered = true;
+          console.error(`❌ Timeout connexion OpenAI WebSocket (${OPENAI_WS_TIMEOUT_MS / 1000}s)`);
+          console.error("❌ État WebSocket:", openaiWs.readyState, "(0=CONNECTING, 1=OPEN)");
           if (openaiWs) {
             try {
               openaiWs.close();
             } catch (e) {
-              // ignore
+              // ignore (ws peut throw si socket encore CONNECTING)
             }
           }
         }
-      }, 10000);
+      }, OPENAI_WS_TIMEOUT_MS);
       
       openaiWs.on("open", async () => {
         if (connectionTimeout) {
@@ -6631,14 +6633,25 @@ But: être naturel et mettre le client en confiance.`,
 
       openaiWs.on("error", (err) => {
         clearTimeout(connectionTimeout);
-        console.error("❌ Erreur OpenAI WS:", err);
-        console.error("❌ OpenAI WS error details:", {
-          message: err.message,
-          code: err.code,
-          stack: err.stack?.substring(0, 500),
-        });
-        // Si erreur de connexion, essayer de reconnecter après un délai
-        if (err.message && (err.message.includes("ECONNREFUSED") || err.message.includes("ETIMEDOUT") || err.message.includes("ENOTFOUND"))) {
+        const isTimeoutClose = connectionTimeoutTriggered || (err.message && err.message.includes("closed before the connection was established"));
+        if (isTimeoutClose) {
+          console.warn("⚠️ OpenAI WS: connexion interrompue (timeout ou fermeture avant établissement) — souvent dû à latence réseau Render↔OpenAI");
+        } else {
+          console.error("❌ Erreur OpenAI WS:", err);
+          console.error("❌ OpenAI WS error details:", {
+            message: err.message,
+            code: err.code,
+            stack: err.stack?.substring(0, 500),
+          });
+        }
+        // Si erreur de connexion ou timeout, essayer de reconnecter après un délai
+        const shouldRetry = err.message && (
+          err.message.includes("ECONNREFUSED") ||
+          err.message.includes("ETIMEDOUT") ||
+          err.message.includes("ENOTFOUND") ||
+          err.message.includes("closed before the connection was established")
+        );
+        if (shouldRetry) {
           console.warn("⚠️ Erreur réseau OpenAI, tentative de reconnexion dans 2s...");
           setTimeout(() => {
             if (ws.readyState === WebSocket.OPEN && (!openaiWs || openaiWs.readyState !== WebSocket.OPEN)) {
@@ -6656,12 +6669,10 @@ But: être naturel et mettre le client en confiance.`,
         }
         console.log("🔌 OpenAI WS fermé", { code, reason: reason?.toString() });
         if (code !== 1000) {
-          console.warn("⚠️ OpenAI WS fermé anormalement (code != 1000)");
-          // Si fermeture avant connexion (code 1006 = connexion fermée sans handshake)
-          if (code === 1006) {
-            console.error("❌ Connexion OpenAI fermée avant établissement (code 1006)");
-            console.error("❌ Vérifiez OPENAI_API_KEY et la connectivité réseau");
-          }
+          const msg = code === 1006
+            ? (connectionTimeoutTriggered ? "⚠️ Timeout connexion OpenAI (1006) — augmenter OPENAI_WS_CONNECTION_TIMEOUT_MS si récurrent" : "❌ Connexion OpenAI fermée avant établissement (1006) — vérifier OPENAI_API_KEY et connectivité réseau")
+            : "⚠️ OpenAI WS fermé anormalement (code != 1000)";
+          console.warn(msg);
         }
       });
     } catch (err) {
