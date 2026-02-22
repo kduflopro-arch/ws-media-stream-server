@@ -3800,7 +3800,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // Configurer le format audio dans l'URL de connexion.
       // On force PCM16 pour éviter tout mismatch de format en sortie (sinon Twilio joue du bruit).
       // IMPORTANT: Modèle Realtime (GPT-5 n'a pas encore de Realtime API)
-      const realtimeModel = "gpt-4o-mini-realtime-preview"; // gpt-4o-mini = version mini, moins cher, plus rapide
+      const realtimeModel = "gpt-realtime-mini"; // version mini Realtime (32k contexte, moins cher)
       const openaiUrl =
         `wss://api.openai.com/v1/realtime?model=${realtimeModel}&input_audio_format=pcm16&output_audio_format=pcm16`;
       console.log("☎️ Modèle Realtime utilisé:", realtimeModel);
@@ -4898,6 +4898,7 @@ But: être naturel et mettre le client en confiance.`,
             const rid = msg.response?.id ?? msg.response_id ?? null;
             const outputModalities = msg.response?.output_modalities || [];
             const hasAudioModality = Array.isArray(outputModalities) && outputModalities.includes("audio");
+            console.log("☎️ Realtime response.created output_modalities:", JSON.stringify(outputModalities), hasAudioModality ? "(contient audio)" : "(texte seul)");
             if (LOG_VERBOSE) console.log("📨 response.created:", { rid, hasAudioModality, REALTIME_USE_ELEVEN });
             if (!hasAudioModality && !REALTIME_USE_ELEVEN) {
               console.warn("⚠️ ATTENTION: response.created sans modalité audio et REALTIME_USE_ELEVEN=false !");
@@ -4912,6 +4913,7 @@ But: être naturel et mettre le client en confiance.`,
             const rid = msg.response_id ?? msg.response?.id ?? null;
             const outputModalities = msg.response?.output_modalities || [];
             const hasAudioModality = Array.isArray(outputModalities) && outputModalities.includes("audio");
+            console.log("☎️ Realtime response.done output_modalities:", JSON.stringify(outputModalities), hasAudioModality ? "(contient audio)" : "(texte seul)");
             if (LOG_VERBOSE) {
               const resp = msg.response || {};
               console.log("✅ response.done:", { rid, status: resp.status, hasOutputItems: !!resp.output });
