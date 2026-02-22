@@ -1556,11 +1556,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     if (LOG_VERBOSE) console.log("🔊 Minimax: bypass OK, voix OK → connexion WebSocket...");
     const rawTextBeforeNormalization = (text || "").trim();
-    if (rawTextBeforeNormalization.includes('euros') || rawTextBeforeNormalization.includes('€') || rawTextBeforeNormalization.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/) || rawTextBeforeNormalization.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i)) {
-    }
     const clean = normalizeFrenchTtsText(rawTextBeforeNormalization);
-    if (rawTextBeforeNormalization.includes('euros') || rawTextBeforeNormalization.includes('€') || rawTextBeforeNormalization.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/) || rawTextBeforeNormalization.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i)) {
-    }
     if (!clean) return;
     const textToSend = sanitizeTextForMinimax(clean);
     if (!textToSend) return;
@@ -2077,6 +2073,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (LOG_TTS) console.log(`[TTS-ENQUEUE] TEXTE TRONQUÉ: ${normalized.length} -> ${clean.length} chars`);
     }
     clean = clean
+      .replace(/\s*Je vais (d'abord )?vérifier[^.]*\.\s*Un instant(?:,\s*s'il vous plaît)?[,.]?\s*$/gi, "")
       .replace(/\s*Je vais (d'abord )?vérifier[^.]*\.\s*Un instant[,.]?\s*je m'en occupe[.,]?\s*$/gi, "")
       .replace(/\s*[,.]?\s*Un instant[,.]?\s*je m'en occupe[.,]?\s*$/gi, "")
       .replace(/\s*[,.]?\s*Un instant[,.]?\s*$/gi, "")
@@ -2099,7 +2096,21 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return;
     }
     const assistantReplySources = ["conversation.item.done", "response.output_text.done", "response.done", "response.output_item.done"];
-    const textToSpeak = assistantReplySources.includes(source) ? ensureAssistantReplyEndsWithQuestion(clean) : clean;
+    let textToSpeak = assistantReplySources.includes(source) ? ensureAssistantReplyEndsWithQuestion(clean) : clean;
+    if (assistantReplySources.includes(source) && consentGiven && !ws.__namedGreetingAfterConsent && clientInfo?.name) {
+      const fullName = String(clientInfo.name || "").trim();
+      if (fullName) {
+        const parts = fullName.split(/\s+/).filter(Boolean);
+        const lastName = String(clientInfo.last_name || "").trim() || parts[parts.length - 1] || fullName;
+        const gender = String(clientInfo.gender || "").trim().toLowerCase();
+        const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : "";
+        const salutation = title ? `${title} ${lastName}` : lastName;
+        if (salutation && !new RegExp(`\\b${lastName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(textToSpeak)) {
+          textToSpeak = /^bonjour\b/i.test(textToSpeak) ? textToSpeak.replace(/^bonjour\b/i, `Bonjour ${salutation}`) : `Bonjour ${salutation}. ${textToSpeak}`;
+          ws.__namedGreetingAfterConsent = true;
+        }
+      }
+    }
     if (textToSpeak !== clean && LOG_TTS) console.log("[TTS-ENQUEUE] Ajout question de suivi (réponse sans ?):", textToSpeak.substring(clean.length).trim());
     const normalizedForCompare = textToSpeak.toLowerCase()
       .replace(/['']/g, "'") // Normaliser les apostrophes
@@ -2148,8 +2159,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const foundInRecentExact = recentAssistantTexts.some((t) => t.text === normalizedForCompare);
     const foundInRecentSimilar = recentAssistantTexts.some((t) => {
       const similarity = calculateSimilarity(t.text, normalizedForCompare);
-      if (similarity > 0.5) {
-      }
       const threshold = normalizedForCompare.length < 30 ? 0.6 : normalizedForCompare.length >= 50 ? 0.55 : 0.7;
       return similarity > threshold;
     });
@@ -2482,7 +2491,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/de\s+mande/gi, "demande");
     t = t.replace(/\b(de|à|est|sont)(\d{1,4})\b/g, (_, det, n) => `${det} ${n}`);
     t = t.replace(/\bà(seize|huit|dix|neuf|quinze|vingt|trente|quarante|cinquante|soixante|sept|six|cinq|quatre|trois|deux|une?)\b/gi, (_, w) => `à ${w}`);
-    t = t.replace(/\best[- ]ce[- ]bien\b/gi, "est ce bien");
+    t = t.replace(/\best[- ]ce[- ]bien\b/gi, "est-ce bien");
+    t = t.replace(/\benviron(?=une?\b)/gi, "environ ");
+    t = t.replace(/\best\s+ce\b/gi, "est-ce");
     t = t.replace(/([a-zàâçéèêëîïôûùüÿœ])(\d{1,2})\s*heures?\s*(\d{2})\b/gi, (_, prefix, h, m) => {
       const hoursNum = Number(h);
       const minutesNum = Number(m);
@@ -2501,8 +2512,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       } else {
         const minutesWord = numberToFrenchWordsTts(minutesNum);
         timeExpression = `${hoursWord} ${minutesWord}`;
-      }
-      if (hoursNum === 8 && minutesNum === 30) {
       }
       return `${prefix} ${timeExpression}`;
     });
@@ -2546,8 +2555,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       } else {
         const minutesWord = numberToFrenchWordsTts(minutesNum);
         timeExpression = `${hoursWord} ${minutesWord}`;
-      }
-      if (minutesNum === 30 || minutesNum === 15 || minutesNum === 45) {
       }
       return timeExpression;
     });
@@ -2651,8 +2658,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const minutesWord = numberToFrenchWordsTts(minutesNum);
         timeExpression = `${hoursWord} ${hoursForm} ${minutesWord}`;
       }
-      if (originalText.match(/huit\s+heures?\s+trois\s+zéro|huit\s+heure\s+trois\s+zero|8\s*[hH:]\s*3\s*0/i)) {
-      }
       return timeExpression;
     });
     const beforeHourFix = t;
@@ -2672,8 +2677,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const minutesWord = numberToFrenchWordsTts(minutesNum);
         timeExpression = `${hoursWord} ${hoursForm} ${minutesWord}`;
       }
-      if (hoursWord.toLowerCase() === "huit" && (m1 === "3" && m2 === "0" || m1 === "trois" && m2 === "zéro")) {
-      }
       return timeExpression;
     });
     t = t.replace(/\b(une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante|soixante-dix|quatre-vingt|quatre-vingt-dix)\s+heures?\s+(trois|zero|zéro)\s+(zéro|zero)\b/gi, (_, hoursWord, m1, m2) => {
@@ -2692,8 +2695,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       } else {
         const minutesWord = numberToFrenchWordsTts(minutesNum);
         timeExpression = `${hoursWord} ${hoursForm} ${minutesWord}`;
-      }
-      if (hoursWord.toLowerCase() === "huit") {
       }
       return timeExpression;
     });
@@ -2731,8 +2732,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\b(\d(?:\s+\d){1,4})\s+(?:€|euros?)\b/gi, (_, n) => {
       const compact = String(n).replace(/\s+/g, "");
       const result = `${numberToFrenchWordsTts(compact)} euros`;
-      if (compact === "12" || originalText.match(/\b1\s*2\s*euros?/i)) {
-      }
       return result;
     });
     t = t.replace(/\b(\d(?:\s+\d){1,4})\s*€\b/gi, (_, n) => {
@@ -2749,8 +2748,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const inRange = /\b(entre\s+\d+\s+et|de\s+\d+\s+à)\s+\d+\s+euros?/i.test(t) && (t.includes(` et ${n} euros`) || t.includes(` à ${n} euros`));
       if (inRange) return `${n} euros`;
       const result = `${numberToFrenchWordsTts(n)} euros`;
-      if (originalText.includes('euros') || originalText.includes('€')) {
-      }
       return result;
     });
     t = t.replace(/\b(\d{1,4})€\b/gi, (_, n) => `${numberToFrenchWordsTts(n)} euros`);
@@ -2798,20 +2795,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const afterMatch = string.slice(offset + m.length, offset + m.length + 20);
       const beforeMatch = string.slice(Math.max(0, offset - 5), offset);
       if (/\s*(?:€|euros?)/i.test(afterMatch)) {
-        if (originalText.includes('euros') || originalText.includes('€')) {
-        }
         return m;
       }
       if (/heure/i.test(afterMatch)) return m;
       if (/[A-Z]{2}\s*$/i.test(beforeMatch) && /^\s*[A-Z]{2}/i.test(afterMatch)) {
         return m;
       }
-      if (originalText.includes('euros') || originalText.includes('€')) {
-      }
       return m.replace(/\s+/g, "");
     });
-    if (originalText.includes('euros') || originalText.includes('€')) {
-    }
     t = t.replace(/\b(\d{1,2}(?:\s+\d){0,3})(\s*)(?:€|euros?)\b/gi, (_, n, space) => {
       const compact = String(n).replace(/\s+/g, "");
       return `${compact}${space}euros`;
@@ -3288,7 +3279,7 @@ OUTILS GARAGE (OBLIGATOIRE):
 - Outils: get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes${allowTransfer ? ", transfer_to_garage" : ""}.
 RÈGLE RDV PRESTATION (ordre obligatoire):
 1) "D'accord, nous allons faire une demande de rendez-vous."
-2) Appelle get_garage_pricing(prestation) (tarif + horaires en une fois), annonce les deux dans une seule réponse.
+2) Appelle get_garage_pricing(prestation) (tarif + horaires en une fois), annonce les deux dans une seule réponse (sans durée d'intervention sauf demande explicite du client).
 3) Demande uniquement: "Quel jour vous conviendrait le mieux ?" puis ATTENDS.
 4) Ensuite uniquement: "Plutôt le matin ou l'après-midi ?" puis ATTENDS.
 5) Ensuite seulement: confirmation plaque.
@@ -3315,6 +3306,8 @@ RÈGLE ANTI-HALLUCINATION:
 - Réponds uniquement sur les données outils + informations client.
 - Si ambigu: poser une seule question de clarification.
 - Une question à la fois, attendre la réponse avant l'étape suivante.
+- Français oral impeccable obligatoire (orthographe, espaces, ponctuation, tirets; style naturel).
+- Interdit de dire: "Je vais d'abord vérifier le tarif et les horaires... Un instant, s'il vous plaît."
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${clientInfoSection ? `${clientInfoSection}\n` : ""}
 FIN D'APPEL:
@@ -4588,12 +4581,16 @@ But: être naturel et mettre le client en confiance.`,
                   if (!matched && /vidange/.test(prestation)) matched = lines.find(l => /^[^:]*vidange/i.test(l));
                   if (!matched && /r[eé]vision/.test(prestation)) matched = lines.find(l => /^[^:]*r[eé]vision/i.test(l));
                   if (matched) {
+                    const matchedForSpeech = matched
+                      .replace(/\s*\(\s*\d+\s*h(?:\s*\d+)?\s*min\s*\)\s*$/i, "")
+                      .replace(/\s*\(\s*\d+\s*min\s*\)\s*$/i, "")
+                      .trim();
                     const stateLine = garageClosed ? "État actuel: le garage est actuellement FERMÉ." : "État actuel: le garage est actuellement OUVERT.";
                     const hoursBlock = [garageHoursText || "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
-                    output = `TARIF et HORAIRES (tout inclus — annonce les deux au client d'un coup):\n\nTARIF:\n${matched}\n\nHORAIRES:\n${hoursBlock}\n\nAnnonce le tarif puis les horaires en une seule phrase, puis demande "Quel jour vous conviendrait le mieux ?" (une seule question).`;
+                    output = `TARIF et HORAIRES (tout inclus — annonce les deux au client d'un coup):\n\nTARIF:\n${matchedForSpeech}\n\nHORAIRES:\n${hoursBlock}\n\nAnnonce le tarif puis les horaires en une seule phrase (sans annoncer la durée d'intervention, sauf si le client la demande), puis demande "Quel jour vous conviendrait le mieux ?" (une seule question).`;
                     console.log("📌 get_garage_pricing:", {
                       prestation,
-                      matchedLine: matched.substring(0, 80),
+                      matchedLine: matchedForSpeech.substring(0, 80),
                       hoursPreview: (garageHoursText || "").substring(0, 80),
                     });
                   } else {
