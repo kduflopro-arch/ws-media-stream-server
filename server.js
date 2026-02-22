@@ -4146,6 +4146,14 @@ Tu dois DÉTECTER automatiquement si le client mentionne "modifier", "changer", 
         const baseInstructions = `PROTOCOLE STRICT — AUCUN DÉRAPAGE:
 Tu DOIS suivre UNIQUEMENT le protocole défini dans ces instructions. Aucune question, aucune étape, aucune phrase qui n'y figure pas explicitement. Ne demande JAMAIS la marque ou le modèle du véhicule. Ne dis JAMAIS "pour préparer les pièces" en demandant des infos véhicule. Ne pas inventer d'étapes ni ajouter de questions "de ton cru". Si une action n'est pas décrite dans le protocole, ne la fais pas.
 
+⚠️ RDV PRESTATION (vidange, plaquettes, diagnostic, etc.) — ORDRE OBLIGATOIRE — NE JAMAIS SAUTER:
+1) "D'accord, nous allons faire une demande de rendez-vous."
+2) get_garage_pricing(prestation) → annonce le tarif au client
+3) get_opening_hours → annonce les horaires d'ouverture et jours de fermeture
+4) "Quel jour vous conviendrait le mieux ?" — UNE SEULE question, ATTENDS la réponse
+5) APRÈS que le client ait donné le jour → "Plutôt le matin ou l'après-midi ?" — ATTENDS
+6) plaque. INTERDIT: demander le jour AVANT tarif+horaires. INTERDIT: poser jour et matin/après-midi ensemble.
+
 ⚠️⚠️⚠️ RÔLE - C'EST TOI QUI ACCOMPAGNES LE CLIENT ⚠️⚠️⚠️
 - Tu ACCOMPAGNES le client: tu poses les questions, le client RÉPOND. Le client ne fait que répondre à tes questions. C'EST TOI QUI GUIDES, PAS LE CLIENT.
 - RÈGLE ABSOLUE: Chaque fois que tu parles (sauf au revoir / confirmation finale), ta réponse DOIT se terminer par UNE question claire (phrase qui se termine par ?). Tu ne t'arrêtes JAMAIS sur une affirmation sans question.
@@ -4373,6 +4381,8 @@ DEVIS EXPLICITE SANS DEMANDE DE PRIX (RÈGLE ABSOLUE): Si le client dit explicit
           `⚠️ RÈGLE META (PRIORITÉ MAXIMALE) — SUIVRE À LA LETTRE:
 Tu DOIS appliquer chaque procédure ci-dessous À LA LETTRE, sans sauter d'étape ni contourner de règle. Chaque instruction est OBLIGATOIRE. Ne fais aucune approximation.
 
+⚠️ RDV — NE JAMAIS demander "Quel jour ?" avant d'avoir annoncé le TARIF (get_garage_pricing) ET les HORAIRES (get_opening_hours). Ordre: tarif → horaires → jour → matin/après-midi → plaque.
+
 IMPORTANT — PROTOCOLE OBLIGATOIRE:
 - Tu respectes STRICTEMENT le protocole défini dans ces instructions. Aucun dérapage: pas de questions hors protocole (marque/modèle, "préparer les pièces"), pas d'étapes inventées.
 - DEVIS ACCEPTÉ: Si le client a accepté une demande de devis (a dit oui au devis), NE JAMAIS demander "Souhaitez-vous que le garage vous rappelle ?". Le garage rappellera pour le devis. Enchaîne UNIQUEMENT avec "Avez-vous besoin d'autre chose ?" puis clôture si non.
@@ -4391,7 +4401,7 @@ PLAQUE D'IMMATRICULATION (RÈGLE ABSOLUE):
 PROCÉDURE RDV (OBLIGATOIRE ET DANS CET ORDRE):
 1) Si le client demande UNIQUEMENT les horaires (ou tarifs, adresse, etc.): donne l'info puis demande "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client n'a pas pris de RDV, tu DOIS demander "Souhaitez-vous que le garage vous rappelle ?" avant toute clôture (obligatoire). NE DIS PAS "Quel jour vous conviendrait le mieux ?" dans ce cas.
 ${infoOnlyRappelRule}
-2) RDV POUR UNE PRESTATION PRÉCISE (ex: vidange, plaquettes de frein, révision, diagnostic): (0) dis "D'accord, nous allons faire une demande de rendez-vous." — NE DIS PAS "Un instant, je vais vérifier le tarif" ni aucune phrase de transition. (1) appelle get_garage_pricing(prestation), annonce le tarif. (2) appelle get_opening_hours, annonce les horaires. (3) demande UNIQUEMENT "Quel jour vous conviendrait le mieux ?" — ATTENDS la réponse du client. (4) APRÈS que le client ait donné le jour, demande "Plutôt le matin ou l'après-midi ?" — ATTENDS la réponse. (5) plaque. INTERDIT: poser "Quel jour ?" et "Plutôt le matin ou l'après-midi ?" dans la même phrase.
+2) RDV POUR UNE PRESTATION PRÉCISE (ex: vidange, plaquettes de frein, révision, diagnostic): INTERDIT de demander le jour sans avoir d'abord annoncé le tarif ET les horaires. (0) dis "D'accord, nous allons faire une demande de rendez-vous." (1) OBLIGATOIRE: appelle get_garage_pricing(prestation), annonce le tarif au client. (2) OBLIGATOIRE: appelle get_opening_hours, annonce les horaires (jours ouverts + plages + jours fermés). (3) demande UNIQUEMENT "Quel jour vous conviendrait le mieux ?" — STOP, ATTENDS la réponse. (4) APRÈS que le client ait donné le jour, demande "Plutôt le matin ou l'après-midi ?" — STOP, ATTENDS. (5) plaque. NE JAMAIS poser jour et matin/après-midi dans la même phrase.
 3) RDV DIAGNOSTIC (client décrit un problème): demande "Je vous propose de venir faire un diagnostic. Vous voulez prendre rendez-vous ?" (ATTENDS OUI/NON). Si OUI: (1) get_garage_pricing pour diagnostic, (2) get_opening_hours + annonce horaires, (3) jour, (4) matin/après-midi, (5) plaque.
 4) SEULEMENT si le client a répondu OUI: alors DANS CET ORDRE (ne pas inverser): (a) "Quel jour vous conviendrait le mieux ?" → attends la réponse ; (b) "Plutôt le matin ou l'après-midi ?" → attends la réponse ; (c) ENSUITE demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?" ou envoi de message si pas de plaque). Ne demande JAMAIS la plaque avant le jour et le créneau matin/après-midi.
 - INTERDICTION: Ne dis JAMAIS "Quel jour vous conviendrait le mieux ?" ou "Quel créneau ?" si le client n'a pas d'abord dit explicitement qu'il veut prendre rendez-vous. Une simple demande d'horaires n'est PAS une demande de RDV.
@@ -4574,7 +4584,7 @@ STYLE (échange humain):
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
             const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
-            const truncNote = "\n\n[RÈGLES: Devis explicite→pas de prix. RDV: pas 'Un instant'. Jour puis matin/après-midi séparément. Plaque: oui=confirmation.]";
+            const truncNote = "\n\n[RÈGLES: RDV: tarif+horaires AVANT jour. Jour PUIS matin/après-midi séparément. Pas 'Un instant'. Plaque: oui=confirmation.]";
             baseForUpdate = baseForUpdate.slice(0, maxBase - truncNote.length) + truncNote;
             updatedInstructions = `${baseForUpdate}${rest}`;
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
@@ -4606,7 +4616,7 @@ STYLE (échange humain):
         if (initialInstructionsText.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
           const restInitial = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
           const maxBaseInitial = REALTIME_INSTRUCTIONS_MAX_CHARS - restInitial.length - 400;
-          const truncNoteInitial = "\n\n[RÈGLES: Devis explicite→pas de prix. RDV: pas 'Un instant'. Jour puis matin/après-midi séparément. Plaque: oui=confirmation.]";
+          const truncNoteInitial = "\n\n[RÈGLES: RDV: tarif+horaires AVANT jour. Jour PUIS matin/après-midi séparément. Pas 'Un instant'. Plaque: oui=confirmation.]";
           initialInstructionsText = baseInstructions.slice(0, maxBaseInitial - truncNoteInitial.length) + truncNoteInitial + restInitial;
           console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
         }
