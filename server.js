@@ -2067,6 +2067,34 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       },
     });
   }
+  /** Corrige tarif/horaires inventés par l'IA pour RDV. Retourne le texte corrigé ou l'original. */
+  function applyPricingHoursGuard(text) {
+    const t = String(text || "").trim();
+    if (!t) return text;
+    const noRecentGarageTool = !(lastGarageToolOutputAt > 0 && (nowMs() - lastGarageToolOutputAt) < 15000);
+    const talksAboutPriceAndHours = /\b(tarif|prix|euros?)\b/i.test(t) && /\b(horaires?|ouvert|heures?)\b/i.test(t);
+    const talksAboutRdv = /\b(rendez-?vous|rdv)\b/i.test(t) || /\bquel jour vous conviendrait le mieux\b/i.test(t);
+    if (!noRecentGarageTool || !talksAboutPriceAndHours || !talksAboutRdv || !pricingSummary) return text;
+    const ctx = `${lastUserTextPendingIngest || ""} ${t}`.toLowerCase();
+    const prestation = (/disque/.test(ctx) && /frein/.test(ctx)) ? "disques"
+      : ((/plaquette/.test(ctx) || (/\bfrein/.test(ctx) && !/disque/.test(ctx))) ? "plaquettes"
+        : (/diagnostic/.test(ctx) ? "diagnostic" : (/vidange/.test(ctx) ? "vidange" : (/r[eé]vision/.test(ctx) ? "révision" : ""))));
+    if (!prestation) return text;
+    const lines = String(pricingSummary).split("\n").map((l) => l.trim()).filter(Boolean);
+    let matched = null;
+    if (/disque/.test(prestation)) matched = lines.find((l) => /^[^:]*disque/i.test(l) && /^[^:]*frein/i.test(l));
+    if (!matched && /plaquette|frein/.test(prestation)) matched = lines.find((l) => /^[^:]*plaquette/i.test(l) && /^[^:]*frein/i.test(l) && !/^[^:]*disque/i.test(l));
+    if (!matched && /diagnostic/.test(prestation)) matched = lines.find((l) => /^[^:]*diagnostic/i.test(l));
+    if (!matched && /vidange/.test(prestation)) matched = lines.find((l) => /^[^:]*vidange/i.test(l));
+    if (!matched && /r[eé]vision/.test(prestation)) matched = lines.find((l) => /^[^:]*r[eé]vision/i.test(l));
+    if (!matched) return text;
+    const cleanedMatched = matched.replace(/\s*\(\s*\d+\s*h(?:\s*\d+)?\s*min\s*\)\s*$/i, "").replace(/\s*\(\s*\d+\s*min\s*\)\s*$/i, "").trim();
+    const pricePart = cleanedMatched.includes(":") ? cleanedMatched.split(":").slice(1).join(":").trim() : cleanedMatched;
+    const prestationLabel = ({ plaquettes: "le changement des plaquettes de frein", disques: "le changement des disques de frein", "révision": "la révision" })[prestation] || prestation;
+    const corrected = `D'accord, nous allons faire une demande de rendez-vous. Le tarif pour ${prestationLabel} est de ${pricePart}. Les horaires sont ${garageHoursText || "les horaires du garage"}. Quel jour vous conviendrait le mieux ?`;
+    console.warn("🛡️ Correction serveur (tarif/horaires inventés):", { prestation, pricePart: pricePart.substring(0, 60) });
+    return corrected;
+  }
   function enqueuePremiumTts(text, { interrupt = true, source = "unknown", responseId = null, allowWithoutUser = false, onComplete = null } = {}) {
     if (ws.__consentRefused && source !== "consent_refusal") {
       if (LOG_TTS) console.log("[TTS] Ignoré (consentement refusé, seul le message de refus est joué).");
@@ -2124,7 +2152,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: texte suspect (logs)`, clean.substring(0, 120));
       return;
     }
-    const assistantReplySources = ["conversation.item.done", "response.output_text.done", "response.done", "response.output_item.done"];
+    const assistantReplySources = ["conversation.item.done", "response.output_text.done", "response.done", "response.output_item.done", "legacy_elevenlabs"];
     let textToSpeak = assistantReplySources.includes(source) ? ensureAssistantReplyEndsWithQuestion(clean) : clean;
     if (assistantReplySources.includes(source)) {
       const noRecentGarageTool = !(lastGarageToolOutputAt > 0 && (now - lastGarageToolOutputAt) < 15000), talksAboutPriceAndHours = /\b(tarif|prix|euros?)\b/i.test(textToSpeak) && /\b(horaires?|ouvert|heures?)\b/i.test(textToSpeak), talksAboutRdv = /\b(rendez-?vous|rdv)\b/i.test(textToSpeak) || /\bquel jour vous conviendrait le mieux\b/i.test(textToSpeak);
@@ -3739,8 +3767,9 @@ But: être naturel et mettre le client en confiance.`,
                         console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
                       } else {
-                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: extractedText.substring(0, 80) });
-                        enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
+                        const textForTts = applyPricingHoursGuard(extractedText);
+                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
+                        enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
                       }
                     } else if (REALTIME_USE_ELEVEN && !spokenSet.has(rid)) {
                       spokenSet.add(rid);
@@ -3749,8 +3778,9 @@ But: être naturel et mettre le client en confiance.`,
                         console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
                       } else {
-                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: extractedText.substring(0, 80) });
-                        enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
+                        const textForTts = applyPricingHoursGuard(extractedText);
+                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
+                        enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
                       }
                     } else {
                       if (LOG_TTS) console.log(`[TTS] SKIPPED response.done (déjà dans spokenSet):`, { rid, text: extractedText.substring(0, 100) });
@@ -4056,12 +4086,14 @@ But: être naturel et mettre le client en confiance.`,
                 });
               }
               if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
-                transcriptMap.set(rid, doneText);
+                const textForTts = applyPricingHoursGuard(doneText);
+                transcriptMap.set(rid, textForTts);
                 flushRealtimeElevenChunks(rid, true);
               } else if (!rid || !spokenSet.has(rid)) {
                 if (rid) spokenSet.add(rid);
                 const alreadySpeaking = rid && spokenSet.has(rid);
-                enqueueElevenLabsTts(doneText, { interrupt: !alreadySpeaking });
+                const textForTts = applyPricingHoursGuard(doneText);
+                enqueueElevenLabsTts(textForTts, { interrupt: !alreadySpeaking });
               }
             }
           }
@@ -4471,7 +4503,8 @@ But: être naturel et mettre le client en confiance.`,
                 });
               }
               if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
-                transcriptMap.set(rid, doneText);
+                const textForTts = applyPricingHoursGuard(doneText);
+                transcriptMap.set(rid, textForTts);
                 flushRealtimeElevenChunks(rid, true);
               }
               if (!REALTIME_ELEVEN_CHUNKING_ENABLED && consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(doneText)) {
