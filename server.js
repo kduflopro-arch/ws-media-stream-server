@@ -2155,7 +2155,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const assistantReplySources = ["conversation.item.done", "response.output_text.done", "response.done", "response.output_item.done", "legacy_elevenlabs"];
     let textToSpeak = assistantReplySources.includes(source) ? ensureAssistantReplyEndsWithQuestion(clean) : clean;
     if (assistantReplySources.includes(source)) {
-      const noRecentGarageTool = !(lastGarageToolOutputAt > 0 && (now - lastGarageToolOutputAt) < 15000), talksAboutPriceAndHours = /\b(tarif|prix|euros?)\b/i.test(textToSpeak) && /\b(horaires?|ouvert|heures?)\b/i.test(textToSpeak), talksAboutRdv = /\b(rendez-?vous|rdv)\b/i.test(textToSpeak) || /\bquel jour vous conviendrait le mieux\b/i.test(textToSpeak);
+      const noRecentGarageTool = !(lastGarageToolOutputAt > 0 && (nowMs() - lastGarageToolOutputAt) < 15000), talksAboutPriceAndHours = /\b(tarif|prix|euros?)\b/i.test(textToSpeak) && /\b(horaires?|ouvert|heures?)\b/i.test(textToSpeak), talksAboutRdv = /\b(rendez-?vous|rdv)\b/i.test(textToSpeak) || /\bquel jour vous conviendrait le mieux\b/i.test(textToSpeak);
       if (noRecentGarageTool && talksAboutPriceAndHours && talksAboutRdv) {
         const ctx = `${lastUserTextPendingIngest || ""} ${textToSpeak}`.toLowerCase();
         const prestation = (/disque/.test(ctx) && /frein/.test(ctx)) ? "disques"
