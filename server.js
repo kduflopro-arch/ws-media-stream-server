@@ -3362,7 +3362,7 @@ RÈGLE PLAQUE (critique):
 - SMS plaque uniquement si client dit explicitement que ce n'est pas la bonne plaque/autre véhicule ou si aucune plaque.
 RÈGLE INFO/DEVIS/RAPPEL:
 - Si appel info sans RDV: répondre puis proposer rappel garage avant clôture.
-- Si devis explicite demandé: ne pas annoncer de prix, traiter directement la demande devis + plaque.
+- DEMANDE DE DEVIS (règle absolue): Ne JAMAIS annoncer le prix pour une demande de devis. Ne JAMAIS demander "Souhaitez-vous être rappelé ?" (le garage rappellera pour le devis). Prendre OBLIGATOIREMENT la plaque (confirmation si en dossier, sinon envoi SMS). Enchaîner: note la demande devis → plaque → "Avez-vous besoin d'autre chose ?". Jamais de prix, jamais de question rappel.
 - Si devis accepté: ne pas redemander rappel (le garage rappellera pour le devis).
 - Si demande RDV en cours ou validée: ne pas poser la question de rappel.
 RÈGLE CONSENTEMENT:
