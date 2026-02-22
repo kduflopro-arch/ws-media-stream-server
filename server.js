@@ -2559,7 +2559,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/à16(?=\s|$)/gi, "à 16");
     t = t.replace(/àseize/gi, "à seize");
     t = t.replace(/de\s+mande/gi, "demande");
-    t = t.replace(/\b(de|à|est|sont)(\d{1,4})\b/g, (_, det, n) => `${det} ${n}`);
+    t = t.replace(/\b(de|à|est|sont|coûte|coûtent)(\d{1,4})\b/g, (_, det, n) => `${det} ${n}`);
     t = t.replace(/\bà(seize|huit|dix|neuf|quinze|vingt|trente|quarante|cinquante|soixante|sept|six|cinq|quatre|trois|deux|une?)\b/gi, (_, w) => `à ${w}`);
     t = t.replace(/\best[- ]ce[- ]bien\b/gi, "est-ce bien");
     t = t.replace(/\benviron(?=une?\b)/gi, "environ ");
@@ -4670,7 +4670,7 @@ But: être naturel et mettre le client en confiance.`,
                       .trim();
                     const stateLine = garageClosed ? "État actuel: le garage est actuellement FERMÉ." : "État actuel: le garage est actuellement OUVERT.";
                     const hoursBlock = [garageHoursText || "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
-                    output = `TARIF et HORAIRES (tout inclus — annonce les deux au client d'un coup):\n\nTARIF:\n${matchedForSpeech}\n\nHORAIRES:\n${hoursBlock}\n\nAnnonce le tarif puis les horaires en une seule phrase (sans annoncer la durée d'intervention, sauf si le client la demande), puis demande "Quel jour vous conviendrait le mieux ?" (une seule question).`;
+                    output = `TARIF et HORAIRES:\n\nTARIF:\n${matchedForSpeech}\n\nHORAIRES:\n${hoursBlock}\n\nRÈGLE OBLIGATOIRE: Si le client a demandé UNIQUEMENT le tarif (sans vouloir de rendez-vous): annonce UNIQUEMENT le tarif puis dis "Avez-vous besoin d'autre chose ?". Ne demande PAS le jour ni "Quel jour vous conviendrait le mieux ?". Si le client a demandé un rendez-vous: annonce tarif + horaires puis demande "Quel jour vous conviendrait le mieux ?".`;
                     console.log("📌 get_garage_pricing:", {
                       prestation,
                       matchedLine: matchedForSpeech.substring(0, 80),
