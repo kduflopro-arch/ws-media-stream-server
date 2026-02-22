@@ -626,6 +626,35 @@ wss.on("connection", (ws, req) => {
   const userSpeakItemIds = new Set(); // Éviter double comptage du même item
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
+  function playPostConsentGreeting() {
+    if (ws.__postConsentGreetingPlayed || !PREMIUM_TTS_ENABLED) return;
+    const rawName = String(garageName || "AutoGuru").trim();
+    const garageNom = /^garage\s+/i.test(rawName) ? rawName.replace(/^garage\s+/i, "").trim() : rawName;
+    let phrase = `Bonjour. Ici ${assistantName} du garage ${garageNom}. En quoi puis-je vous aider ?`;
+    if (clientInfo?.name) {
+      const parts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
+      const ln = clientInfo.last_name?.trim() || parts[parts.length - 1] || clientInfo.name;
+      const tt = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
+      phrase = `Bonjour ${tt ? tt + " " + ln : ln}. En quoi puis-je vous aider ?`;
+    }
+    const apt = (clientInfo?.appointments || []).find(a => !a.en_attente_confirmation_garage);
+    if (apt) {
+      const d = new Date(apt.appointment_date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+      const t = (apt.appointment_time || "").slice(0, 5);
+      phrase = phrase.replace("En quoi puis-je vous aider ?", `Je vois que vous avez un rendez-vous enregistré pour le ${d} à ${t}. En quoi puis-je vous aider ?`);
+    }
+    ws.__postConsentGreetingPlayed = true;
+    enqueuePremiumTts(phrase, { interrupt: true, source: "post_consent_greeting", allowWithoutUser: true });
+    if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+      try {
+        openaiWs.send(JSON.stringify({
+          type: "conversation.item.create",
+          item: { type: "message", role: "assistant", content: [{ type: "output_text", text: phrase }] },
+        }));
+      } catch (e) { /* ignore */ }
+    }
+    console.log("👋 Post-consent greeting joué (Bonjour Monsieur/Madame X, en quoi puis-je vous aider ?).", { hasClientName: !!clientInfo?.name });
+  }
   let appointmentMode = "request";
   let garageClosed = false;
   let garageClosedReason = "";
@@ -3080,7 +3109,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande). Ne demande JAMAIS l'heure souhaitée au client : demande uniquement le jour puis « Plutôt le matin ou l'après-midi ? ». Si le client donne une date précise (ou date et heure), dis : « C'est une demande auprès du garage, tout sera confirmé quand le garage vous rappellera ; je prends bien cette date en compte pour la communiquer au garage. » Puis confirmation de la plaque si besoin. Après avoir noté jour/créneau/plaque, dis : « C'est une demande de rendez-vous, le garage vous rappellera pour confirmer. » puis « Avez-vous besoin d'autre chose ? ».";
         const consentLine =
           consentRequired && !consentGiven
-            ? "RÈGLE ABSOLUE - CONSENTEMENT: Dès le début de l'appel, annonce UNIQUEMENT: 'Cet appel est enregistré pour préparer votre arrivée au garage. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Puis TU T'ARRÊTES et tu ATTENDS la réponse du client. Tu ne dis RIEN d'autre (pas 'En quoi puis-je vous aider ?', pas 'Quel est votre besoin ?') avant qu'il ait accepté ou refusé. Si le client dit oui je suis d'accord, d'accord ou ok, tu peux alors demander 'En quoi puis-je vous aider ?'. Si le client refuse, tu dis au revoir et tu raccroches. Si le client dit autre chose (ex: il décrit un problème sans avoir accepté), tu réponds UNIQUEMENT: 'Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Tu ne traites aucune autre demande tant qu'il n'a pas accepté ou refusé. Ne demande le consentement QU'UNE SEULE FOIS."
+            ? "RÈGLE ABSOLUE - CONSENTEMENT: Dès le début de l'appel, annonce UNIQUEMENT: 'Cet appel est enregistré pour préparer votre arrivée au garage. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Puis TU T'ARRÊTES et tu ATTENDS la réponse du client. Tu ne dis RIEN d'autre avant qu'il ait accepté ou refusé. Si le client dit oui je suis d'accord, d'accord ou ok: NE DIS RIEN — la salutation 'Bonjour Monsieur/Madame [nom], en quoi puis-je vous aider ?' est jouée automatiquement. Attends ensuite la question du client. Si le client refuse, tu dis au revoir et tu raccroches. Si le client dit autre chose (ex: il décrit un problème sans avoir accepté), tu réponds UNIQUEMENT: 'Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Tu ne traites aucune autre demande tant qu'il n'a pas accepté ou refusé. Ne demande le consentement QU'UNE SEULE FOIS."
             : consentRequired && consentGiven
             ? "Consentement enregistrement: déjà donné par le client. NE PAS redemander le consentement."
             : "Consentement enregistrement: non requis.";
@@ -3458,6 +3487,9 @@ ${compactPersona}`;
               if (responseInProgress) return;
               if (greetOncePerCall && hasGreetedRecently(callSid)) {
                 console.log("👋 Greeting ignoré (déjà joué pour ce CallSid).", { callSid });
+                return;
+              }
+              if (PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN) {
                 return;
               }
               if (initialAssistantGreetingText) {
@@ -4091,6 +4123,7 @@ But: être naturel et mettre le client en confiance.`,
                     } else if (acceptsConsent) {
                       console.log("✅ Client accepte le consentement (depuis conversation.item.done).", { userText: ut.substring(0, 80) });
                       consentGiven = true;
+                      playPostConsentGreeting();
                     }
                   }
                   if (userText && userText.trim()) {
@@ -4970,6 +5003,7 @@ But: être naturel et mettre le client en confiance.`,
               console.log("✅ Client accepte le consentement, ne plus redemander:", { userText });
               consentGiven = true;
               lastUserTextForConsent = null;
+              playPostConsentGreeting();
             } else if (consentRequired && !consentGiven && userText && userText.trim()) {
               lastUserTextForConsent = userText;
             }
@@ -5307,54 +5341,33 @@ But: être naturel et mettre le client en confiance.`,
                   if (ws.__greetingFallbackTimer) {
                     clearTimeout(ws.__greetingFallbackTimer);
                     ws.__greetingFallbackTimer = null;
-                    console.log("👋 Timer greeting générique annulé (greeting avec nom client sera joué).");
+                    console.log("👋 Timer greeting fallback annulé (client-info a joué le greeting générique).");
                   }
                   if (!transferFailed && !hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
                     const rawName = String(garageName || "AutoGuru").trim();
                     const garageNom = /^garage\s+/i.test(rawName) ? rawName.replace(/^garage\s+/i, "").trim() : rawName;
-                    let lastName = clientInfo.last_name ? String(clientInfo.last_name).trim() : null;
-                    if (!lastName || lastName === "") {
-                      if (clientInfo.name) {
-                        const nameParts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
-                        lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : (nameParts.length === 1 ? nameParts[0] : clientInfo.name);
-                      }
-                    }
-                    const gender = clientInfo.gender ? String(clientInfo.gender).trim() : null;
-                    const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : null;
-                    let salutationName = "";
-                    if (lastName && lastName.trim().length > 0) {
-                      salutationName = title ? `${title} ${lastName}` : lastName;
-                    } else if (clientInfo.name) {
-                      salutationName = title ? `${title} ${clientInfo.name}` : clientInfo.name;
-                    }
-                    const baseHello = salutationName
-                      ? `Bonjour ${salutationName}. Ici ${assistantName} du garage ${garageNom}.`
-                      : `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
+                    const baseHello = `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
                     const consentText = consentRequired && !consentGiven
                       ? "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN
                       : "";
-                    const appointments = clientInfo.appointments || [];
-                    let appointmentLine = "";
-                    if (appointments.length > 0 && (!consentRequired || consentGiven)) {
-                      const apt = appointments[0];
-                      const date = new Date(apt.appointment_date);
-                      const dateStr = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-                      if (apt.en_attente_confirmation_garage === true) {
-                        appointmentLine = ""; // Ne pas communiquer la demande en attente au client en début d'appel ; l'IA ne la mentionne que si le client le demande.
-                      } else {
-                        const aptTime = (apt.appointment_time || "").slice(0, 5);
-                        appointmentLine = `Je vois que vous avez un rendez-vous enregistré pour le ${dateStr} à ${aptTime}.`;
-                      }
+                    let greeting;
+                    if (consentRequired && !consentGiven) {
+                      greeting = [baseHello, consentText].filter(Boolean).join(" ");
+                    } else {
+                      const parts = clientInfo.name ? (() => {
+                        const nameParts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
+                        const lastName = clientInfo.last_name?.trim() || nameParts[nameParts.length - 1] || clientInfo.name;
+                        const title = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
+                        const salutation = title ? `${title} ${lastName}` : lastName;
+                        return `Bonjour ${salutation}. Ici ${assistantName} du garage ${garageNom}. En quoi puis-je vous aider ?`;
+                      })() : baseHello + " En quoi puis-je vous aider ?";
+                      greeting = parts;
                     }
-                    const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
-                    const greeting = consentRequired && !consentGiven
-                      ? [baseHello, consentText].filter(Boolean).join(" ")
-                      : [baseHello, appointmentLine, question].filter(Boolean).join(" ");
                     initialAssistantGreetingText = greeting;
                     hasSentInitialGreeting = true;
                     enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
                     const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
-                    console.log(`👋 Greeting avec nom client joué via ${providerName}.`, { callSid, consentRequired, salutationName, lastName, clientName: clientInfo.name });
+                    console.log(`👋 Greeting ${consentRequired && !consentGiven ? "générique (consent)" : "post-consent avec nom"} joué via ${providerName}.`, { callSid, consentRequired });
                     if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
                   } else if (!transferFailed && !rdvNotificationFollowupPlayed && (initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
                     const appointments = clientInfo.appointments || [];
