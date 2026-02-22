@@ -4556,7 +4556,7 @@ STYLE (échange humain):
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
             const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
-            const truncNote = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel. DEVIS+plaque en dossier: TOUJOURS dire "Votre plaque est [X]. Est-ce bien correct ?" avant SMS.]";
+            const truncNote = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel. DEVIS+plaque en dossier: TOUJOURS demander confirmation plaque (Votre plaque est [X]. Est-ce bien correct ?) avant SMS.]";
             baseForUpdate = baseForUpdate.slice(0, maxBase - truncNote.length) + truncNote;
             updatedInstructions = `${baseForUpdate}${rest}`;
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
@@ -4588,7 +4588,7 @@ STYLE (échange humain):
         if (initialInstructionsText.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
           const restInitial = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
           const maxBaseInitial = REALTIME_INSTRUCTIONS_MAX_CHARS - restInitial.length - 400;
-          const truncNoteInitial = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel. DEVIS+plaque en dossier: TOUJOURS dire "Votre plaque est [X]. Est-ce bien correct ?" avant SMS.]";
+          const truncNoteInitial = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel. DEVIS+plaque en dossier: TOUJOURS demander confirmation plaque (Votre plaque est [X]. Est-ce bien correct ?) avant SMS.]";
           initialInstructionsText = baseInstructions.slice(0, maxBaseInitial - truncNoteInitial.length) + truncNoteInitial + restInitial;
           console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
         }
