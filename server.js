@@ -620,6 +620,7 @@ wss.on("connection", (ws, req) => {
   let transferTriggered = false; // true si on a appelé call-transfer avec succès → envoyer transfer_to_garage: true au finalize
   let transferFailed = false; // true si reconnexion après transfert raté (garage n'a pas répondu) — utilisé dans connectToOpenAI
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
+  let lastUserMessageText = ""; // Dernier texte client (pour safeguard hangup : ne pas raccrocher si demande devis/RDV)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
   let userSpeakCount = 0; // Nombre de fois que le client a parlé (conversation.item.done user) → si < 1 au finalize = no_request
   let assistantTurnCount = 0; // Nombre de réponses IA (response.done avec texte) ; si >= 2 on considère que le client a parlé (secours si userSpeakCount reste 0)
@@ -2332,6 +2333,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       ws.__processingTexts.delete(normalizedForCompare);
     }, 60_000);
     console.log(`[AI-SAYS] ${normalizeFrenchTtsText(textToSpeak)}`);
+    // Annuler hangup si l'IA pose une question devis/RDV nécessitant une réponse du client
+    const asksForConfirmation = (/\b(est-ce bien correct|est-ce correct)\b/i.test(textToSpeak) && /\b(plaque|immatriculation)\b/i.test(textToSpeak))
+      || /\bje prends note de votre demande de devis\b/i.test(textToSpeak)
+      || /\bquel jour vous conviendrait\b/i.test(textToSpeak)
+      || /\bplutôt le matin ou l'après-midi\b/i.test(textToSpeak);
+    if (asksForConfirmation && goodbyeDetected) {
+      console.log("🔄 Annulation hangup automatique: l'IA pose une question (devis/RDV) nécessitant une réponse du client");
+      goodbyeDetected = false;
+      if (goodbyeFallbackTimer) {
+        clearTimeout(goodbyeFallbackTimer);
+        goodbyeFallbackTimer = null;
+      }
+    }
     premiumTtsQueue.push({ text: textToSpeak, interrupt, onComplete: onComplete || null });
     premiumTtsLastText = textToSpeak;
     lastAssistantSpokenAt = now;
@@ -3367,6 +3381,7 @@ RÈGLE PLAQUE (critique):
 - SMS plaque uniquement si client dit explicitement que ce n'est pas la bonne plaque/autre véhicule ou si aucune plaque.
 RÈGLE INFO/DEVIS/RAPPEL:
 - Si appel info sans RDV: répondre puis proposer rappel garage avant clôture.
+- INTERDICTION AU REVOIR TROP TÔT: Ne dis JAMAIS « au revoir » ni « bonne journée » quand le client vient de demander un devis ou un rendez-vous. Tu DOIS d'abord traiter la demande (devis: confirmation plaque puis « Le garage vous rappellera »; RDV: jour, créneau, plaque). Dire « au revoir » avant d'avoir traité la demande = ERREUR GRAVE.
 - DEMANDE DE DEVIS (règle absolue): Ne JAMAIS annoncer le prix pour une demande de devis. Ne JAMAIS demander "Souhaitez-vous être rappelé ?" (le garage rappellera pour le devis). Prendre OBLIGATOIREMENT la plaque. Si le client a une plaque enregistrée (en dossier): dis "Je prends note de votre demande de devis pour [prestation]. Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est [X]. Est-ce bien correct ?" — NE JAMAIS ajouter "Pourriez-vous me confirmer votre plaque ?" ou "Pour cela, pourriez-vous me confirmer..." (inutile). Si le client n'a PAS de plaque (pas en dossier ou en dossier sans plaque): dis "Je prends note de votre demande de devis pour [prestation]. Je vais vous envoyer un message à la fin de l'appel pour que vous puissiez nous indiquer votre plaque d'immatriculation." Enchaîner: note devis → plaque → "Le garage vous rappellera pour vous transmettre le devis. Avez-vous besoin d'autre chose ?" — Pour un DEVIS, dis "Le garage vous rappellera pour vous transmettre le devis", JAMAIS "Le garage vous rappellera pour confirmer" (phrase réservée aux RDV). Jamais de prix, jamais de question rappel.
 - Si devis accepté: ne pas redemander rappel (le garage rappellera pour le devis).
 - Si demande RDV en cours ou validée: ne pas poser la question de rappel.
@@ -3960,6 +3975,10 @@ But: être naturel et mettre le client en confiance.`,
                 const MIN_EMPTY_CHECKS = Number(process.env.GOODBYE_MIN_EMPTY_CHECKS) || 4; // 4 x 500ms = 2 s de queue vide → raccrocher juste après la fin de Minimax
                 const MAX_CHECK_COUNT = 60; // 60 x 500ms = 30 s max pour que le TTS (Minimax) finisse
                 const checkAudioAndHangup = () => {
+                  if (!goodbyeDetected) {
+                    if (goodbyeFallbackTimer) { clearTimeout(goodbyeFallbackTimer); goodbyeFallbackTimer = null; }
+                    return;
+                  }
                   const lastText = premiumTtsLastText || doneText || "";
                   const hasSaidGoodbye = isRealGoodbye(lastText);
                   if (!hasSaidGoodbye && checkCount === 0) {
@@ -4134,6 +4153,7 @@ But: être naturel et mettre le client en confiance.`,
                     console.log("🟢 Le client a parlé (texte reçu par l'IA):", userText.substring(0, 120));
                     console.log(`[CLIENT-SAYS] ${userText}`);
                     lastUserTextPendingIngest = userText;
+                    lastUserMessageText = userText;
                     const now = nowMs();
                     const timeSinceLastCommit = lastCommittedAt > 0 ? now - lastCommittedAt : Infinity;
                     if (timeSinceLastCommit > 2000) {
@@ -4457,6 +4477,10 @@ But: être naturel et mettre le client en confiance.`,
                 const MIN_EMPTY_CHECKS = Number(process.env.GOODBYE_MIN_EMPTY_CHECKS) || 4; // 4 x 500ms = 2 s queue vide → raccrocher après fin Minimax
                 const MAX_CHECK_COUNT = 60; // 60 x 500ms = 30 s max
                 const checkAudioAndHangup = () => {
+                  if (!goodbyeDetected) {
+                    if (goodbyeFallbackTimer) { clearTimeout(goodbyeFallbackTimer); goodbyeFallbackTimer = null; }
+                    return;
+                  }
                   const lastText = premiumTtsLastText || doneText || "";
                   const hasSaidGoodbye = isRealGoodbye(lastText);
                   if (!hasSaidGoodbye && checkCount === 0) {
@@ -4859,6 +4883,7 @@ But: être naturel et mettre le client en confiance.`,
               lastCommittedAt = nowMs();
               userHasSpoken = true;
               lastUserActivityMs = nowMs();
+              lastUserMessageText = String(transcript || "").trim();
               const norm = String(transcript).trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
               const dedupKey = "speak_" + norm;
               if (!userSpeakItemIds.has(dedupKey)) {
