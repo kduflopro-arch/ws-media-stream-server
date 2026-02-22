@@ -4381,9 +4381,11 @@ PLAQUE D'IMMATRICULATION (RÈGLE ABSOLUE):
 PROCÉDURE RDV (OBLIGATOIRE ET DANS CET ORDRE):
 1) Si le client demande UNIQUEMENT les horaires (ou tarifs, adresse, etc.): donne l'info puis demande "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client n'a pas pris de RDV, tu DOIS demander "Souhaitez-vous que le garage vous rappelle ?" avant toute clôture (obligatoire). NE DIS PAS "Quel jour vous conviendrait le mieux ?" dans ce cas.
 ${infoOnlyRappelRule}
-2) Pour un RDV: d'abord demande "Je vous propose de venir faire un diagnostic. Vous voulez prendre rendez-vous ?" (ATTENDS OUI/NON).
-3) SEULEMENT si le client a répondu OUI: alors DANS CET ORDRE (ne pas inverser): (a) "Quel jour vous conviendrait le mieux ?" → attends la réponse ; (b) "Plutôt le matin ou l'après-midi ?" → attends la réponse ; (c) ENSUITE demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?" ou envoi de message si pas de plaque). Ne demande JAMAIS la plaque avant le jour et le créneau matin/après-midi.
+2) RDV POUR UNE PRESTATION PRÉCISE (ex: vidange, plaquettes de frein, révision, diagnostic): (0) dis "D'accord, nous allons faire une demande de rendez-vous.", (1) OBLIGATOIRE: appelle get_garage_pricing, trouve la ligne correspondant à la prestation (ex: "plaquettes"→Plaquettes de frein, "changement plaquettes"→Plaquettes), et annonce le tarif. Si un tarif existe dans le résultat, dis-le (ex: "Le tarif pour les plaquettes de frein est de 120 euros" ou "entre 80 et 150 euros selon le véhicule"). INTERDIT: dire "à confirmer lors de la visite" ou "à confirmer" si get_garage_pricing a renvoyé un prix pour cette prestation. (2) OBLIGATOIRE: appelle get_opening_hours puis annonce AU CLIENT les jours et horaires d'OUVERTURE (ex: "Le garage est ouvert du lundi au samedi de 8h30 à 16h") puis les jours de fermeture. Ne saute JAMAIS l'étape horaires. (3) "Quel jour vous conviendrait le mieux ?", (4) "Plutôt le matin ou l'après-midi ?", (5) confirmation de la plaque. Ordre strict: phrase → tarif (get_garage_pricing) → horaires (get_opening_hours) → jour → créneau → plaque.
+3) RDV DIAGNOSTIC (client décrit un problème): demande "Je vous propose de venir faire un diagnostic. Vous voulez prendre rendez-vous ?" (ATTENDS OUI/NON). Si OUI: (1) get_garage_pricing pour diagnostic, (2) get_opening_hours + annonce horaires, (3) jour, (4) matin/après-midi, (5) plaque.
+4) SEULEMENT si le client a répondu OUI: alors DANS CET ORDRE (ne pas inverser): (a) "Quel jour vous conviendrait le mieux ?" → attends la réponse ; (b) "Plutôt le matin ou l'après-midi ?" → attends la réponse ; (c) ENSUITE demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?" ou envoi de message si pas de plaque). Ne demande JAMAIS la plaque avant le jour et le créneau matin/après-midi.
 - INTERDICTION: Ne dis JAMAIS "Quel jour vous conviendrait le mieux ?" ou "Quel créneau ?" si le client n'a pas d'abord dit explicitement qu'il veut prendre rendez-vous. Une simple demande d'horaires n'est PAS une demande de RDV.
+- INTERDICTION TARIF: Ne dis JAMAIS "Le tarif est à confirmer lors de la visite" ni "à confirmer" pour une prestation si get_garage_pricing a renvoyé un prix pour cette prestation (cherche la ligne correspondante: plaquettes, frein, vidange, révision, etc.).
 
 RÈGLES RDV:
 - Ne lance JAMAIS une demande de rendez-vous (et ne dis JAMAIS "Quel jour ?") si le client n'a pas explicitement accepté (répondu oui à "Vous voulez prendre rendez-vous ?" ou "Souhaitez-vous prendre rendez-vous ?").
@@ -4400,8 +4402,9 @@ RÈGLES RDV:
   * Tu confirmes le RDV seulement après validation explicite du client. Après confirmation, annonce qu'un SMS de confirmation sera envoyé. (Prestation nécessitant vérification stock: tu prends une demande, pas de confirmation directe.)
 
 TARIFS:
+- OBLIGATOIRE: appelle get_garage_pricing AVANT toute annonce de prix. Cherche la ligne correspondant à la prestation demandée (ex: plaquettes/frein→Plaquettes de frein, vidange→Vidange). Si un tarif existe, annonce-le. INTERDIT: dire "à confirmer lors de la visite" ou "à confirmer" si get_garage_pricing a renvoyé un prix pour cette prestation.
 - Si un tarif est renseigné, tu le donnes et tu précises si le prix peut varier selon le véhicule. OBLIGATOIRE: après avoir donné un tarif pour une prestation, tu DOIS proposer: "Souhaitez-vous faire une demande de devis auprès du garage ?" (attendre la réponse avant de continuer).
-- Sinon, tu dis que c'est à confirmer/devis.
+- Sinon uniquement (get_garage_pricing vide ou pas de ligne correspondante): tu dis que c'est à confirmer/devis.
 
 AUTRES:
 ${vehicleInfoRule}
@@ -4436,10 +4439,10 @@ ${garageClosed
         const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
 
         const garageTools = [
-          { type: "function", name: "get_garage_pricing", description: "Récupère les tarifs du garage (prestations et prix). À appeler quand le client demande un prix ou les tarifs.", parameters: { type: "object", properties: {} } },
+          { type: "function", name: "get_garage_pricing", description: "Récupère les tarifs du garage (prestations et prix). OBLIGATOIRE: à appeler quand le client demande un prix, les tarifs, ou lors de toute prise de RDV pour une prestation précise (vidange, plaquettes, révision, etc.) — annonce le tarif trouvé, ne dis jamais 'à confirmer' si un prix existe.", parameters: { type: "object", properties: {} } },
           { type: "function", name: "get_garage_services", description: "Récupère la liste des services avec descriptions. À appeler pour questions sur les prestations (en quoi consiste, quels services).", parameters: { type: "object", properties: {} } },
           { type: "function", name: "get_garage_faq", description: "Récupère les questions fréquentes et réponses. À appeler pour une question type FAQ.", parameters: { type: "object", properties: {} } },
-          { type: "function", name: "get_opening_hours", description: "Récupère les horaires d'ouverture et les jours de fermeture. À appeler quand le client demande les horaires ou pour annoncer les créneaux avant un RDV.", parameters: { type: "object", properties: {} } },
+          { type: "function", name: "get_opening_hours", description: "Récupère les horaires d'ouverture et les jours de fermeture. OBLIGATOIRE lors de toute prise de RDV: appelle AVANT de demander 'Quel jour ?', puis annonce AU CLIENT les jours et horaires d'ouverture + jours de fermeture.", parameters: { type: "object", properties: {} } },
           { type: "function", name: "get_garage_services_includes", description: "Récupère les prestations incluses (ex: révision comprend diagnostic). À appeler pour éviter doublons ou expliquer qu'une prestation en inclut une autre.", parameters: { type: "object", properties: {} } },
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_garage", description: "Transfère l'appel vers le garage (un humain). À appeler quand le client demande à être transféré, à parler à quelqu'un du garage ou pour VALIDER un devis. Argument validation_devis: true si le client appelle POUR VALIDER un devis déjà établi (ex: 'j'appelle pour valider mon devis').", parameters: { type: "object", properties: { validation_devis: { type: "boolean", description: "true si le client appelle pour valider un devis déjà établi par le garage" } } } }] : []),
         ];
@@ -4559,7 +4562,7 @@ STYLE (échange humain):
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
             const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
-            const truncNote = "\n\n[RÈGLES PRIORITAIRES: Suivre procédure À LA LETTRE. Tarif donné → proposer devis: Souhaitez-vous faire une demande de devis ? pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel. DEVIS+plaque en dossier: TOUJOURS demander confirmation plaque (Votre plaque est [X]. Est-ce bien correct ?) avant SMS.]";
+            const truncNote = "\n\n[RÈGLES PRIORITAIRES: Suivre procédure À LA LETTRE. RDV prestation: get_garage_pricing + get_opening_hours OBLIGATOIRES avant jour/créneau. Tarif présent dans get_garage_pricing → l'annoncer, JAMAIS dire à confirmer. Tarif donné → proposer devis. pas de marque/modèle, plaque par SMS uniquement. DEVIS+plaque: confirmation plaque avant SMS.]";
             baseForUpdate = baseForUpdate.slice(0, maxBase - truncNote.length) + truncNote;
             updatedInstructions = `${baseForUpdate}${rest}`;
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
@@ -4591,7 +4594,7 @@ STYLE (échange humain):
         if (initialInstructionsText.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
           const restInitial = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
           const maxBaseInitial = REALTIME_INSTRUCTIONS_MAX_CHARS - restInitial.length - 400;
-          const truncNoteInitial = "\n\n[RÈGLES PRIORITAIRES: Suivre procédure À LA LETTRE. Tarif donné → proposer devis: Souhaitez-vous faire une demande de devis ? pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel. DEVIS+plaque en dossier: TOUJOURS demander confirmation plaque (Votre plaque est [X]. Est-ce bien correct ?) avant SMS.]";
+          const truncNoteInitial = "\n\n[RÈGLES PRIORITAIRES: Suivre procédure À LA LETTRE. RDV prestation: get_garage_pricing + get_opening_hours OBLIGATOIRES avant jour/créneau. Tarif présent dans get_garage_pricing → l'annoncer, JAMAIS dire à confirmer. Tarif donné → proposer devis. pas de marque/modèle, plaque par SMS uniquement. DEVIS+plaque: confirmation plaque avant SMS.]";
           initialInstructionsText = baseInstructions.slice(0, maxBaseInitial - truncNoteInitial.length) + truncNoteInitial + restInitial;
           console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
         }
