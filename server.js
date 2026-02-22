@@ -888,7 +888,7 @@ wss.on("connection", (ws, req) => {
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
           consent_granted: effectiveConsentGranted,
           ...(noRequest ? { no_request: true, no_request_reason: noRequestReason } : {}),
-          ...(rdvIncomplete ? { call_outcome: "rdv_incomplete", rdv_incomplete_reason: rdvIncompleteReason } : {}),
+          ...(rdvIncomplete ? { call_outcome: "rdv_incomplete", rdv_incomplete_reason: rdvIncompleteReason } : (rdvRequestedFromWs && rdvAcceptedByClient && assistantAskedForDayOrSlot ? { call_outcome: "completed" } : {})),
         }),
       }).catch((err) => {
         console.error("❌ Erreur lors de l'appel à realtime-finalize:", err);
@@ -3873,9 +3873,10 @@ But: être naturel et mettre le client en confiance.`,
                 enqueueIngest("user", lastUserTextPendingIngest);
                 lastUserTextPendingIngest = null;
               }
-              enqueueIngest("assistant", doneText);
-              lastAssistantText = doneText;
-              recordAssistantQuestionIntent(doneText);
+              const textForIngest = applyPricingHoursGuard(doneText);
+              enqueueIngest("assistant", textForIngest);
+              lastAssistantText = textForIngest;
+              recordAssistantQuestionIntent(textForIngest);
               if (isAssistantConfirmingModificationRdv(doneText)) {
                 modificationRdvByClient = true;
                 annulationRdvByClient = false;
@@ -4369,9 +4370,10 @@ But: être naturel et mettre le client en confiance.`,
                 enqueueIngest("user", lastUserTextPendingIngest);
                 lastUserTextPendingIngest = null;
               }
-              enqueueIngest("assistant", doneText);
-              lastAssistantText = doneText; // Pour distinguer refus rappel vs refus consentement au prochain tour
-              recordAssistantQuestionIntent(doneText);
+              const textForIngest = applyPricingHoursGuard(doneText);
+              enqueueIngest("assistant", textForIngest);
+              lastAssistantText = textForIngest; // Pour distinguer refus rappel vs refus consentement au prochain tour
+              recordAssistantQuestionIntent(textForIngest);
               if (isAssistantConfirmingModificationRdv(doneText)) {
                 modificationRdvByClient = true;
                 annulationRdvByClient = false;
