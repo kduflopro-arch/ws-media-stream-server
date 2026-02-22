@@ -607,6 +607,7 @@ wss.on("connection", (ws, req) => {
   let lastUserTextForConsent = null; // Dernier texte client avant réponse IA (pour forcer rappel consentement si ni oui ni non)
   let lastAssistantText = ""; // Dernier message assistant (pour ne pas confondre refus rappel avec refus consentement)
   let recentAssistantQuestionIntents = []; // Array<{ intent: "callback"|"rdv"; ts: number }>
+  let hasAskedDayOrSlot = false;
   let callbackRefusedByClient = false; // Client a refusé d'être rappelé (envoyé au finalize pour badge "Pas rappel")
   let callbackAcceptedByClient = false; // Client a accepté explicitement d'être rappelé
   let rdvRefusedByClient = false; // Client a refusé de prendre rendez-vous (envoyé au finalize → rdv_requested false)
@@ -686,6 +687,7 @@ wss.on("connection", (ws, req) => {
     const asksDevis = asksDevisLast || asksDevisAnywhere || asksDevisEtablir;
     const intent = asksDevis ? "devis" : asksCallback && !asksRdv ? "callback" : asksRdv && !asksCallback ? "rdv" : null;
     if (!intent) return;
+    if (intent === "rdv" && /\b(quel\s*jour|jour\s*vous|matin|après-?midi|plutôt)\b/i.test(target)) hasAskedDayOrSlot = true;
     recentAssistantQuestionIntents.push({ intent, ts: nowMs() });
     console.log("📌 [RDV] recordAssistantQuestionIntent:", { intent, asksRdv: !!asksRdv, asksCallback: !!asksCallback, asksDevis: !!asksDevis, lastQuestion: target.slice(0, 80) });
     if (recentAssistantQuestionIntents.length > 10) {
@@ -841,7 +843,7 @@ wss.on("connection", (ws, req) => {
         const asksRdv = (/\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target)) && target.includes("?");
         return asksRdv ? "rdv" : (getMostRecentAssistantIntent(25000));
       })();
-      const assistantAskedForDayOrSlot = (lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || ""));
+      const assistantAskedForDayOrSlot = hasAskedDayOrSlot || ((lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || "")));
       const rdvRequestedFromWs = (rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient);
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
       console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, validation_devis: validationDevisByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage_status: transferToGarageStatus });
@@ -3241,8 +3243,8 @@ IMPORTANT - COMPRÉHENSION ET CONFIRMATION:
 - Si le client a dû répéter (ex. le jour ou le créneau), considère que tu as compris et confirme puis enchaîne (ex. confirmation de la plaque si applicable).
 IMPORTANT - GESTION DES RENDEZ-VOUS:
 - ANNULATION OU MODIFICATION: Pour chaque rendez-vous listé ci-dessus, le statut est indiqué (demande en attente / rendez-vous enregistré). Quand le client veut annuler ou modifier un rendez-vous : en mode DEMANDE (ou aucun), tu NE dis PAS que tu peux modifier ou prendre le rendez-vous toi-même. Tu dis : "Je peux faire une demande auprès du garage ; en cas de confirmation le garage vous rappellera ou un message de confirmation vous sera envoyé." Puis tu notes la demande (nouvelle date/heure pour modification, ou annulation) et tu dis que le garage rappellera pour confirmer. En mode INTERNE uniquement, tu peux dire "je peux le modifier / l'annuler" et agir directement. Ne confonds pas demande en attente (pas encore confirmée) et rendez-vous enregistré (déjà confirmé).
-- PHRASE OBLIGATOIRE AVANT PRISE DE RDV: Dès que le client demande à prendre rendez-vous (ou répond oui à "Vous voulez prendre rendez-vous ?"), dis TOUJOURS en premier : "D'accord, nous allons faire une demande de rendez-vous." Puis enchaîne avec le processus (prestation/tarif, horaires, jour, créneau, plaque). Ne saute jamais cette phrase.
-- RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande un rdv pour une prestation (vidange, diagnostic, révision, freins), dis "D'accord, nous allons faire une demande de rendez-vous." puis appelle get_garage_pricing(prestation) — renvoie tarif + horaires en une fois. Annonce tout en une phrase, puis "Quel jour vous conviendrait le mieux ?" — ATTENDS. (2) APRÈS le jour donné, demande "Plutôt le matin ou l'après-midi ?" — ATTENDS. (3) plaque. NE pose JAMAIS jour et matin/après-midi ensemble.
+- PHRASE OBLIGATOIRE AVANT PRISE DE RDV: Dès que le client demande à prendre rendez-vous pour une prestation (plaquettes, vidange, etc.), dis : "D'accord, nous allons faire une demande de rendez-vous. Pour [la prestation], un instant s'il vous plaît." Puis appelle get_garage_pricing et enchaîne. Ne saute jamais cette phrase.
+- RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande un rdv pour une prestation (vidange, diagnostic, révision, freins), dis "D'accord, nous allons faire une demande de rendez-vous. Pour [la prestation], un instant s'il vous plaît." (ex: "Pour les plaquettes de frein, un instant s'il vous plaît") puis appelle get_garage_pricing(prestation) — renvoie tarif + horaires en une fois. Annonce tout en une phrase, puis "Quel jour vous conviendrait le mieux ?" — ATTENDS. (2) APRÈS le jour donné, demande "Plutôt le matin ou l'après-midi ?" — ATTENDS. (3) plaque. NE pose JAMAIS jour et matin/après-midi ensemble.
 - ⚠️ DIAGNOSTIC SANS PROBLÈME DÉCRIT: Si le client demande UNIQUEMENT un rendez-vous pour un diagnostic SANS avoir décrit de problème ou de symptôme (ex: "je voudrais un rdv pour un diagnostic", "prendre rendez-vous pour un diagnostic"), tu NE dis JAMAIS "pour ce problème", "pour votre problème" ou "pour le problème". Dis uniquement: "Je vous propose de venir faire un diagnostic au garage. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" ou "D'accord, nous allons faire une demande de rendez-vous. Le tarif pour un diagnostic est de [TARIF]. [Horaires]. Vous voulez prendre rendez-vous ?". Réserve "pour ce problème" UNIQUEMENT quand le client a d'abord décrit un problème (symptôme, voyant, panne, etc.) et que tu as recueilli des infos.
 - RÈGLE ABSOLUE - CONSENTEMENT OBLIGATOIRE: Tu NE DOIS JAMAIS prendre un rendez-vous sans le consentement explicite du client. Tu proposes un rendez-vous, tu demandes confirmation, et tu attends la réponse du client avant de confirmer.
 - RÈGLE ABSOLUE - GUIDAGE PROACTIF: Quand le client décrit un problème (SANS avoir demandé un rdv pour une prestation précise), tu DOIS dans la même réponse: (1) reconnaître le problème, (2) mentionner brièvement 1-2 causes possibles, (3) poser UNE SEULE question pour recueillir des informations utiles (depuis quand, autres symptômes, contexte). NE PROPOSE PAS de rendez-vous dans cette première réponse. Attends d'abord la réponse du client.
@@ -3314,7 +3316,7 @@ OUTILS GARAGE (OBLIGATOIRE):
 - Si l'outil n'a pas l'info: dis que l'information doit être confirmée (devis/rappel).
 - Outils: get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes${allowTransfer ? ", transfer_to_garage" : ""}.
 RÈGLE RDV PRESTATION (ordre obligatoire):
-1) "D'accord, nous allons faire une demande de rendez-vous."
+1) "D'accord, nous allons faire une demande de rendez-vous. Pour [la prestation], un instant s'il vous plaît." (ex: "Pour les plaquettes de frein, un instant s'il vous plaît")
 2) Appelle get_garage_pricing(prestation) (tarif + horaires en une fois), annonce les deux dans une seule réponse (sans durée d'intervention sauf demande explicite du client).
 3) Demande uniquement: "Quel jour vous conviendrait le mieux ?" puis ATTENDS.
 4) Ensuite uniquement: "Plutôt le matin ou l'après-midi ?" puis ATTENDS.
