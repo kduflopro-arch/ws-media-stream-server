@@ -6063,7 +6063,10 @@ But: être naturel et mettre le client en confiance.`,
               const previousItemId = msg.item.id;
               let output = "";
               let transferOutputDeferred = false;
-              if (toolName === "get_garage_pricing") output = pricingSummary || "Tarifs non renseignés.";
+              if (toolName === "get_garage_pricing") {
+                const raw = pricingSummary || "Tarifs non renseignés.";
+                output = raw === "Tarifs non renseignés." ? raw : `Chaque ligne = une prestation et son tarif. RÈGLE: pour annoncer le prix au client, utilise UNIQUEMENT la ligne dont le NOM correspond à la prestation demandée. Exemples de correspondance: "plaquettes"/"changement plaquettes"/"freins" → ligne contenant Plaquettes ou Frein ; "vidange" → Vidange ; "révision" → Révision ; "diagnostic" → Diagnostic. Ne prends JAMAIS le tarif d'une autre prestation.\n\n${raw}`;
+              }
               else if (toolName === "get_garage_services") output = servicesSummary || "Services non renseignés.";
               else if (toolName === "get_garage_faq") output = faqsSummary || "FAQ non renseignée.";
               else if (toolName === "get_opening_hours") {
