@@ -1825,8 +1825,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       premiumTtsInFlight = false;
       const checkAndReenableInput = () => {
-        if (outboundQueuedBytes === 0 && outboundQueue.length === 0) {
-        } else {
+        if (!(outboundQueuedBytes === 0 && outboundQueue.length === 0)) {
           setTimeout(checkAndReenableInput, 100);
         }
       };
@@ -1972,8 +1971,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     } finally {
       premiumTtsInFlight = false;
       const checkAndReenableInput = () => {
-        if (outboundQueuedBytes === 0 && outboundQueue.length === 0) {
-        } else {
+        if (!(outboundQueuedBytes === 0 && outboundQueue.length === 0)) {
           setTimeout(checkAndReenableInput, 100);
         }
       };
@@ -2097,17 +2095,28 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     const assistantReplySources = ["conversation.item.done", "response.output_text.done", "response.done", "response.output_item.done"];
     let textToSpeak = assistantReplySources.includes(source) ? ensureAssistantReplyEndsWithQuestion(clean) : clean;
-    if (assistantReplySources.includes(source) && consentGiven && !ws.__namedGreetingAfterConsent && clientInfo?.name) {
-      const fullName = String(clientInfo.name || "").trim();
-      if (fullName) {
-        const parts = fullName.split(/\s+/).filter(Boolean);
-        const lastName = String(clientInfo.last_name || "").trim() || parts[parts.length - 1] || fullName;
-        const gender = String(clientInfo.gender || "").trim().toLowerCase();
-        const title = gender === "homme" ? "Monsieur" : gender === "femme" ? "Madame" : "";
-        const salutation = title ? `${title} ${lastName}` : lastName;
-        if (salutation && !new RegExp(`\\b${lastName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(textToSpeak)) {
-          textToSpeak = /^bonjour\b/i.test(textToSpeak) ? textToSpeak.replace(/^bonjour\b/i, `Bonjour ${salutation}`) : `Bonjour ${salutation}. ${textToSpeak}`;
-          ws.__namedGreetingAfterConsent = true;
+    if (assistantReplySources.includes(source)) {
+      const noRecentGarageTool = !(lastGarageToolOutputAt > 0 && (now - lastGarageToolOutputAt) < 15000), talksAboutPriceAndHours = /\b(tarif|prix|euros?)\b/i.test(textToSpeak) && /\b(horaires?|ouvert|heures?)\b/i.test(textToSpeak), talksAboutRdv = /\b(rendez-?vous|rdv)\b/i.test(textToSpeak) || /\bquel jour vous conviendrait le mieux\b/i.test(textToSpeak);
+      if (noRecentGarageTool && talksAboutPriceAndHours && talksAboutRdv) {
+        const ctx = `${lastUserTextPendingIngest || ""} ${textToSpeak}`.toLowerCase();
+        const prestation = (/disque/.test(ctx) && /frein/.test(ctx)) ? "disques"
+          : ((/plaquette/.test(ctx) || (/\bfrein/.test(ctx) && !/disque/.test(ctx))) ? "plaquettes"
+            : (/diagnostic/.test(ctx) ? "diagnostic" : (/vidange/.test(ctx) ? "vidange" : (/r[eé]vision/.test(ctx) ? "révision" : ""))));
+        if (prestation && pricingSummary) {
+          const lines = String(pricingSummary).split("\n").map((l) => l.trim()).filter(Boolean);
+          let matched = null;
+          if (/disque/.test(prestation)) matched = lines.find((l) => /^[^:]*disque/i.test(l) && /^[^:]*frein/i.test(l));
+          if (!matched && /plaquette|frein/.test(prestation)) matched = lines.find((l) => /^[^:]*plaquette/i.test(l) && /^[^:]*frein/i.test(l) && !/^[^:]*disque/i.test(l));
+          if (!matched && /diagnostic/.test(prestation)) matched = lines.find((l) => /^[^:]*diagnostic/i.test(l));
+          if (!matched && /vidange/.test(prestation)) matched = lines.find((l) => /^[^:]*vidange/i.test(l));
+          if (!matched && /r[eé]vision/.test(prestation)) matched = lines.find((l) => /^[^:]*r[eé]vision/i.test(l));
+          if (matched) {
+            const cleanedMatched = matched.replace(/\s*\(\s*\d+\s*h(?:\s*\d+)?\s*min\s*\)\s*$/i, "").replace(/\s*\(\s*\d+\s*min\s*\)\s*$/i, "").trim();
+            const pricePart = cleanedMatched.includes(":") ? cleanedMatched.split(":").slice(1).join(":").trim() : cleanedMatched;
+            const prestationLabel = ({ plaquettes: "le changement des plaquettes de frein", disques: "le changement des disques de frein", "révision": "la révision" })[prestation] || prestation;
+            textToSpeak = `D'accord, nous allons faire une demande de rendez-vous. Le tarif pour ${prestationLabel} est de ${pricePart}. Les horaires sont ${garageHoursText || "les horaires du garage"}. Quel jour vous conviendrait le mieux ?`;
+            console.warn("🛡️ Correction serveur appliquée (tarif/horaires sans appel outil):", { prestation, matched: cleanedMatched.substring(0, 100) });
+          }
         }
       }
     }
@@ -2821,8 +2830,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\ben\s+SMS\b/gi, "par message");
     t = t.replace(/\bl['']SMS\b/gi, "le message");
     t = t.replace(/\bSMS\b/gi, "un message");
-    if (originalText.includes('euros') || originalText.includes('€') || originalText.match(/[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/) || originalText.match(/\d{1,2}[hH:]\s*\d{1,2}/)) {
-    }
     return t.trim();
   }
   function clipTtsText(input, maxChars) {
@@ -3864,8 +3871,6 @@ But: être naturel et mettre le client en confiance.`,
                 "au revoir et bonne journée", "aurevoir et bonne journee", "au revoir, bonne journée", "aurevoir, bonne journee"
               ];
               const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 5000; // 5 secondes - attendre que le client ait fini de parler
-              if (isGoodbye) {
-              }
               if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_FOR_GOODBYE_MS) {
                 goodbyeDetected = true;
                 console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique après que l'audio soit terminé", {
@@ -4359,8 +4364,6 @@ But: être naturel et mettre le client en confiance.`,
                 "au revoir et bonne journée", "aurevoir et bonne journee", "au revoir, bonne journée", "aurevoir, bonne journee"
               ];
               const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 5000; // 5 secondes - attendre que le client ait fini de parler
-              if (isGoodbye) {
-              }
               if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_FOR_GOODBYE_MS) {
                 goodbyeDetected = true;
                 console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique après que l'audio soit terminé", {
@@ -4929,8 +4932,6 @@ But: être naturel et mettre le client en confiance.`,
               }
             }
             const refusesConsent = (userNegative || userText.match(/\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i)) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(userTextNorm);
-            if (acceptsConsent && consentRequired && !consentGiven) {
-            }
             if (refusesConsent && consentRequired && !consentGiven) {
               const lastIntentForConsent = detectLastQuestionIntent(lastAssistantText);
               const recentIntentForConsent = getMostRecentAssistantIntent(25000);
@@ -5397,24 +5398,28 @@ But: être naturel et mettre le client en confiance.`,
         try {
           const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
           const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
+          const fallbackDelayMs = Number(process.env.GREETING_FALLBACK_DELAY_MS ?? "900");
           if (!transferFailed && (!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
-            const rawName = String(garageName || "AutoGuru").trim();
-            const garageNom = /^garage\s+/i.test(rawName) ? rawName.replace(/^garage\s+/i, "").trim() : rawName;
-            const baseHello = `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
-            const consentText = consentRequired && !consentGiven
-              ? "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN
-              : "";
-            const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
-            const greeting = consentRequired && !consentGiven
-              ? [baseHello, consentText].filter(Boolean).join(" ")
-              : [baseHello, question].filter(Boolean).join(" ");
-            initialAssistantGreetingText = greeting;
-            hasSentInitialGreeting = true;
-            enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
-            const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
-            console.log(`👋 Greeting générique (sans nom client) joué IMMÉDIATEMENT via ${providerName}.`, { callSid, consentRequired });
-            if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
-            ws.__greetingFallbackTimer = null;
+            ws.__greetingFallbackTimer = setTimeout(() => {
+              if (initialAssistantGreetingText || clientInfo) return;
+              const rawName = String(garageName || "AutoGuru").trim();
+              const garageNom = /^garage\s+/i.test(rawName) ? rawName.replace(/^garage\s+/i, "").trim() : rawName;
+              const baseHello = `Bonjour. Ici ${assistantName} du garage ${garageNom}.`;
+              const consentText = consentRequired && !consentGiven
+                ? "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN
+                : "";
+              const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
+              const greeting = consentRequired && !consentGiven
+                ? [baseHello, consentText].filter(Boolean).join(" ")
+                : [baseHello, question].filter(Boolean).join(" ");
+              initialAssistantGreetingText = greeting;
+              hasSentInitialGreeting = true;
+              enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+              const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+              console.log(`👋 Greeting générique (sans nom client) joué APRÈS délai fallback via ${providerName}.`, { callSid, consentRequired, fallbackDelayMs });
+              if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+              ws.__greetingFallbackTimer = null;
+            }, fallbackDelayMs);
           }
         } catch (e) {
           const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
@@ -5450,15 +5455,13 @@ But: être naturel et mettre le client en confiance.`,
             try {
               const backlogFrames = Math.floor(outboundQueuedBytes / 160);
               const framesToSend =
-                backlogFrames > 1200 ? 10 : // >24s - drainage agressif
-                backlogFrames > 800 ? 8 : // >16s - drainage très agressif
-                backlogFrames > 500 ? 6 : // >10s - drainage agressif
-                backlogFrames > 300 ? 4 : // >6s - drainage modéré
-                backlogFrames > 120 ? 3 : // >2.4s - drainage léger
-                1; // Normal
+                backlogFrames > 1200 ? 10 :
+                backlogFrames > 800 ? 8 :
+                backlogFrames > 500 ? 6 :
+                backlogFrames > 300 ? 4 :
+                backlogFrames > 120 ? 3 :
+                1;
               sendOutboundFrames(framesToSend);
-              if (backlogFrames > 100) {
-              }
             } catch {
             }
           }, 20);
@@ -5971,8 +5974,6 @@ But: être naturel et mettre le client en confiance.`,
         deferredFinalizeTimer = null;
       }
       finalizeCallToAutoGuru("ws_close");
-    }
-    if (deferredFinalizeTimer) {
     }
     if (outboundTimer) {
       clearInterval(outboundTimer);
