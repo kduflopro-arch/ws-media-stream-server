@@ -579,6 +579,8 @@ wss.on("connection", (ws, req) => {
   let premiumTtsDrainInFlight = false;
   let premiumTtsLastText = ""; // Dernier texte effectivement envoyé au TTS (pour éviter les répétitions exactes)
   let lastGarageToolOutputAt = 0; // Après envoi function_call_output (get_garage_pricing, etc.) : laisser finir "Un instant" avant la suite
+  let pendingGaragePricingResponseAt = 0; // Timestamp quand on attend une réponse IA après get_garage_pricing (pour retry si vide)
+  let pendingGaragePricingRetryDone = false; // Éviter boucle infinie
   let spokenResponseIds = new Map(); // responseId -> timestamp (anti-répétitions par réponse)
   let recentAssistantTexts = []; // Array<{ text: string, ts: number }>
   const minimaxBillingMode = MINIMAX_USE_BALANCE ? "solde (pay-as-you-go)" : (MINIMAX_GROUP_ID ? "abonnement (GroupId)" : "solde (défaut)");
@@ -3158,7 +3160,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           consentRequired && !consentGiven
             ? "RÈGLE ABSOLUE - CONSENTEMENT: Dès le début de l'appel, annonce UNIQUEMENT: 'Cet appel est enregistré pour préparer votre arrivée au garage. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Puis TU T'ARRÊTES et tu ATTENDS la réponse du client. Tu ne dis RIEN d'autre avant qu'il ait accepté ou refusé. Si le client dit oui je suis d'accord, d'accord ou ok: NE DIS RIEN — la salutation 'Bonjour Monsieur/Madame [nom], en quoi puis-je vous aider ?' est jouée automatiquement. Attends ensuite la question du client. Si le client refuse, tu dis au revoir et tu raccroches. Si le client dit autre chose (ex: il décrit un problème sans avoir accepté), tu réponds UNIQUEMENT: 'Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Tu ne traites aucune autre demande tant qu'il n'a pas accepté ou refusé. Ne demande le consentement QU'UNE SEULE FOIS."
             : consentRequired && consentGiven
-            ? "Consentement enregistrement: déjà donné par le client. NE PAS redemander le consentement."
+            ? "Consentement enregistrement: déjà donné par le client au début de l'appel. INTERDICTION ABSOLUE: Ne redemande JAMAIS le consentement. Ne dis JAMAIS 'Cet appel est enregistré' ni 'Pour continuer, dites : Oui je suis d'accord' — ces phrases sont INTERDITES, le client a déjà accepté. Réponds normalement aux demandes (tarifs, RDV, devis, etc.)."
             : "Consentement enregistrement: non requis.";
         availableAppointmentSlotsLine = "";
         if (appointmentMode === "internal") {
@@ -3781,9 +3783,11 @@ But: être naturel et mettre le client en confiance.`,
                       console.warn("⚠️⚠️⚠️ ALERTE: L'IA a mentionné des causes possibles SANS poser de question !", extractedText.substring(0, 200));
                     }
                     if (REALTIME_ELEVEN_CHUNKING_ENABLED) {
+                      pendingGaragePricingResponseAt = 0;
                       flushRealtimeElevenChunks(rid, true);
                     } else if (!spokenSet.has(rid) && !REALTIME_USE_ELEVEN) {
                       spokenSet.add(rid);
+                      pendingGaragePricingResponseAt = 0;
                       if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
                         console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
@@ -3795,6 +3799,7 @@ But: être naturel et mettre le client en confiance.`,
                     } else if (REALTIME_USE_ELEVEN && !spokenSet.has(rid)) {
                       spokenSet.add(rid);
                       if (ws.__conversationItemTextByRid) ws.__conversationItemTextByRid.delete(rid);
+                      pendingGaragePricingResponseAt = 0; // Réponse reçue, pas besoin de retry
                       if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
                         console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
@@ -3813,6 +3818,18 @@ But: être naturel et mettre le client en confiance.`,
                   const outputEmpty = Array.isArray(rawOutput) && rawOutput.length === 0;
                   if (outputOnlyFunctionCalls || outputEmpty) {
                     if (LOG_VERBOSE) console.log("📋 response.done:", outputEmpty ? "output vide (normal après tool call ou court)" : "uniquement appels d'outils (normal), pas de texte à extraire.");
+                    // Retry si réponse vide après get_garage_pricing (IA peut bugger après plusieurs tarifs)
+                    const now = nowMs();
+                    if (pendingGaragePricingResponseAt > 0 && (now - pendingGaragePricingResponseAt) < 20000 && !pendingGaragePricingRetryDone) {
+                      pendingGaragePricingRetryDone = true;
+                      pendingGaragePricingResponseAt = 0;
+                      console.log("🔄 Réponse vide après get_garage_pricing, retry response.create");
+                      setTimeout(() => {
+                        if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                          requestResponseCreate("after_function_call_output_retry");
+                        }
+                      }, 500);
+                    }
                   } else {
                     console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
                     try {
@@ -4817,6 +4834,7 @@ But: être naturel et mettre le client en confiance.`,
                   const scheduleResponseAfterTool = () => {
                     attempt += 1;
                     if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                      if (garageDataTools.includes(toolName)) pendingGaragePricingResponseAt = nowMs();
                       requestResponseCreate("after_function_call_output");
                     } else if (openaiWs && openaiWs.readyState === WebSocket.OPEN && responseInProgress && attempt < maxAttempts) {
                       setTimeout(scheduleResponseAfterTool, 200);
