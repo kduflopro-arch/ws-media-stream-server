@@ -2516,10 +2516,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       return;
     }
-    const clean = clipTtsText(normalized, MAX_TTS_CHARS);
+    let clean = clipTtsText(normalized, MAX_TTS_CHARS);
     if (clean.length < normalized.length) {
       if (LOG_TTS) console.log(`[TTS-ENQUEUE] TEXTE TRONQUÉ: ${normalized.length} -> ${clean.length} chars`);
     }
+    // Retirer " Un instant" en fin de phrase (phrase de transition interdite avant get_garage_pricing en RDV)
+    clean = clean.replace(/\s*Un instant\s*[.,]?\s*$/gi, "").replace(/,\s*$/, "").trim();
+    if (clean.endsWith("..")) clean = clean.replace(/\.+$/, ".");
     const lowerClean = clean.toLowerCase().trim();
     if (
       lowerClean === "output" ||
