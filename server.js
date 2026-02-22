@@ -4588,7 +4588,7 @@ STYLE (échange humain):
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
             const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
-            const truncNote = "\n\n[RÈGLES: RDV: tarif+horaires AVANT jour. Jour PUIS matin/après-midi séparément. Pas 'Un instant'. Plaque: oui=confirmation.]";
+            const truncNote = "\n\n[RÈGLES CRITIQUES: OBLIGATOIRE — appelle get_garage_pricing(prestation) AVANT tout tarif ou horaire. Ne JAMAIS inventer un prix ni des horaires. RDV: tarif+horaires AVANT jour. Jour PUIS matin/après-midi séparément. Plaque: oui=confirmation.]";
             baseForUpdate = baseForUpdate.slice(0, maxBase - truncNote.length) + truncNote;
             updatedInstructions = `${baseForUpdate}${rest}`;
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
@@ -4620,7 +4620,7 @@ STYLE (échange humain):
         if (initialInstructionsText.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
           const restInitial = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
           const maxBaseInitial = REALTIME_INSTRUCTIONS_MAX_CHARS - restInitial.length - 400;
-          const truncNoteInitial = "\n\n[RÈGLES: RDV: tarif+horaires AVANT jour. Jour PUIS matin/après-midi séparément. Pas 'Un instant'. Plaque: oui=confirmation.]";
+          const truncNoteInitial = "\n\n[RÈGLES CRITIQUES: OBLIGATOIRE — appelle get_garage_pricing(prestation) AVANT tout tarif ou horaire. Ne JAMAIS inventer un prix ni des horaires. RDV: tarif+horaires AVANT jour. Jour PUIS matin/après-midi séparément. Plaque: oui=confirmation.]";
           initialInstructionsText = baseInstructions.slice(0, maxBaseInitial - truncNoteInitial.length) + truncNoteInitial + restInitial;
           console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
         }
@@ -6100,6 +6100,7 @@ But: être naturel et mettre le client en confiance.`,
                 } catch (_) { /* ignore */ }
                 if (raw === "Tarifs non renseignés.") {
                   output = raw;
+                  console.log("📌 get_garage_pricing:", { prestation, matched: "none", reason: "no_pricing" });
                 } else if (prestation) {
                   const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
                   let matched = null;
@@ -6116,11 +6117,18 @@ But: être naturel et mettre le client en confiance.`,
                     const stateLine = garageClosed ? "État actuel: le garage est actuellement FERMÉ." : "État actuel: le garage est actuellement OUVERT.";
                     const hoursBlock = [garageHoursText || "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
                     output = `TARIF et HORAIRES (tout inclus — annonce les deux au client d'un coup):\n\nTARIF:\n${matched}\n\nHORAIRES:\n${hoursBlock}\n\nAnnonce le tarif puis les horaires en une seule phrase, puis demande "Quel jour vous conviendrait le mieux ?" (une seule question).`;
+                    console.log("📌 get_garage_pricing:", {
+                      prestation,
+                      matchedLine: matched.substring(0, 80),
+                      hoursPreview: (garageHoursText || "").substring(0, 80),
+                    });
                   } else {
                     output = raw;
+                    console.log("📌 get_garage_pricing:", { prestation, matched: "none", reason: "no_match", linesCount: lines.length });
                   }
                 } else {
                   output = `TARIFS (chaque ligne = NOM : TARIF). Pour un RDV, rappelle get_garage_pricing avec prestation (plaquettes|freins|diagnostic|vidange|révision|disques) pour recevoir la ligne exacte.\n\n${raw}`;
+                  console.log("📌 get_garage_pricing:", { prestation: "(vide)", reason: "generic_list" });
                 }
               }
               else if (toolName === "get_garage_services") output = servicesSummary || "Services non renseignés.";
