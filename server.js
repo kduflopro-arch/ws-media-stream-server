@@ -3800,7 +3800,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       // Configurer le format audio dans l'URL de connexion.
       // On force PCM16 pour éviter tout mismatch de format en sortie (sinon Twilio joue du bruit).
       // IMPORTANT: Modèle Realtime (GPT-5 n'a pas encore de Realtime API)
-      const realtimeModel = "gpt-realtime-mini"; // version mini Realtime (32k contexte, moins cher)
+      const realtimeModel = "gpt-4o-mini-realtime-preview"; // gpt-4o-mini = version mini, moins cher, plus rapide
       const openaiUrl =
         `wss://api.openai.com/v1/realtime?model=${realtimeModel}&input_audio_format=pcm16&output_audio_format=pcm16`;
       console.log("☎️ Modèle Realtime utilisé:", realtimeModel);
@@ -4024,7 +4024,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           const interdictionPlaque = hasPlateInDossier
             ? `
 ⚠️⚠️⚠️ INTERDICTION PLAQUE (À RESPECTER EN PRIORITÉ) ⚠️⚠️⚠️
-Le client a DÉJÀ une plaque enregistrée ci-dessus (${clientPlate || clientPlate2}). Tu NE DOIS JAMAIS dire "je vais vous envoyer un message pour que vous puissiez m'indiquer la plaque" dans ce cas. Tu DOIS d'abord dire: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate || clientPlate2}. Est-ce bien correct ?" — UNIQUEMENT après avoir le jour et le créneau (matin/après-midi). Proposer le message sans lire la plaque = INTERDIT.
+Le client a DÉJÀ une plaque enregistrée ci-dessus (${clientPlate || clientPlate2}). Tu NE DOIS JAMAIS dire "je vais vous envoyer un message pour que vous puissiez m'indiquer la plaque" SANS avoir d'abord demandé confirmation. Tu DOIS dire: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate || clientPlate2}. Est-ce bien correct ?" — Pour un DEVIS: immédiatement après que le client accepte le devis. Pour un RDV: après le jour et le créneau (matin/après-midi). Proposer le message sans lire la plaque = INTERDIT.
 ⚠️⚠️⚠️ FIN INTERDICTION PLAQUE ⚠️⚠️⚠️
 `
             : "";
@@ -4354,7 +4354,7 @@ EXCEPTION — DEVIS ACCEPTÉ (RÈGLE ABSOLUE): Si le client a accepté une deman
 
 NE PAS demander le rappel dans les autres situations (ex. après un RDV déjà pris, etc.). À la réponse du client (oui/non) on enregistre : Infos (point vert). Les appels info-only ont tous le point "Infos".
 
-DEMANDE DE DEVIS (OBLIGATOIRE pour info sur une prestation): Quand le client demande des informations sur une prestation (tarif, en quoi ça consiste, durée, etc.) SANS prendre rendez-vous, après avoir répondu tu DOIS proposer : "Souhaitez-vous faire une demande de devis auprès du garage ?" (attendre la réponse). Si le client répond NON (non, pas besoin, pas de devis, non merci) : dis UNE FOIS "D'accord, pas de devis." puis enchaîne avec "Souhaitez-vous que le garage vous rappelle ?" — ne propose plus de devis et ne prends pas de demande de devis. Si le client répond OUI : la plaque se fait OBLIGATOIREMENT par message (SMS), jamais à l'oral. Si le client est déjà dans nos dossiers avec une plaque (voir "Plaque d'immatriculation enregistrée" / DÉTECTION CLIENT) : dis "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est [plaque]. Est-ce bien correct ?" Si le client confirme (oui, c'est ça) : note la demande de devis, dis que le garage préparera le devis et recontactera. Si le client dit que ce n'est pas la bonne plaque ou que c'est pour un autre véhicule : dis "D'accord, je vais vous envoyer un message pour que vous puissiez nous indiquer la plaque de ce véhicule." (le message partira à la fin de l'appel). Si le client n'a pas de plaque enregistrée : dis "Je vais vous envoyer un message pour que vous puissiez nous indiquer votre plaque." (le message partira à la fin de l'appel). NE demande JAMAIS "Quelle est votre plaque ?" à l'oral. Une fois la plaque confirmée ou le message annoncé, tu notes la demande de devis et tu dis que le garage préparera le devis et recontactera. Puis "Avez-vous besoin d'autre chose ?" uniquement. Si le client répond NON à la proposition de devis, tu enchaînes avec "Souhaitez-vous que le garage vous rappelle ?" puis "Avez-vous besoin d'autre chose ?".
+DEMANDE DE DEVIS (OBLIGATOIRE pour info sur une prestation): Quand le client demande des informations sur une prestation (tarif, en quoi ça consiste, durée, etc.) SANS prendre rendez-vous, après avoir répondu tu DOIS proposer : "Souhaitez-vous faire une demande de devis auprès du garage ?" (attendre la réponse). Si le client répond NON (non, pas besoin, pas de devis, non merci) : dis UNE FOIS "D'accord, pas de devis." puis enchaîne avec "Souhaitez-vous que le garage vous rappelle ?" — ne propose plus de devis et ne prends pas de demande de devis. Si le client répond OUI : ⚠️ RÈGLE CRITIQUE PLAQUE DEVIS ⚠️ Vérifie DÉTECTION CLIENT. Si le client a une plaque enregistrée : tu DOIS dire "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est [plaque]. Est-ce bien correct ?" — OBLIGATOIRE, pas de SMS avant cette confirmation. Si le client confirme (oui, c'est ça) : note la demande de devis, dis que le garage préparera le devis et recontactera. Si le client dit que ce n'est pas la bonne plaque ou autre véhicule : "D'accord, je vais vous envoyer un message pour que vous puissiez nous indiquer la plaque de ce véhicule." Si le client n'a pas de plaque enregistrée : "Je vais vous envoyer un message pour que vous puissiez nous indiquer votre plaque." NE demande JAMAIS "Quelle est votre plaque ?" à l'oral. NE propose JAMAIS d'envoyer un message pour la plaque SANS avoir d'abord demandé "Votre plaque est [X]. Est-ce bien correct ?" quand une plaque est en dossier.
 
 DEVIS EXPLICITE SANS DEMANDE DE PRIX (RÈGLE ABSOLUE): Si le client dit explicitement qu'il veut un devis pour une prestation précise (ex: "j'aimerais avoir un devis pour une vidange", "je voudrais un devis pour la révision") et qu'il N'A PAS demandé le prix, tu NE DOIS PAS annoncer de prix au client (sauf s'il le demande ensuite). Tu notes la demande de devis pour la prestation indiquée. La plaque et le kilométrage se font OBLIGATOIREMENT par message (SMS), jamais à l'oral : dis "Je vais vous envoyer un message pour que vous puissiez nous indiquer votre plaque et votre kilométrage." (Si le client a déjà une plaque enregistrée, propose d'abord "Votre plaque est [X]. Est-ce bien correct ?" ; si non ou autre véhicule, annonce l'envoi du message.) Une fois la confirmation ou l'envoi du message annoncé, tu confirmes que la demande de devis est bien enregistrée et que le garage le recontactera. NE PAS demander "Souhaitez-vous que le garage vous rappelle ?" (le garage rappellera pour le devis).
 `;
@@ -4556,7 +4556,7 @@ STYLE (échange humain):
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
             const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
-            const truncNote = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel.]";
+            const truncNote = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel. DEVIS+plaque en dossier: TOUJOURS dire "Votre plaque est [X]. Est-ce bien correct ?" avant SMS.]";
             baseForUpdate = baseForUpdate.slice(0, maxBase - truncNote.length) + truncNote;
             updatedInstructions = `${baseForUpdate}${rest}`;
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
@@ -4588,7 +4588,7 @@ STYLE (échange humain):
         if (initialInstructionsText.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
           const restInitial = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
           const maxBaseInitial = REALTIME_INSTRUCTIONS_MAX_CHARS - restInitial.length - 400;
-          const truncNoteInitial = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel.]";
+          const truncNoteInitial = "\n\n[RÈGLES PRIORITAIRES: pas de marque/modèle, plaque par SMS uniquement, après devis accepté ne pas demander rappel. DEVIS+plaque en dossier: TOUJOURS dire "Votre plaque est [X]. Est-ce bien correct ?" avant SMS.]";
           initialInstructionsText = baseInstructions.slice(0, maxBaseInitial - truncNoteInitial.length) + truncNoteInitial + restInitial;
           console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
         }
