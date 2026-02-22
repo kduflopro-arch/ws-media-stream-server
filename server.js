@@ -725,6 +725,7 @@ wss.on("connection", (ws, req) => {
   let premiumTtsQueue = []; // Array<{ text: string, interrupt: boolean }>
   let premiumTtsDrainInFlight = false;
   let premiumTtsLastText = ""; // Dernier texte effectivement envoyé au TTS (pour éviter les répétitions exactes)
+  let lastGarageToolOutputAt = 0; // Après envoi function_call_output (get_garage_pricing, etc.) : laisser finir "Un instant" avant la suite
   let spokenResponseIds = new Map(); // responseId -> timestamp (anti-répétitions par réponse)
   let recentAssistantTexts = []; // Array<{ text: string, ts: number }>
 
@@ -2746,6 +2747,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return;
     }
 
+    // Après un outil garage (tarifs, horaires, etc.), ne pas interrompre "Un instant" — laisser finir la phrase
+    if (interrupt && lastGarageToolOutputAt > 0 && (now - lastGarageToolOutputAt) < 5000 && assistantReplySources.includes(source)) {
+      interrupt = false;
+      lastGarageToolOutputAt = 0;
+      if (LOG_TTS) console.log("[TTS-ENQUEUE] interrupt→false (suite après outil garage, laisser finir phrase)");
+    }
     // Si interrupt: on coupe net et on repart avec la nouvelle phrase
     // Pour consent_refusal on force le clear même si TTS en cours
     if (interrupt && (!premiumTtsInFlight || source === "consent_refusal")) {
@@ -6193,6 +6200,10 @@ But: être naturel et mettre le client en confiance.`,
               if (LOG_VERBOSE) console.log("🔧 Tool call:", toolName, "→", output.length, "car.");
               if (!transferOutputDeferred) {
                 try {
+                  const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
+                  if (garageDataTools.includes(toolName)) {
+                    lastGarageToolOutputAt = nowMs();
+                  }
                   openaiWs.send(JSON.stringify({
                     type: "conversation.item.create",
                     item: { type: "function_call_output", call_id: callId, output },
@@ -6200,6 +6211,7 @@ But: être naturel et mettre le client en confiance.`,
                   }));
                   let attempt = 0;
                   const maxAttempts = 5;
+                  const delayMs = garageDataTools.includes(toolName) ? 2500 : 150; // Laisser finir "Un instant" avant de demander la suite
                   const scheduleResponseAfterTool = () => {
                     attempt += 1;
                     if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
@@ -6208,7 +6220,7 @@ But: être naturel et mettre le client en confiance.`,
                       setTimeout(scheduleResponseAfterTool, 200);
                     }
                   };
-                  setTimeout(scheduleResponseAfterTool, 150);
+                  setTimeout(scheduleResponseAfterTool, delayMs);
                 } catch (err) {
                   console.error("❌ Envoi function_call_output:", err);
                 }
