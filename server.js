@@ -4985,29 +4985,25 @@ But: être naturel et mettre le client en confiance.`,
                       flushRealtimeElevenChunks(rid, true);
                     } else if (!spokenSet.has(rid) && !REALTIME_USE_ELEVEN) {
                       spokenSet.add(rid);
-                      const isInitialConsent = !userHasSpoken;
-                      const noValidUserYet = lastCommittedAt === 0;
-                      const allowTtsWithoutUser = isInitialConsent || noValidUserYet;
+                      // response.done = réponse directe à la parole client → toujours autoriser TTS (évite blocage après "En quoi puis-je vous aider ?")
                       if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
                         console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
                       } else {
                         console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: extractedText.substring(0, 80) });
-                        enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
+                        enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
                       }
                     } else if (REALTIME_USE_ELEVEN && !spokenSet.has(rid)) {
                       // REALTIME_USE_ELEVEN: une seule fois par réponse (évite phrases en double/désordre depuis conversation.item.done)
                       spokenSet.add(rid);
                       if (ws.__conversationItemTextByRid) ws.__conversationItemTextByRid.delete(rid);
-                      const isInitialConsent = !userHasSpoken;
-                      const noValidUserYet = lastCommittedAt === 0;
-                      const allowTtsWithoutUser = isInitialConsent || noValidUserYet;
+                      // response.done = réponse directe à la parole client → toujours autoriser TTS
                       if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
                         console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
                       } else {
                         console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: extractedText.substring(0, 80) });
-                        enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
+                        enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
                       }
                     } else {
                       // #region agent log
@@ -5086,15 +5082,13 @@ But: être naturel et mettre le client en confiance.`,
                 spokenSet.add(rid);
                 ws.__conversationItemTextByRid.delete(rid);
                 console.log("📝 Texte TTS depuis buffer (conversation.item.done):", buffered.substring(0, 160));
-                const isInitialConsent = !userHasSpoken;
-                const noValidUserYet = lastCommittedAt === 0;
-                const allowTtsWithoutUser = isInitialConsent || noValidUserYet;
+                // Buffer = réponse à la parole client → toujours autoriser TTS
                 if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(buffered)) {
                   console.log("🛑 Réponse IA (response.done buffer) = refus enregistrement, remplacement par message fixe.");
                   playConsentRefusalAndHangup();
                 } else {
                   console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: buffered.substring(0, 80) });
-                  enqueuePremiumTts(buffered, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
+                  enqueuePremiumTts(buffered, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
                 }
               }
             }
