@@ -4633,6 +4633,12 @@ But: être naturel et mettre le client en confiance.`,
               const callId = msg.item.call_id;
               const toolName = msg.item.name;
               const previousItemId = msg.item.id;
+              const rid = msg.response_id ?? msg.response?.id ?? null;
+              const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
+              const existingText = rid ? (transcriptMap.get(rid) || "") : "";
+              if (garageDataTools.includes(toolName) && !existingText.trim()) {
+                enqueuePremiumTts("D'accord, un instant s'il vous plaît.", { interrupt: false, source: "function_call_fallback", allowWithoutUser: true });
+              }
               let output = "";
               let transferOutputDeferred = false;
               if (toolName === "get_garage_pricing") {
