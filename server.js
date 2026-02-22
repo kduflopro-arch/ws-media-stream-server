@@ -4061,9 +4061,9 @@ IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
 - Si le client a déjà une plaque enregistrée (voir "Plaque d'immatriculation enregistrée" ci-dessus):
   * Lors de la prise de rendez-vous: d'abord "Quel jour vous conviendrait le mieux ?" puis "Plutôt le matin ou l'après-midi ?". Une fois le jour ET le créneau (matin ou après-midi) obtenus, tu dis: "Pour confirmer, votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?"
   * Tu DOIS dire EXACTEMENT pour la plaque: "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est ${clientPlate}. Est-ce bien correct ?" — mais UNIQUEMENT après avoir demandé le jour ET le matin ou l'après-midi ET reçu les deux réponses.
-  * Si le client confirme que c'est la bonne plaque (ex: "oui", "d'accord", "c'est ça", "correct", "oui c'est bien", "oui c'est la bonne", "oui c'est pour cette voiture"), utilise cette plaque pour le rendez-vous. NE PROPOSE PAS d'envoyer un message dans ce cas.
+  * Si le client confirme que c'est la bonne plaque (ex: "oui", "d'accord", "c'est ça", "correct", "ouais", "ok", "voilà", "oui c'est bien", "oui c'est la bonne", "oui c'est pour cette voiture"), utilise cette plaque. NE PROPOSE PAS d'envoyer un message dans ce cas. RÈGLE CRITIQUE: "oui" après "Est-ce bien correct ?" = CONFIRMATION. Ne propose le message UNIQUEMENT si le client dit EXPLICITEMENT que ce n'est pas la bonne ou que c'est pour un autre véhicule (phrase complète).
   * Si le client dit que ce n'est PAS la bonne plaque OU que c'est pour un autre véhicule (ex: "ce n'est pas la bonne", "j'ai changé de voiture", "c'est une autre voiture"), alors tu dis: "D'accord, je vais vous envoyer un message pour que vous puissiez m'indiquer la plaque de ce véhicule."
-  * ⚠️ RÈGLE RÉPONSE COURTE après "Est-ce bien correct ?" : si le client répond par UN SEUL MOT (ex: "non", "nan", "oui") ou une réponse très courte, la reconnaissance vocale peut se tromper ("oui" entendu "non"). Dans le doute, reformule UNE FOIS : "Vous confirmez que c'est bien la bonne plaque pour ce rendez-vous ?" avant de proposer d'envoyer un message. Ne propose d'envoyer un message que si le client a clairement dit que ce n'est pas la bonne plaque ou que c'est pour un autre véhicule (phrase explicite).
+  * ⚠️ RÈGLE RÉPONSE COURTE après "Est-ce bien correct ?" : si le client répond par UN SEUL MOT (ex: "non", "nan", "oui") ou une réponse très courte, la reconnaissance vocale peut se tromper ("oui" entendu "non"). Dans le doute, reformule UNE FOIS : "Vous confirmez que c'est bien la bonne plaque ?" avant de proposer d'envoyer un message. Ne propose d'envoyer un message que si le client a clairement dit que ce n'est pas la bonne plaque ou que c'est pour un autre véhicule (phrase explicite). "Oui", "ouais", "ok", "d'accord" = confirmation, PAS proposition de message.
 - Si le client a plusieurs plaques enregistrées: même ordre — d'abord jour et créneau (matin/après-midi), puis tu lis la plaque principale et demandes confirmation.
 - Si le client n'a PAS de plaque enregistrée: d'abord jour et créneau (matin/après-midi), puis tu dis que tu vas lui envoyer un message pour qu'il envoie sa plaque (NE PAS demander la plaque à l'oral).
 - RÈGLE ABSOLUE: Ne propose JAMAIS un message pour la plaque si le client a déjà une plaque enregistrée SANS avoir d'abord lu la plaque et demandé confirmation (après avoir le jour et l'heure).
@@ -4354,7 +4354,7 @@ EXCEPTION — DEVIS ACCEPTÉ (RÈGLE ABSOLUE): Si le client a accepté une deman
 
 NE PAS demander le rappel dans les autres situations (ex. après un RDV déjà pris, etc.). À la réponse du client (oui/non) on enregistre : Infos (point vert). Les appels info-only ont tous le point "Infos".
 
-DEMANDE DE DEVIS (OBLIGATOIRE pour info sur une prestation): Quand le client demande des informations sur une prestation (tarif, en quoi ça consiste, durée, etc.) SANS prendre rendez-vous, après avoir répondu tu DOIS proposer : "Souhaitez-vous faire une demande de devis auprès du garage ?" (attendre la réponse). Si le client répond NON (non, pas besoin, pas de devis, non merci) : dis UNE FOIS "D'accord, pas de devis." puis enchaîne avec "Souhaitez-vous que le garage vous rappelle ?" — ne propose plus de devis et ne prends pas de demande de devis. Si le client répond OUI : ⚠️ RÈGLE CRITIQUE PLAQUE DEVIS ⚠️ Vérifie DÉTECTION CLIENT. Si le client a une plaque enregistrée : tu DOIS dire "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est [plaque]. Est-ce bien correct ?" — OBLIGATOIRE, pas de SMS avant cette confirmation. Si le client confirme (oui, c'est ça) : note la demande de devis, dis que le garage préparera le devis et recontactera. Si le client dit que ce n'est pas la bonne plaque ou autre véhicule : "D'accord, je vais vous envoyer un message pour que vous puissiez nous indiquer la plaque de ce véhicule." Si le client n'a pas de plaque enregistrée : "Je vais vous envoyer un message pour que vous puissiez nous indiquer votre plaque." NE demande JAMAIS "Quelle est votre plaque ?" à l'oral. NE propose JAMAIS d'envoyer un message pour la plaque SANS avoir d'abord demandé "Votre plaque est [X]. Est-ce bien correct ?" quand une plaque est en dossier.
+DEMANDE DE DEVIS (OBLIGATOIRE pour info sur une prestation): Quand le client demande des informations sur une prestation (tarif, en quoi ça consiste, durée, etc.) SANS prendre rendez-vous, après avoir répondu tu DOIS proposer : "Souhaitez-vous faire une demande de devis auprès du garage ?" (attendre la réponse). Si le client répond NON (non, pas besoin, pas de devis, non merci) : dis UNE FOIS "D'accord, pas de devis." puis enchaîne avec "Souhaitez-vous que le garage vous rappelle ?" — ne propose plus de devis et ne prends pas de demande de devis. Si le client répond OUI : ⚠️ RÈGLE CRITIQUE PLAQUE DEVIS ⚠️ Vérifie DÉTECTION CLIENT. Si le client a une plaque enregistrée : tu DOIS dire "Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est [plaque]. Est-ce bien correct ?" — OBLIGATOIRE, pas de SMS avant cette confirmation. Si le client confirme (oui, d'accord, c'est ça, ouais, ok, voilà) : note la demande de devis, dis que le garage préparera le devis et recontactera. NE dis JAMAIS "je vais vous envoyer un message pour l'autre véhicule" si le client a dit oui/ok/d'accord/c'est ça. Si le client dit EXPLICITEMENT que ce n'est pas la bonne plaque ou autre véhicule : "D'accord, je vais vous envoyer un message pour que vous puissiez nous indiquer la plaque de ce véhicule." Si le client n'a pas de plaque enregistrée : "Je vais vous envoyer un message pour que vous puissiez nous indiquer votre plaque." NE demande JAMAIS "Quelle est votre plaque ?" à l'oral. NE propose JAMAIS d'envoyer un message pour la plaque SANS avoir d'abord demandé "Votre plaque est [X]. Est-ce bien correct ?" quand une plaque est en dossier.
 
 DEVIS EXPLICITE SANS DEMANDE DE PRIX (RÈGLE ABSOLUE): Si le client dit explicitement qu'il veut un devis pour une prestation précise (ex: "j'aimerais avoir un devis pour une vidange", "je voudrais un devis pour la révision") et qu'il N'A PAS demandé le prix, tu NE DOIS PAS annoncer de prix au client (sauf s'il le demande ensuite). Tu notes la demande de devis pour la prestation indiquée. La plaque et le kilométrage se font OBLIGATOIREMENT par message (SMS), jamais à l'oral : dis "Je vais vous envoyer un message pour que vous puissiez nous indiquer votre plaque et votre kilométrage." (Si le client a déjà une plaque enregistrée, propose d'abord "Votre plaque est [X]. Est-ce bien correct ?" ; si non ou autre véhicule, annonce l'envoi du message.) Une fois la confirmation ou l'envoi du message annoncé, tu confirmes que la demande de devis est bien enregistrée et que le garage le recontactera. NE PAS demander "Souhaitez-vous que le garage vous rappelle ?" (le garage rappellera pour le devis).
 `;
@@ -4374,7 +4374,7 @@ PLAQUE D'IMMATRICULATION (RÈGLE ABSOLUE):
 1) Si le client appelle UNIQUEMENT pour annuler ou modifier un rendez-vous: NE demande PAS la plaque. Traite l'annulation/modification puis "Avez-vous besoin d'autre chose ?".
 2) La plaque se fait OBLIGATOIREMENT par message (SMS) ou par confirmation depuis le dossier client. NE demande JAMAIS la plaque à l'oral ("quelle est votre plaque ?", etc.).
 3) Vérifie TOUJOURS "DÉTECTION CLIENT" (sauf en cas d'annulation/modification de RDV uniquement).
-4) Si le client a une plaque en dossier: annonce la plaque et demande "Est-ce bien correct ?". Si oui → utiliser cette plaque. Si non ou autre véhicule → "Je vais vous envoyer un message pour que vous puissiez nous indiquer la plaque." (SMS envoyé à la fin de l'appel).
+4) Si le client a une plaque en dossier: annonce la plaque et demande "Est-ce bien correct ?". CRITIQUE: Si le client répond "oui", "d'accord", "c'est ça", "ouais", "ok", "voilà" ou toute réponse courte affirmative → c'est une CONFIRMATION. Tu notes la plaque et tu confirmes. Tu NE dis JAMAIS "je vais vous envoyer un message pour l'autre véhicule" dans ce cas. Propose le message UNIQUEMENT si le client dit EXPLICITEMENT que ce n'est pas la bonne plaque ou que c'est pour un autre véhicule (phrase complète).
 5) Si pas de plaque en dossier: dis "Je vais vous envoyer un message pour que vous puissiez nous indiquer votre plaque." (SMS à la fin de l'appel). Ne demande JAMAIS la plaque à l'oral.
 6) Pour un devis: NE demande JAMAIS "Quel jour vous conviendrait ?" ni de date/créneau (uniquement pour un RDV).
 
@@ -4562,7 +4562,7 @@ STYLE (échange humain):
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
             const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
-            const truncNote = "\n\n[RÈGLES PRIORITAIRES: Suivre procédure À LA LETTRE. RDV prestation: get_garage_pricing + get_opening_hours OBLIGATOIRES avant jour/créneau. Tarif présent dans get_garage_pricing → l'annoncer, JAMAIS dire à confirmer. Tarif donné → proposer devis. pas de marque/modèle, plaque par SMS uniquement. DEVIS+plaque: confirmation plaque avant SMS.]";
+            const truncNote = "\n\n[RÈGLES PRIORITAIRES: Suivre procédure À LA LETTRE. RDV prestation: get_garage_pricing + get_opening_hours OBLIGATOIRES. Tarif présent → l'annoncer. Tarif donné → proposer devis. Plaque: oui/ok/d'accord après Est-ce bien correct ? = CONFIRMATION, JAMAIS proposer message autre véhicule. pas de marque/modèle. DEVIS+plaque: confirmation avant SMS.]";
             baseForUpdate = baseForUpdate.slice(0, maxBase - truncNote.length) + truncNote;
             updatedInstructions = `${baseForUpdate}${rest}`;
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
@@ -4594,7 +4594,7 @@ STYLE (échange humain):
         if (initialInstructionsText.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
           const restInitial = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
           const maxBaseInitial = REALTIME_INSTRUCTIONS_MAX_CHARS - restInitial.length - 400;
-          const truncNoteInitial = "\n\n[RÈGLES PRIORITAIRES: Suivre procédure À LA LETTRE. RDV prestation: get_garage_pricing + get_opening_hours OBLIGATOIRES avant jour/créneau. Tarif présent dans get_garage_pricing → l'annoncer, JAMAIS dire à confirmer. Tarif donné → proposer devis. pas de marque/modèle, plaque par SMS uniquement. DEVIS+plaque: confirmation plaque avant SMS.]";
+          const truncNoteInitial = "\n\n[RÈGLES PRIORITAIRES: Suivre procédure À LA LETTRE. RDV prestation: get_garage_pricing + get_opening_hours OBLIGATOIRES. Tarif présent → l'annoncer. Tarif donné → proposer devis. Plaque: oui/ok/d'accord après Est-ce bien correct ? = CONFIRMATION, JAMAIS proposer message autre véhicule. pas de marque/modèle. DEVIS+plaque: confirmation avant SMS.]";
           initialInstructionsText = baseInstructions.slice(0, maxBaseInitial - truncNoteInitial.length) + truncNoteInitial + restInitial;
           console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
         }
@@ -5534,7 +5534,9 @@ But: être naturel et mettre le client en confiance.`,
                     // Secours: IA a demandé la plaque pour le devis et le client a donné/confirmé sa plaque
                     if (!devisAcceptedByClient && lastAssistantText) {
                       const lastLow = String(lastAssistantText).toLowerCase();
-                      const assistantAskedPlateForDevis = /\bdevis\b/.test(lastLow) && (/\bplaque\b/.test(lastLow) || /\bimmatriculation\b/.test(lastLow));
+                      const assistantAskedPlateConfirmation = (/\bplaque\b/.test(lastLow) || /\bimmatriculation\b/.test(lastLow)) && (/\best[- ]?ce\s+bien\s+correct\b/.test(lastLow) || /\bcorrect\b/.test(lastLow));
+                      const inDevisContext = /\bdevis\b/.test(lastLow) || getMostRecentAssistantIntent(30000) === "devis";
+                      const assistantAskedPlateForDevis = assistantAskedPlateConfirmation && inDevisContext;
                       const userGavePlate = /[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i.test(ut);
                       const userConfirmedShort = /^(euh\s+|ben\s+)?(oui|ouais|ouai|ok|voilà|voila|c'est ça|c'est bon)(\s+merci)?\.?$/i.test(ut) || /\b(oui|ouais|ouai|c'est ça|c'est correct|c'est bien)\b/i.test(ut);
                       if (assistantAskedPlateForDevis && (userGavePlate || userConfirmedShort)) {
@@ -5549,6 +5551,12 @@ But: être naturel et mettre le client en confiance.`,
                       rdvAcceptedByClient = true;
                       rdvRefusedByClient = false;
                       console.log("📌 [RDV] (conversation.item.done user) → rdv_accepted (client demande RDV)", { userText: userText.substring(0, 50) });
+                    }
+                    // Client demande DIRECTEMENT un devis (ex. "j'aimerais avoir un devis pour un diagnostic")
+                    const clientAsksForDevis = /\b(j'?aimerais|je\s+voudrais|je\s+veux|je\s+souhaite)\s+(avoir\s+|faire\s+)?(une?\s+)?(demande\s+de\s+)?devis\b/i.test(ut) || /\b(avoir|obtenir)\s+(un\s+)?devis\b/i.test(ut) || /\bdevis\s+pour\s+(un\s+|le\s+)?(diagnostic|vidange|révision|frein)/i.test(ut);
+                    if (clientAsksForDevis) {
+                      devisAcceptedByClient = true;
+                      if (LOG_VERBOSE) console.log("ℹ️ Client a demandé un devis directement (conversation.item.done).", { userText: userText.substring(0, 60) });
                     }
                     const detectRdvIntent = (raw) => {
                       const q = String(raw || "").match(/[^?.!\n\r]*\?/g) || [];
@@ -6324,6 +6332,12 @@ But: être naturel et mettre le client en confiance.`,
               rdvRefusedByClient = false;
               console.log("📌 [RDV] (input_audio_transcription) → rdv_accepted (client demande RDV)", { userText: userTextNorm?.slice(0, 50) });
             }
+            // Client demande DIRECTEMENT un devis (ex. "j'aimerais avoir un devis pour un diagnostic") → devis_requested = true
+            const clientAsksForDevisInput = /\b(j'?aimerais|je\s+voudrais|je\s+veux|je\s+souhaite)\s+(avoir\s+|faire\s+)?(une?\s+)?(demande\s+de\s+)?devis\b/i.test(userTextNorm) || /\b(avoir|obtenir)\s+(un\s+)?devis\b/i.test(userTextNorm) || /\bdevis\s+pour\s+(un\s+|le\s+)?(diagnostic|vidange|révision|frein)/i.test(userTextNorm);
+            if (clientAsksForDevisInput) {
+              devisAcceptedByClient = true;
+              if (LOG_VERBOSE) console.log("ℹ️ Client a demandé un devis directement (devis_requested).", { userText: userTextNorm?.slice(0, 60) });
+            }
             if (lastWasRdvQuestionIntent || lastWasInRdvFlowIntent) {
               console.log("📌 [RDV] Intention RDV détectée:", { lastIntent, recentIntent, effectiveIntent, lastAssistantSnippet: (lastAssistantText || "").slice(0, 100) });
             }
@@ -6421,7 +6435,9 @@ But: être naturel et mettre le client en confiance.`,
             // Secours: si l'IA a demandé la plaque pour le devis et que le client donne/confirme sa plaque → devis demandé
             if (!devisAcceptedByClient && lastAssistantText) {
               const lastLow = lastAssistantText.toLowerCase();
-              const assistantAskedPlateForDevis = /\bdevis\b/.test(lastLow) && (/\bplaque\b/.test(lastLow) || /\bimmatriculation\b/.test(lastLow));
+              const assistantAskedPlateConfirmation = (/\bplaque\b/.test(lastLow) || /\bimmatriculation\b/.test(lastLow)) && (/\best[- ]?ce\s+bien\s+correct\b/.test(lastLow) || /\bcorrect\b/.test(lastLow));
+              const inDevisContext = /\bdevis\b/.test(lastLow) || getMostRecentAssistantIntent(30000) === "devis";
+              const assistantAskedPlateForDevis = assistantAskedPlateConfirmation && inDevisContext;
               const userGavePlate = /[A-Z]{2}[\s-]?\d{2,4}[\s-]?[A-Z]{2}/i.test(userTextNorm);
               const userConfirmedShort = /^(euh\s+|ben\s+)?(oui|ouais|ouai|ok|voilà|voila|c'est ça|c'est bon)(\s+merci)?\.?$/i.test(userTextNorm) || /\b(oui|ouais|ouai|c'est ça|c'est correct|c'est bien)\b/i.test(userTextNorm);
               if (assistantAskedPlateForDevis && (userGavePlate || userConfirmedShort)) {
