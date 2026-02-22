@@ -3248,6 +3248,7 @@ IMPORTANT - MENTION DES RENDEZ-VOUS EN DÉBUT D'APPEL:
 - Si le client a uniquement une "demande en attente de confirmation par le garage", NE PAS en parler en début d'appel. Ne mentionne cette demande que si le client le demande explicitement (ex: "Est-ce que j'ai un rendez-vous ?", "Où en est ma demande ?", "Vous avez bien ma demande ?"). Dans ce cas, informe-le : "Vous avez une demande de rendez-vous en attente pour le [date] à [heure], le garage vous rappellera pour confirmer."
 - ORTHOGRAPHE (dates/heures seulement): espace avant le chiffre: "le 11 février", "à 8 heures", "mercredi 11" (jamais le11, à8, mercredi11). Fourchettes de prix: TOUJOURS en chiffres, jamais en lettres — "entre 50 et 190 euros", "de 80 à 150 euros" (jamais "cent quatre vingt dix euros"). Espace avant et après les chiffres. Ne pas couper les mots (tarif, mais, cent, samedi, Monsieur, noms).
 IMPORTANT - GESTION DE LA PLAQUE D'IMMATRICULATION (À LIRE EN PREMIER):
+- INTERDICTION PLAQUE POUR INFO/TARIF: Quand le client demande UNIQUEMENT un tarif, des horaires ou une information (sans RDV ni devis), tu NE demandes JAMAIS la confirmation de plaque. Ne dis JAMAIS "Je vois que vous êtes déjà dans nos dossiers" ni "Votre plaque... Est-ce bien correct ?" — réponds UNIQUEMENT à la question (tarif, horaires) puis "Avez-vous besoin d'autre chose ?". La plaque se confirme UNIQUEMENT pour un RDV ou un devis en cours.
 - RÈGLE ABSOLUE - PLAQUE UNIQUEMENT PAR SMS: La plaque d'immatriculation doit TOUJOURS être récupérée par SMS, JAMAIS à l'oral. Tu NE demandes JAMAIS au client de dicter, épeler ou prononcer sa plaque au téléphone. Si la plaque n'est pas enregistrée, annonce l'envoi d'un message à la fin de l'appel. Si la plaque est enregistrée, tu la lis et demandes uniquement une confirmation (oui/non). Interdit: "Pouvez-vous me donner votre plaque ?", "Quelle est votre plaque ?", "Pouvez-vous épeler votre plaque ?", etc.
 - RÈGLE PRIORITAIRE - ANNULATION OU MODIFICATION DE RDV: Si le client appelle UNIQUEMENT pour annuler ou modifier un rendez-vous (il dit "annuler", "annulation", "modifier", "changer", "déplacer" son rendez-vous), tu NE demandes PAS la plaque d'immatriculation. Tu ne proposes pas d'envoyer un message pour la plaque. Tu traites la demande d'annulation ou de modification, puis tu proposes "Avez-vous besoin d'autre chose ?". La plaque n'est pas utile pour une annulation ou une modification de rendez-vous.
 - Tu DOIS D'ABORD comprendre le besoin du client (diagnostic, problème, rendez-vous, etc.) AVANT de parler de plaque.
@@ -4633,10 +4634,8 @@ But: être naturel et mettre le client en confiance.`,
               const callId = msg.item.call_id;
               const toolName = msg.item.name;
               const previousItemId = msg.item.id;
-              const rid = msg.response_id ?? msg.response?.id ?? null;
               const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
-              const existingText = rid ? (transcriptMap.get(rid) || "") : "";
-              if (garageDataTools.includes(toolName) && !existingText.trim()) {
+              if (garageDataTools.includes(toolName)) {
                 enqueuePremiumTts("D'accord, un instant s'il vous plaît.", { interrupt: false, source: "function_call_fallback", allowWithoutUser: true });
               }
               let output = "";
@@ -4670,7 +4669,7 @@ But: être naturel et mettre le client en confiance.`,
                       .trim();
                     const stateLine = garageClosed ? "État actuel: le garage est actuellement FERMÉ." : "État actuel: le garage est actuellement OUVERT.";
                     const hoursBlock = [garageHoursText || "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
-                    output = `TARIF et HORAIRES:\n\nTARIF:\n${matchedForSpeech}\n\nHORAIRES:\n${hoursBlock}\n\nRÈGLE OBLIGATOIRE: Si le client a demandé UNIQUEMENT le tarif (sans vouloir de rendez-vous): annonce UNIQUEMENT le tarif puis dis "Avez-vous besoin d'autre chose ?". Ne demande PAS le jour ni "Quel jour vous conviendrait le mieux ?". Si le client a demandé un rendez-vous: annonce tarif + horaires puis demande "Quel jour vous conviendrait le mieux ?".`;
+                    output = `TARIF et HORAIRES:\n\nTARIF:\n${matchedForSpeech}\n\nHORAIRES:\n${hoursBlock}\n\nRÈGLE OBLIGATOIRE: Si le client a demandé UNIQUEMENT le tarif (sans vouloir de rendez-vous): annonce UNIQUEMENT le tarif puis dis "Avez-vous besoin d'autre chose ?". Ne demande PAS le jour, PAS la plaque (ne dis JAMAIS "Je vois que vous êtes déjà dans nos dossiers" ni "Est-ce bien correct ?" pour la plaque). Si le client a demandé un rendez-vous: annonce tarif + horaires puis demande "Quel jour vous conviendrait le mieux ?".`;
                     console.log("📌 get_garage_pricing:", {
                       prestation,
                       matchedLine: matchedForSpeech.substring(0, 80),
