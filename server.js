@@ -2520,8 +2520,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (clean.length < normalized.length) {
       if (LOG_TTS) console.log(`[TTS-ENQUEUE] TEXTE TRONQUÉ: ${normalized.length} -> ${clean.length} chars`);
     }
-    // Retirer " Un instant" en fin de phrase (phrase de transition interdite avant get_garage_pricing en RDV)
-    clean = clean.replace(/\s*Un instant\s*[.,]?\s*$/gi, "").replace(/,\s*$/, "").trim();
+    // Retirer phrases de transition interdites avant outil garage
+    clean = clean
+      .replace(/\s*Je vais (d'abord )?vérifier[^.]*\.\s*Un instant[,.]?\s*je m'en occupe[.,]?\s*$/gi, "")
+      .replace(/\s*[,.]?\s*Un instant[,.]?\s*je m'en occupe[.,]?\s*$/gi, "")
+      .replace(/\s*[,.]?\s*Un instant[,.]?\s*$/gi, "")
+      .replace(/\s*[,.]?\s*Je m'en occupe[.,]?\s*$/gi, "")
+      .replace(/,\s*$/, "")
+      .trim();
     if (clean.endsWith("..")) clean = clean.replace(/\.+$/, ".");
     const lowerClean = clean.toLowerCase().trim();
     if (
@@ -4089,7 +4095,7 @@ IMPORTANT - COMPRÉHENSION ET CONFIRMATION:
 IMPORTANT - GESTION DES RENDEZ-VOUS:
 - ANNULATION OU MODIFICATION: Pour chaque rendez-vous listé ci-dessus, le statut est indiqué (demande en attente / rendez-vous enregistré). Quand le client veut annuler ou modifier un rendez-vous : en mode DEMANDE (ou aucun), tu NE dis PAS que tu peux modifier ou prendre le rendez-vous toi-même. Tu dis : "Je peux faire une demande auprès du garage ; en cas de confirmation le garage vous rappellera ou un message de confirmation vous sera envoyé." Puis tu notes la demande (nouvelle date/heure pour modification, ou annulation) et tu dis que le garage rappellera pour confirmer. En mode INTERNE uniquement, tu peux dire "je peux le modifier / l'annuler" et agir directement. Ne confonds pas demande en attente (pas encore confirmée) et rendez-vous enregistré (déjà confirmé).
 - PHRASE OBLIGATOIRE AVANT PRISE DE RDV: Dès que le client demande à prendre rendez-vous (ou répond oui à "Vous voulez prendre rendez-vous ?"), dis TOUJOURS en premier : "D'accord, nous allons faire une demande de rendez-vous." Puis enchaîne avec le processus (prestation/tarif, horaires, jour, créneau, plaque). Ne saute jamais cette phrase.
-- RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande EXPLICITEMENT un rendez-vous pour une prestation précise (ex: "je voudrais un rdv pour une vidange", "prendre rendez-vous pour un diagnostic", "rdv pour la révision"), tu NE poses PAS de questions de diagnostic. Tu PRENDS LE RENDEZ-VOUS DIRECTEMENT: (0) dis "D'accord, nous allons faire une demande de rendez-vous." — SANS "Un instant, je vais vérifier le tarif". (1) confirme la prestation et le tarif (get_garage_pricing), (2) appelle get_opening_hours puis annonce les horaires. (3) demande UNIQUEMENT "Quel jour vous conviendrait le mieux ?" — ATTENDS la réponse. (4) APRÈS le jour donné, demande "Plutôt le matin ou l'après-midi ?" — ATTENDS la réponse. (5) confirmation de la plaque. NE pose JAMAIS jour et matin/après-midi dans la même phrase.
+- RÈGLE PRIORITAIRE - RDV POUR UNE PRESTATION PRÉCISE: Si le client demande un rdv pour une prestation (vidange, diagnostic, révision, freins), dis "D'accord, nous allons faire une demande de rendez-vous." puis appelle get_garage_pricing(prestation) — renvoie tarif + horaires en une fois. Annonce tout en une phrase, puis "Quel jour vous conviendrait le mieux ?" — ATTENDS. (2) APRÈS le jour donné, demande "Plutôt le matin ou l'après-midi ?" — ATTENDS. (3) plaque. NE pose JAMAIS jour et matin/après-midi ensemble.
 - ⚠️ DIAGNOSTIC SANS PROBLÈME DÉCRIT: Si le client demande UNIQUEMENT un rendez-vous pour un diagnostic SANS avoir décrit de problème ou de symptôme (ex: "je voudrais un rdv pour un diagnostic", "prendre rendez-vous pour un diagnostic"), tu NE dis JAMAIS "pour ce problème", "pour votre problème" ou "pour le problème". Dis uniquement: "Je vous propose de venir faire un diagnostic au garage. Le tarif pour un diagnostic est de [TARIF]. Vous voulez prendre rendez-vous ?" ou "D'accord, nous allons faire une demande de rendez-vous. Le tarif pour un diagnostic est de [TARIF]. [Horaires]. Vous voulez prendre rendez-vous ?". Réserve "pour ce problème" UNIQUEMENT quand le client a d'abord décrit un problème (symptôme, voyant, panne, etc.) et que tu as recueilli des infos.
 - RÈGLE ABSOLUE - CONSENTEMENT OBLIGATOIRE: Tu NE DOIS JAMAIS prendre un rendez-vous sans le consentement explicite du client. Tu proposes un rendez-vous, tu demandes confirmation, et tu attends la réponse du client avant de confirmer.
 - RÈGLE ABSOLUE - GUIDAGE PROACTIF: Quand le client décrit un problème (SANS avoir demandé un rdv pour une prestation précise), tu DOIS dans la même réponse: (1) reconnaître le problème, (2) mentionner brièvement 1-2 causes possibles, (3) poser UNE SEULE question pour recueillir des informations utiles (depuis quand, autres symptômes, contexte). NE PROPOSE PAS de rendez-vous dans cette première réponse. Attends d'abord la réponse du client.
@@ -4146,13 +4152,11 @@ Tu dois DÉTECTER automatiquement si le client mentionne "modifier", "changer", 
         const baseInstructions = `PROTOCOLE STRICT — AUCUN DÉRAPAGE:
 Tu DOIS suivre UNIQUEMENT le protocole défini dans ces instructions. Aucune question, aucune étape, aucune phrase qui n'y figure pas explicitement. Ne demande JAMAIS la marque ou le modèle du véhicule. Ne dis JAMAIS "pour préparer les pièces" en demandant des infos véhicule. Ne pas inventer d'étapes ni ajouter de questions "de ton cru". Si une action n'est pas décrite dans le protocole, ne la fais pas.
 
-⚠️ RDV PRESTATION (vidange, plaquettes, diagnostic, etc.) — ORDRE OBLIGATOIRE — NE JAMAIS SAUTER:
+⚠️ RDV PRESTATION (vidange, plaquettes, diagnostic, etc.) — ORDRE OBLIGATOIRE:
 1) "D'accord, nous allons faire une demande de rendez-vous."
-2) get_garage_pricing(prestation) → annonce le tarif au client
-3) get_opening_hours → annonce les horaires d'ouverture et jours de fermeture
-4) "Quel jour vous conviendrait le mieux ?" — UNE SEULE question, ATTENDS la réponse
-5) APRÈS que le client ait donné le jour → "Plutôt le matin ou l'après-midi ?" — ATTENDS
-6) plaque. INTERDIT: demander le jour AVANT tarif+horaires. INTERDIT: poser jour et matin/après-midi ensemble.
+2) get_garage_pricing(prestation) → renvoie TARIF + HORAIRES en une fois. Annonce les deux en une phrase, puis "Quel jour vous conviendrait le mieux ?" — ATTENDS
+3) APRÈS le jour donné → "Plutôt le matin ou l'après-midi ?" — ATTENDS
+4) plaque. INTERDIT: poser jour et matin/après-midi ensemble.
 
 ⚠️⚠️⚠️ RÔLE - C'EST TOI QUI ACCOMPAGNES LE CLIENT ⚠️⚠️⚠️
 - Tu ACCOMPAGNES le client: tu poses les questions, le client RÉPOND. Le client ne fait que répondre à tes questions. C'EST TOI QUI GUIDES, PAS LE CLIENT.
@@ -4204,10 +4208,10 @@ ${validationDevisLine}
 
 ${transferFailedLine ? `${transferFailedLine}\n` : ""}
 
-DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil. EXCEPTION RDV PRESTATION PRÉCISE: quand tu prends un RDV pour une prestation (plaquettes, vidange, etc.), dis "D'accord, nous allons faire une demande de rendez-vous." puis appelle get_garage_pricing SANS dire "Un instant", "Je vais vérifier le tarif" ou toute phrase de transition — annonce directement le tarif à la suite. Pour les autres outils: dis UNIQUEMENT "D'accord, un instant." AVANT d'appeler. INTERDIT: "Je vais vérifier les détails...", "Je vais vous indiquer le tarif...", "Un instant, je vais vérifier..." ou toute phrase longue.
+DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil. EXCEPTION RDV PRESTATION: appelle get_garage_pricing(prestation) — renvoie tarif + horaires en une fois. Annonce tout en une phrase, pas de phrase de transition ("Un instant", etc.). Pour les autres outils: dis UNIQUEMENT "D'accord, un instant." AVANT d'appeler. INTERDIT: "Je vais vérifier les détails...", "Je vais vous indiquer le tarif...", "Un instant, je vais vérifier..." ou toute phrase longue.
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${clientInfoLine ? `${clientInfoLine}\n\n` : ""}
-Pour un RDV: avant de demander le jour, appelle get_opening_hours puis annonce AU CLIENT les horaires d'OUVERTURE (jours ouverts + plages horaires) ET les jours de fermeture. Exemple: "Le garage est ouvert du lundi au samedi de 8h30 à 16h, et fermé le dimanche." ou "Nous sommes ouverts du lundi au vendredi de 8h30 à 12h et de 14h à 18h ; le samedi de 9h à 12h. Nous sommes fermés le dimanche." INTERDIT: dire uniquement "le garage est fermé le dimanche" (ou un seul jour de fermeture) sans avoir d'abord dit les jours et horaires d'OUVERTURE. Ensuite seulement demande "Quel jour vous conviendrait le mieux ?".
+Pour RDV prestation: get_garage_pricing(prestation) renvoie tarif + horaires — annonce les deux avant de demander le jour. Pour RDV diagnostic ou autre: appelle get_opening_hours si besoin.
 - JOUR FERMÉ: Si le client propose un jour où le garage est fermé (d'après get_opening_hours), tu DOIS le contredire poliment: "Le garage est fermé le [jour]. Quel autre jour vous conviendrait ?" et proposer un jour ouvert. Ne valide JAMAIS un jour de fermeture.
 - TARIF DIAGNOSTIC: NE JAMAIS annoncer un prix sans avoir appelé get_garage_pricing. Dans le résultat, utilise UNIQUEMENT le montant de la ligne contenant « diagnostic » / « Diagnostic ». Ne jamais prendre le montant d'une autre prestation (vidange, révision, etc.). Si la ligne diagnostic indique 83 €, dis 83 euros — pas 90 ni un autre chiffre. Si l'outil renvoie "Tarifs non renseignés", dis "Le tarif sera établi lors du diagnostic" ou "Le tarif est sur devis".
 RÈGLE ABSOLUE - GUIDAGE PROACTIF (À RESPECTER EN PRIORITÉ):
@@ -4381,7 +4385,7 @@ DEVIS EXPLICITE SANS DEMANDE DE PRIX (RÈGLE ABSOLUE): Si le client dit explicit
           `⚠️ RÈGLE META (PRIORITÉ MAXIMALE) — SUIVRE À LA LETTRE:
 Tu DOIS appliquer chaque procédure ci-dessous À LA LETTRE, sans sauter d'étape ni contourner de règle. Chaque instruction est OBLIGATOIRE. Ne fais aucune approximation.
 
-⚠️ RDV — NE JAMAIS demander "Quel jour ?" avant d'avoir annoncé le TARIF (get_garage_pricing) ET les HORAIRES (get_opening_hours). Ordre: tarif → horaires → jour → matin/après-midi → plaque.
+⚠️ RDV — get_garage_pricing(prestation) renvoie TARIF + HORAIRES en une fois. Annonce tout puis demande le jour. Pas d'appel séparé get_opening_hours pour RDV prestation.
 
 IMPORTANT — PROTOCOLE OBLIGATOIRE:
 - Tu respectes STRICTEMENT le protocole défini dans ces instructions. Aucun dérapage: pas de questions hors protocole (marque/modèle, "préparer les pièces"), pas d'étapes inventées.
@@ -4401,7 +4405,7 @@ PLAQUE D'IMMATRICULATION (RÈGLE ABSOLUE):
 PROCÉDURE RDV (OBLIGATOIRE ET DANS CET ORDRE):
 1) Si le client demande UNIQUEMENT les horaires (ou tarifs, adresse, etc.): donne l'info puis demande "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client n'a pas pris de RDV, tu DOIS demander "Souhaitez-vous que le garage vous rappelle ?" avant toute clôture (obligatoire). NE DIS PAS "Quel jour vous conviendrait le mieux ?" dans ce cas.
 ${infoOnlyRappelRule}
-2) RDV POUR UNE PRESTATION PRÉCISE (ex: vidange, plaquettes de frein, révision, diagnostic): INTERDIT de demander le jour sans avoir d'abord annoncé le tarif ET les horaires. (0) dis "D'accord, nous allons faire une demande de rendez-vous." (1) OBLIGATOIRE: appelle get_garage_pricing(prestation), annonce le tarif au client. (2) OBLIGATOIRE: appelle get_opening_hours, annonce les horaires (jours ouverts + plages + jours fermés). (3) demande UNIQUEMENT "Quel jour vous conviendrait le mieux ?" — STOP, ATTENDS la réponse. (4) APRÈS que le client ait donné le jour, demande "Plutôt le matin ou l'après-midi ?" — STOP, ATTENDS. (5) plaque. NE JAMAIS poser jour et matin/après-midi dans la même phrase.
+2) RDV POUR UNE PRESTATION PRÉCISE (ex: vidange, plaquettes de frein, révision, diagnostic): (0) dis "D'accord, nous allons faire une demande de rendez-vous." (1) OBLIGATOIRE: appelle get_garage_pricing(prestation) — l'outil renvoie TARIF + HORAIRES en une fois. Annonce tarif puis horaires en une seule phrase, puis demande "Quel jour vous conviendrait le mieux ?" — STOP, ATTENDS. (2) APRÈS que le client ait donné le jour, demande "Plutôt le matin ou l'après-midi ?" — STOP, ATTENDS. (3) plaque. NE JAMAIS poser jour et matin/après-midi dans la même phrase.
 3) RDV DIAGNOSTIC (client décrit un problème): demande "Je vous propose de venir faire un diagnostic. Vous voulez prendre rendez-vous ?" (ATTENDS OUI/NON). Si OUI: (1) get_garage_pricing pour diagnostic, (2) get_opening_hours + annonce horaires, (3) jour, (4) matin/après-midi, (5) plaque.
 4) SEULEMENT si le client a répondu OUI: alors DANS CET ORDRE (ne pas inverser): (a) "Quel jour vous conviendrait le mieux ?" → attends la réponse ; (b) "Plutôt le matin ou l'après-midi ?" → attends la réponse ; (c) ENSUITE demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?" ou envoi de message si pas de plaque). Ne demande JAMAIS la plaque avant le jour et le créneau matin/après-midi.
 - INTERDICTION: Ne dis JAMAIS "Quel jour vous conviendrait le mieux ?" ou "Quel créneau ?" si le client n'a pas d'abord dit explicitement qu'il veut prendre rendez-vous. Une simple demande d'horaires n'est PAS une demande de RDV.
@@ -4461,10 +4465,10 @@ ${garageClosed
         const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
 
         const garageTools = [
-          { type: "function", name: "get_garage_pricing", description: "Récupère le tarif du garage. OBLIGATOIRE pour RDV: passe prestation (plaquettes|freins|diagnostic|vidange|révision|disques) pour recevoir UNIQUEMENT la ligne correspondante — évite toute confusion. À appeler pour RDV ou question prix. Ne pas appeler pour devis explicite.", parameters: { type: "object", properties: { prestation: { type: "string", description: "Prestation demandée par le client: plaquettes, freins, diagnostic, vidange, révision, disques" } } } },
+          { type: "function", name: "get_garage_pricing", description: "Récupère tarif + horaires du garage. Pour RDV: passe prestation (plaquettes|freins|diagnostic|vidange|révision|disques) — renvoie tarif ET horaires en une fois. Une seule phrase à annoncer au client. Ne pas appeler get_opening_hours séparément. Ne pas appeler pour devis explicite.", parameters: { type: "object", properties: { prestation: { type: "string", description: "Prestation: plaquettes, freins, diagnostic, vidange, révision, disques" } } } },
           { type: "function", name: "get_garage_services", description: "Récupère la liste des services avec descriptions. À appeler pour questions sur les prestations (en quoi consiste, quels services).", parameters: { type: "object", properties: {} } },
           { type: "function", name: "get_garage_faq", description: "Récupère les questions fréquentes et réponses. À appeler pour une question type FAQ.", parameters: { type: "object", properties: {} } },
-          { type: "function", name: "get_opening_hours", description: "Récupère les horaires d'ouverture et les jours de fermeture. OBLIGATOIRE lors de toute prise de RDV: appelle AVANT de demander 'Quel jour ?', puis annonce AU CLIENT les jours et horaires d'ouverture + jours de fermeture.", parameters: { type: "object", properties: {} } },
+          { type: "function", name: "get_opening_hours", description: "Récupère les horaires et jours de fermeture. Pour RDV prestation: get_garage_pricing inclut déjà les horaires. Utilise get_opening_hours pour RDV diagnostic ou question horaires seule.", parameters: { type: "object", properties: {} } },
           { type: "function", name: "get_garage_services_includes", description: "Récupère les prestations incluses (ex: révision comprend diagnostic). À appeler pour éviter doublons ou expliquer qu'une prestation en inclut une autre.", parameters: { type: "object", properties: {} } },
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_garage", description: "Transfère l'appel vers le garage (un humain). À appeler quand le client demande à être transféré, à parler à quelqu'un du garage ou pour VALIDER un devis. Argument validation_devis: true si le client appelle POUR VALIDER un devis déjà établi (ex: 'j'appelle pour valider mon devis').", parameters: { type: "object", properties: { validation_devis: { type: "boolean", description: "true si le client appelle pour valider un devis déjà établi par le garage" } } } }] : []),
         ];
@@ -4527,10 +4531,10 @@ ${transferLine}
 ${validationDevisLine}
 
 ${transferFailedLine ? `${transferFailedLine}\n` : ""}
-DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil. EXCEPTION RDV PRESTATION PRÉCISE: quand tu prends un RDV pour une prestation (plaquettes, vidange, etc.), dis "D'accord, nous allons faire une demande de rendez-vous." puis appelle get_garage_pricing SANS dire "Un instant", "Je vais vérifier le tarif" ou toute phrase de transition — annonce directement le tarif à la suite. Pour les autres outils: dis UNIQUEMENT "D'accord, un instant." AVANT d'appeler. INTERDIT: "Je vais vérifier les détails...", "Je vais vous indiquer le tarif...", "Un instant, je vais vérifier..." ou toute phrase longue.
+DONNÉES GARAGE (obligatoire): Pour toute question sur les tarifs, services, horaires ou FAQ, tu DOIS appeler l'outil correspondant (get_garage_pricing, get_garage_services, get_opening_hours, get_garage_faq, get_garage_services_includes) avant de répondre. Ne réponds jamais sans avoir appelé l'outil. EXCEPTION RDV PRESTATION: appelle get_garage_pricing(prestation) — renvoie tarif + horaires en une fois. Annonce tout en une phrase, pas de phrase de transition ("Un instant", etc.). Pour les autres outils: dis UNIQUEMENT "D'accord, un instant." AVANT d'appeler. INTERDIT: "Je vais vérifier les détails...", "Je vais vous indiquer le tarif...", "Un instant, je vais vérifier..." ou toute phrase longue.
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${newClientInfoLine}\n\n
-Pour un RDV: avant de demander le jour, appelle get_opening_hours puis annonce AU CLIENT les jours et horaires d'OUVERTURE (ex. ouvert du lundi au samedi de 8h30 à 16h), puis les jours de fermeture. Ne dis jamais uniquement le jour de fermeture sans avoir dit les horaires d'ouverture. Ensuite seulement demande "Quel jour vous conviendrait le mieux ?". Si le client propose un jour fermé, dis "Le garage est fermé le [jour]. Quel autre jour vous conviendrait ?"
+Pour RDV prestation: get_garage_pricing(prestation) renvoie tarif + horaires — une seule phrase. Pour RDV diagnostic: get_garage_pricing + get_opening_hours. Si le client propose un jour fermé, dis "Le garage est fermé le [jour]. Quel autre jour vous conviendrait ?"
 Tarif diagnostic: appelle get_garage_pricing avant d'annoncer un prix; n'utilise QUE la valeur retournée (ne jamais inventer un chiffre).
 RÈGLES D'ÉCOUTE:
 - Tu écoutes et tu réponds à CE QUE le client dit (pas de scénarios pré-écrits).
@@ -6108,7 +6112,13 @@ But: être naturel et mettre le client en confiance.`,
                   if (!matched && /diagnostic/.test(prestation)) matched = lines.find(l => /^[^:]*diagnostic/i.test(l));
                   if (!matched && /vidange/.test(prestation)) matched = lines.find(l => /^[^:]*vidange/i.test(l));
                   if (!matched && /r[eé]vision/.test(prestation)) matched = lines.find(l => /^[^:]*r[eé]vision/i.test(l));
-                  output = matched ? `TARIF pour la prestation demandée:\n${matched}\n\nAnnonce EXACTEMENT ce montant au client (ne pas inventer un autre prix).` : raw;
+                  if (matched) {
+                    const stateLine = garageClosed ? "État actuel: le garage est actuellement FERMÉ." : "État actuel: le garage est actuellement OUVERT.";
+                    const hoursBlock = [garageHoursText || "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
+                    output = `TARIF et HORAIRES (tout inclus — annonce les deux au client d'un coup):\n\nTARIF:\n${matched}\n\nHORAIRES:\n${hoursBlock}\n\nAnnonce le tarif puis les horaires en une seule phrase, puis demande "Quel jour vous conviendrait le mieux ?" (une seule question).`;
+                  } else {
+                    output = raw;
+                  }
                 } else {
                   output = `TARIFS (chaque ligne = NOM : TARIF). Pour un RDV, rappelle get_garage_pricing avec prestation (plaquettes|freins|diagnostic|vidange|révision|disques) pour recevoir la ligne exacte.\n\n${raw}`;
                 }
