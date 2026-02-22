@@ -744,6 +744,7 @@ wss.on("connection", (ws, req) => {
   /** Retourne true si le message assistant indique qu'une demande de RDV a été notée (jour/créneau ou confirmation finale). */
   function isAssistantConfirmingRdv(assistantText) {
     const t = String(assistantText || "").toLowerCase();
+    if (/\b(demande\s+de\s+devis|demande\s+devis|pour\s+(le\s+)?devis)\b/i.test(t)) return false;
     if (/\b(je\s+)?note\s+pour\s+(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|demain|après-demain)\b/i.test(t)) return true;
     if (/\bje\s+note\s+(pour\s+)?(le\s+)?(matin|après-midi)\b/i.test(t)) return true;
     if (/\b(parfait\s*,?\s*)?c'?est\s+noté\b/i.test(t) && (/\b(rdv|rendez-?vous|demande)\b/.test(t) || /\brappellera\s+pour\s+confirmer\b/.test(t))) return true;
@@ -844,7 +845,8 @@ wss.on("connection", (ws, req) => {
         return asksRdv ? "rdv" : (getMostRecentAssistantIntent(25000));
       })();
       const assistantAskedForDayOrSlot = hasAskedDayOrSlot || ((lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || "")));
-      const rdvRequestedFromWs = (rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient);
+      const pureDevisFlow = devisAcceptedByClient && !assistantAskedForDayOrSlot;
+      const rdvRequestedFromWs = !pureDevisFlow && ((rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient));
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
       console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, validation_devis: validationDevisByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage_status: transferToGarageStatus });
       console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, assistantAskedForDayOrSlot });
@@ -3363,7 +3365,7 @@ RÈGLE PLAQUE (critique):
 - SMS plaque uniquement si client dit explicitement que ce n'est pas la bonne plaque/autre véhicule ou si aucune plaque.
 RÈGLE INFO/DEVIS/RAPPEL:
 - Si appel info sans RDV: répondre puis proposer rappel garage avant clôture.
-- DEMANDE DE DEVIS (règle absolue): Ne JAMAIS annoncer le prix pour une demande de devis. Ne JAMAIS demander "Souhaitez-vous être rappelé ?" (le garage rappellera pour le devis). Prendre OBLIGATOIREMENT la plaque. Si le client a une plaque enregistrée (en dossier): dis "Je prends note de votre demande de devis pour [prestation]. Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est [X]. Est-ce bien correct ?" — NE JAMAIS ajouter "Pourriez-vous me confirmer votre plaque ?" ou "Pour cela, pourriez-vous me confirmer..." (inutile). Si le client n'a PAS de plaque (pas en dossier ou en dossier sans plaque): dis "Je prends note de votre demande de devis pour [prestation]. Je vais vous envoyer un message à la fin de l'appel pour que vous puissiez nous indiquer votre plaque d'immatriculation." Enchaîner: note devis → plaque → "Avez-vous besoin d'autre chose ?". Jamais de prix, jamais de question rappel.
+- DEMANDE DE DEVIS (règle absolue): Ne JAMAIS annoncer le prix pour une demande de devis. Ne JAMAIS demander "Souhaitez-vous être rappelé ?" (le garage rappellera pour le devis). Prendre OBLIGATOIREMENT la plaque. Si le client a une plaque enregistrée (en dossier): dis "Je prends note de votre demande de devis pour [prestation]. Je vois que vous êtes déjà dans nos dossiers. Votre plaque d'immatriculation est [X]. Est-ce bien correct ?" — NE JAMAIS ajouter "Pourriez-vous me confirmer votre plaque ?" ou "Pour cela, pourriez-vous me confirmer..." (inutile). Si le client n'a PAS de plaque (pas en dossier ou en dossier sans plaque): dis "Je prends note de votre demande de devis pour [prestation]. Je vais vous envoyer un message à la fin de l'appel pour que vous puissiez nous indiquer votre plaque d'immatriculation." Enchaîner: note devis → plaque → "Le garage vous rappellera pour vous transmettre le devis. Avez-vous besoin d'autre chose ?" — Pour un DEVIS, dis "Le garage vous rappellera pour vous transmettre le devis", JAMAIS "Le garage vous rappellera pour confirmer" (phrase réservée aux RDV). Jamais de prix, jamais de question rappel.
 - Si devis accepté: ne pas redemander rappel (le garage rappellera pour le devis).
 - Si demande RDV en cours ou validée: ne pas poser la question de rappel.
 RÈGLE CONSENTEMENT:
