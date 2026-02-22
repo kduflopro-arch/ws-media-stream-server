@@ -3799,11 +3799,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.log("🔌 Tentative de connexion à OpenAI Realtime API...");
       // Configurer le format audio dans l'URL de connexion.
       // On force PCM16 pour éviter tout mismatch de format en sortie (sinon Twilio joue du bruit).
-      // IMPORTANT: Utiliser le modèle configuré dans LLM_MODEL, mais pour Realtime API, on doit utiliser gpt-4o-realtime-preview
-      // car GPT-5 n'a pas encore de Realtime API
-      const realtimeModel = "gpt-4o-realtime-preview"; // Alias = dernière version (défigé, plus de snapshot 2024-12-17)
+      // IMPORTANT: Modèle Realtime (GPT-5 n'a pas encore de Realtime API)
+      const realtimeModel = "gpt-4o-mini-realtime-preview"; // gpt-4o-mini = version mini, moins cher, plus rapide
       const openaiUrl =
         `wss://api.openai.com/v1/realtime?model=${realtimeModel}&input_audio_format=pcm16&output_audio_format=pcm16`;
+      console.log("☎️ Modèle Realtime utilisé:", realtimeModel);
       console.log("🔌 URL OpenAI:", openaiUrl.replace(/Bearer\s+\S+/, "Bearer ***"));
       console.log("🔌 OPENAI_API_KEY présente:", !!OPENAI_API_KEY);
       console.log("🔌 OPENAI_API_KEY longueur:", OPENAI_API_KEY ? OPENAI_API_KEY.length : 0);
@@ -3876,6 +3876,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           connectionTimeout = null;
         }
         console.log("✅ Connecté à OpenAI Realtime API");
+        console.log("☎️ Modèle Realtime:", realtimeModel);
         console.log("🎛️ OpenAI audio format (forced):", { input: "pcm16", output: "pcm16" });
         console.log("📊 Configuration active:", {
           PIPELINE_MODE,
@@ -4974,6 +4975,7 @@ But: être naturel et mettre le client en confiance.`,
                         console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
                       } else {
+                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: extractedText.substring(0, 80) });
                         enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
                       }
                     } else if (REALTIME_USE_ELEVEN && !spokenSet.has(rid)) {
@@ -4987,6 +4989,7 @@ But: être naturel et mettre le client en confiance.`,
                         console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                         playConsentRefusalAndHangup();
                       } else {
+                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: extractedText.substring(0, 80) });
                         enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
                       }
                     } else {
@@ -5073,6 +5076,7 @@ But: être naturel et mettre le client en confiance.`,
                   console.log("🛑 Réponse IA (response.done buffer) = refus enregistrement, remplacement par message fixe.");
                   playConsentRefusalAndHangup();
                 } else {
+                  console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: buffered.substring(0, 80) });
                   enqueuePremiumTts(buffered, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: allowTtsWithoutUser });
                 }
               }
