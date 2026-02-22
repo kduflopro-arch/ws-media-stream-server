@@ -4381,7 +4381,7 @@ PLAQUE D'IMMATRICULATION (RÈGLE ABSOLUE):
 PROCÉDURE RDV (OBLIGATOIRE ET DANS CET ORDRE):
 1) Si le client demande UNIQUEMENT les horaires (ou tarifs, adresse, etc.): donne l'info puis demande "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Si le client n'a pas pris de RDV, tu DOIS demander "Souhaitez-vous que le garage vous rappelle ?" avant toute clôture (obligatoire). NE DIS PAS "Quel jour vous conviendrait le mieux ?" dans ce cas.
 ${infoOnlyRappelRule}
-2) RDV POUR UNE PRESTATION PRÉCISE (ex: vidange, plaquettes de frein, révision, diagnostic): (0) dis "D'accord, nous allons faire une demande de rendez-vous.", (1) OBLIGATOIRE: appelle get_garage_pricing, parcours les lignes et trouve celle dont le NOM correspond à la prestation (plaquettes/freins→ligne Plaquette/Frein ; vidange→Vidange ; diagnostic→Diagnostic ; révision→Révision). Annonce UNIQUEMENT le tarif de cette ligne. Ne prends JAMAIS le tarif d'une autre prestation (ex: si client demande plaquettes, ne prends PAS le tarif Diagnostic). (2) OBLIGATOIRE: appelle get_opening_hours puis annonce les horaires. (3) "Quel jour vous conviendrait le mieux ?", (4) "Plutôt le matin ou l'après-midi ?", (5) plaque. Ordre strict: phrase → tarif (ligne correspondante uniquement) → horaires → jour → créneau → plaque.
+2) RDV POUR UNE PRESTATION PRÉCISE (ex: vidange, plaquettes de frein, révision, diagnostic): (0) dis "D'accord, nous allons faire une demande de rendez-vous.", (1) OBLIGATOIRE: appelle get_garage_pricing en passant prestation (ex: plaquettes, freins, diagnostic, vidange, révision, disques) — l'outil renvoie UNIQUEMENT la ligne correspondante. Annonce ce tarif au client. (2) OBLIGATOIRE: appelle get_opening_hours puis annonce les horaires. (3) "Quel jour vous conviendrait le mieux ?", (4) "Plutôt le matin ou l'après-midi ?", (5) plaque. Ordre strict: phrase → tarif (obtenu via get_garage_pricing avec prestation) → horaires → jour → créneau → plaque.
 3) RDV DIAGNOSTIC (client décrit un problème): demande "Je vous propose de venir faire un diagnostic. Vous voulez prendre rendez-vous ?" (ATTENDS OUI/NON). Si OUI: (1) get_garage_pricing pour diagnostic, (2) get_opening_hours + annonce horaires, (3) jour, (4) matin/après-midi, (5) plaque.
 4) SEULEMENT si le client a répondu OUI: alors DANS CET ORDRE (ne pas inverser): (a) "Quel jour vous conviendrait le mieux ?" → attends la réponse ; (b) "Plutôt le matin ou l'après-midi ?" → attends la réponse ; (c) ENSUITE demande la confirmation de la plaque ("Votre plaque est [X]. Est-ce bien correct ?" ou envoi de message si pas de plaque). Ne demande JAMAIS la plaque avant le jour et le créneau matin/après-midi.
 - INTERDICTION: Ne dis JAMAIS "Quel jour vous conviendrait le mieux ?" ou "Quel créneau ?" si le client n'a pas d'abord dit explicitement qu'il veut prendre rendez-vous. Une simple demande d'horaires n'est PAS une demande de RDV.
@@ -4404,7 +4404,7 @@ RÈGLES RDV:
 DEVIS EXPLICITE: Si le client dit "je voudrais un devis pour xxx" ou équivalent, PRENDS LA DEMANDE DIRECTEMENT. NE PAS appeler get_garage_pricing. NE PAS annoncer de prix. Va à la plaque (confirmation ou message). NE JAMAIS poser "Souhaitez-vous faire une demande de devis ?".
 
 TARIFS:
-- OBLIGATOIRE: appelle get_garage_pricing AVANT toute annonce de prix (sauf devis explicite). Parcours les lignes et prends UNIQUEMENT celle dont le NOM correspond: plaquettes/freins→ligne Plaquette ou Frein (PAS Diagnostic) ; diagnostic→ligne Diagnostic ; vidange→Vidange ; révision→Révision. Ne prends JAMAIS la première ligne par défaut. Si un tarif existe pour la prestation, annonce-le.
+- OBLIGATOIRE: appelle get_garage_pricing AVANT toute annonce de prix (sauf devis explicite). Passe le paramètre prestation à get_garage_pricing pour recevoir la ligne exacte: plaquettes/freins→ligne Plaquette ou Frein (PAS Diagnostic) ; diagnostic→ligne Diagnostic ; vidange→Vidange ; révision→Révision. Ne prends JAMAIS la première ligne par défaut. Annonce ce tarif. Ne jamais inventer un prix.
 - Si un tarif est renseigné, tu le donnes et tu précises si le prix peut varier selon le véhicule. OBLIGATOIRE: après avoir donné un tarif pour une prestation, tu DOIS proposer: "Souhaitez-vous faire une demande de devis auprès du garage ?" (attendre la réponse avant de continuer).
 - Sinon uniquement (get_garage_pricing vide ou pas de ligne correspondante): tu dis que c'est à confirmer/devis.
 
@@ -4441,7 +4441,7 @@ ${garageClosed
         const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
 
         const garageTools = [
-          { type: "function", name: "get_garage_pricing", description: "Récupère les tarifs du garage. À appeler pour RDV ou question prix. Utilise UNIQUEMENT la ligne dont le NOM correspond à la prestation (plaquettes→Plaquette/Frein, diagnostic→Diagnostic, vidange→Vidange). Ne pas appeler pour devis explicite.", parameters: { type: "object", properties: {} } },
+          { type: "function", name: "get_garage_pricing", description: "Récupère le tarif du garage. OBLIGATOIRE pour RDV: passe prestation (plaquettes|freins|diagnostic|vidange|révision|disques) pour recevoir UNIQUEMENT la ligne correspondante — évite toute confusion. À appeler pour RDV ou question prix. Ne pas appeler pour devis explicite.", parameters: { type: "object", properties: { prestation: { type: "string", description: "Prestation demandée par le client: plaquettes, freins, diagnostic, vidange, révision, disques" } } } },
           { type: "function", name: "get_garage_services", description: "Récupère la liste des services avec descriptions. À appeler pour questions sur les prestations (en quoi consiste, quels services).", parameters: { type: "object", properties: {} } },
           { type: "function", name: "get_garage_faq", description: "Récupère les questions fréquentes et réponses. À appeler pour une question type FAQ.", parameters: { type: "object", properties: {} } },
           { type: "function", name: "get_opening_hours", description: "Récupère les horaires d'ouverture et les jours de fermeture. OBLIGATOIRE lors de toute prise de RDV: appelle AVANT de demander 'Quel jour ?', puis annonce AU CLIENT les jours et horaires d'ouverture + jours de fermeture.", parameters: { type: "object", properties: {} } },
@@ -4564,7 +4564,7 @@ STYLE (échange humain):
           if (updatedInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
             const rest = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
             const maxBase = REALTIME_INSTRUCTIONS_MAX_CHARS - rest.length - 400;
-            const truncNote = "\n\n[RÈGLES: Devis explicite→pas de prix. RDV tarif: ligne NOM correspondant (plaquettes→Plaquette/Frein, pas Diagnostic). Parcours toutes les lignes. Avant outil: 'D'accord, un instant'. Plaque: oui=confirmation. pas marque/modèle.]";
+            const truncNote = "\n\n[RÈGLES: Devis explicite→pas de prix. RDV tarif: get_garage_pricing(prestation) obligatoire. Avant outil: 'D'accord, un instant'. Plaque: oui=confirmation.]";
             baseForUpdate = baseForUpdate.slice(0, maxBase - truncNote.length) + truncNote;
             updatedInstructions = `${baseForUpdate}${rest}`;
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
@@ -4596,7 +4596,7 @@ STYLE (échange humain):
         if (initialInstructionsText.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
           const restInitial = `\n\n${ASSISTANT_PERSONA === "mecanicien" ? mechanicPersona : neutralPersona}\n\n${variationGuidelines}\n\n${hardConstraints}\n\n${closingGuidelines}`;
           const maxBaseInitial = REALTIME_INSTRUCTIONS_MAX_CHARS - restInitial.length - 400;
-          const truncNoteInitial = "\n\n[RÈGLES: Devis explicite→pas de prix. RDV tarif: ligne NOM correspondant (plaquettes→Plaquette/Frein, pas Diagnostic). Parcours toutes les lignes. Avant outil: 'D'accord, un instant'. Plaque: oui=confirmation. pas marque/modèle.]";
+          const truncNoteInitial = "\n\n[RÈGLES: Devis explicite→pas de prix. RDV tarif: get_garage_pricing(prestation) obligatoire. Avant outil: 'D'accord, un instant'. Plaque: oui=confirmation.]";
           initialInstructionsText = baseInstructions.slice(0, maxBaseInitial - truncNoteInitial.length) + truncNoteInitial + restInitial;
           console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
         }
@@ -6075,7 +6075,29 @@ But: être naturel et mettre le client en confiance.`,
               let transferOutputDeferred = false;
               if (toolName === "get_garage_pricing") {
                 const raw = pricingSummary || "Tarifs non renseignés.";
-                output = raw === "Tarifs non renseignés." ? raw : `TARIFS (chaque ligne = NOM prestation : TARIF). RÈGLE CRITIQUE: parcours TOUTES les lignes et prends UNIQUEMENT celle dont le NOM (avant :) correspond à ce que le client a demandé. Ex: client "plaquettes"/"freins"/"changement plaquettes" → ligne avec Plaquette ou Frein (PAS Diagnostic). Client "vidange" → ligne Vidange. Client "diagnostic" ou problème à diagnostiquer → ligne Diagnostic. Client "révision" → ligne Révision. La première ligne n'est PAS forcément la bonne — vérifie le NOM.\n\n${raw}`;
+                let prestation = "";
+                try {
+                  const args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {};
+                  prestation = String(args.prestation || "").trim().toLowerCase();
+                } catch (_) { /* ignore */ }
+                if (raw === "Tarifs non renseignés.") {
+                  output = raw;
+                } else if (prestation) {
+                  const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+                  let matched = null;
+                  if (/disque/.test(prestation)) {
+                    matched = lines.find(l => /^[^:]*disque/i.test(l) && /^[^:]*frein/i.test(l));
+                  }
+                  if (!matched && (/plaquette|frein/.test(prestation) && !/disque/.test(prestation))) {
+                    matched = lines.find(l => /^[^:]*plaquette/i.test(l) && /^[^:]*frein/i.test(l) && !/^[^:]*disque/i.test(l));
+                  }
+                  if (!matched && /diagnostic/.test(prestation)) matched = lines.find(l => /^[^:]*diagnostic/i.test(l));
+                  if (!matched && /vidange/.test(prestation)) matched = lines.find(l => /^[^:]*vidange/i.test(l));
+                  if (!matched && /r[eé]vision/.test(prestation)) matched = lines.find(l => /^[^:]*r[eé]vision/i.test(l));
+                  output = matched ? `TARIF pour la prestation demandée:\n${matched}\n\nAnnonce EXACTEMENT ce montant au client (ne pas inventer un autre prix).` : raw;
+                } else {
+                  output = `TARIFS (chaque ligne = NOM : TARIF). Pour un RDV, rappelle get_garage_pricing avec prestation (plaquettes|freins|diagnostic|vidange|révision|disques) pour recevoir la ligne exacte.\n\n${raw}`;
+                }
               }
               else if (toolName === "get_garage_services") output = servicesSummary || "Services non renseignés.";
               else if (toolName === "get_garage_faq") output = faqsSummary || "FAQ non renseignée.";
