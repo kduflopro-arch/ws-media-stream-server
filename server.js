@@ -2539,6 +2539,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const hasHourWords = t.match(/\b(huit|sept|six|cinq|quatre|trois|deux|une)\s+heures?\s+(trois|zéro|zero|\d)/i);
     t = t.replace(/[\s\u00a0\u2000-\u200b\u202f\u205f\u3000]+/g, " ");
     t = t.replace(/\.([A-ZÀÂÆÇÉÈÊËÎÏÔÙÛÜŸ])/g, ". $1");
+    // Corriger "cinquante cent" ou "cinquantecent" (tarif 50 à 190) -> "cinquante euros à cent"
+    t = t.replace(/\bcinquante\s*cent\s+/gi, "cinquante euros à cent ");
     t = t.replace(/\bcent\s+quatre\s+vingt\s+dix\b/gi, "cent-quatre-vingt-dix");
     t = t.replace(/\bcent\s+quatre\s+vingt\s+(un|deux|trois|quatre|cinq|six|sept|huit|neuf)\b/gi, "cent-quatre-vingt-$1");
     t = t.replace(/\bcent\s+quatre\s+vingt\b/gi, "cent-quatre-vingt");
