@@ -579,8 +579,9 @@ wss.on("connection", (ws, req) => {
   let premiumTtsDrainInFlight = false;
   let premiumTtsLastText = ""; // Dernier texte effectivement envoyé au TTS (pour éviter les répétitions exactes)
   let lastGarageToolOutputAt = 0; // Après envoi function_call_output (get_garage_pricing, etc.) : laisser finir "Un instant" avant la suite
-  let pendingGaragePricingResponseAt = 0; // Timestamp quand on attend une réponse IA après get_garage_pricing (pour retry si vide)
+  let pendingGaragePricingResponseAt = 0; // Timestamp quand on attend une réponse IA après get_garage_pricing (pour fallback si vide)
   let pendingGaragePricingRetryDone = false; // Éviter boucle infinie
+  let lastGaragePricingFallbackPhrase = ""; // Phrase TTS de secours si le modèle ne répond pas
   let spokenResponseIds = new Map(); // responseId -> timestamp (anti-répétitions par réponse)
   let recentAssistantTexts = []; // Array<{ text: string, ts: number }>
   const minimaxBillingMode = MINIMAX_USE_BALANCE ? "solde (pay-as-you-go)" : (MINIMAX_GROUP_ID ? "abonnement (GroupId)" : "solde (défaut)");
@@ -3155,7 +3156,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             ? "Mode rendez-vous: aucun (tu ne proposes pas de RDV, tu prends un message)."
             : appointmentMode === "internal"
               ? `Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes UNIQUEMENT après validation explicite du client). RÈGLE ABSOLUE - HORAIRES/INFO UNIQUEMENT: Si le client demande UNIQUEMENT les horaires d'ouverture, les tarifs ou une simple information (sans avoir dit qu'il veut un rendez-vous), tu réponds à sa question puis tu dis UNIQUEMENT "Avez-vous besoin d'autre chose ?". Ne dis JAMAIS "Souhaitez-vous prendre rendez-vous ?" dans ce cas. Tu NE dis JAMAIS "Quel jour vous conviendrait le mieux ?" dans ce cas — sauf si le client a demandé les horaires. EXEMPLE: Client "Quel est le tarif d'une vidange ?" → tu donnes UNIQUEMENT le tarif (ex. "entre 50 et 190 euros selon le véhicule"), puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". Tu NE donnes PAS les horaires d'ouverture ni ne demandes de jour/crénneau. EXEMPLE: Client "Quels sont les horaires ?" → tu DONNES les horaires puis "Avez-vous besoin d'autre chose ?" ou "Souhaitez-vous prendre rendez-vous ?". "Quel jour vous conviendrait le mieux ?" se dit UNIQUEMENT quand le client vient de répondre OUI à "Vous voulez prendre rendez-vous ?". Tu ne confirmes le rendez-vous QUE si le client donne son consentement explicite. CRITIQUE: Si le client décrit un problème, tu DOIS D'ABORD poser des questions (depuis quand, autres symptômes) AVANT de proposer un diagnostic et de demander "Vous voulez prendre rendez-vous ?".${garageClosed ? " IMPORTANT: Si le garage est fermé, tu NE peux PAS prendre de rendez-vous. Tu dis que le garage est fermé et que quelqu'un rappellera." : ""}`
-              : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande). RÈGLE ABSOLUE - TARIF/HORAIRES SEULS: Si le client demande UNIQUEMENT le tarif d'une prestation ou les horaires (sans avoir dit qu'il veut un rendez-vous), tu réponds à sa question puis tu dis UNIQUEMENT « Avez-vous besoin d'autre chose ? ». Ne dis JAMAIS « Souhaitez-vous prendre rendez-vous ? » dans ce cas — le client n'a pas demandé de RDV. Tu NE lances JAMAIS la procédure RDV (Quel jour ?, matin/après-midi, plaque) dans ce cas. EXEMPLE: Client « Quel est le tarif d'une vidange ? » → dis « D'accord, un instant s'il vous plaît », appelle get_garage_pricing, donne le tarif uniquement, puis « Avez-vous besoin d'autre chose ? ». Tu NE dis PAS « Quel jour vous conviendrait le mieux ? » ni « Nous allons faire une demande de rendez-vous » — sauf si le client a explicitement demandé un RDV. Ne demande JAMAIS l'heure souhaitée au client : demande uniquement le jour puis « Plutôt le matin ou l'après-midi ? ». Si le client donne une date précise (ou date et heure), dis : « C'est une demande auprès du garage, tout sera confirmé quand le garage vous rappellera ; je prends bien cette date en compte pour la communiquer au garage. » Puis confirmation de la plaque si besoin. Après avoir noté jour/créneau/plaque, dis : « C'est une demande de rendez-vous, le garage vous rappellera pour confirmer. » puis « Avez-vous besoin d'autre chose ? ».";
+              : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande). RÈGLE ABSOLUE - TARIF/HORAIRES SEULS: Si le client demande UNIQUEMENT le tarif d'une prestation ou les horaires (sans avoir dit qu'il veut un rendez-vous), appelle get_garage_pricing directement (la phrase « un instant » est jouée automatiquement), donne le tarif, puis « Avez-vous besoin d'autre chose ? ». Ne dis JAMAIS « Souhaitez-vous prendre rendez-vous ? » dans ce cas. Tu NE lances JAMAIS la procédure RDV (Quel jour ?, matin/après-midi, plaque) dans ce cas. Tu NE dis PAS « Quel jour vous conviendrait le mieux ? » ni « Nous allons faire une demande de rendez-vous » — sauf si le client a explicitement demandé un RDV. Ne demande JAMAIS l'heure souhaitée au client : demande uniquement le jour puis « Plutôt le matin ou l'après-midi ? ». Si le client donne une date précise (ou date et heure), dis : « C'est une demande auprès du garage, tout sera confirmé quand le garage vous rappellera ; je prends bien cette date en compte pour la communiquer au garage. » Puis confirmation de la plaque si besoin. Après avoir noté jour/créneau/plaque, dis : « C'est une demande de rendez-vous, le garage vous rappellera pour confirmer. » puis « Avez-vous besoin d'autre chose ? ».";
         const consentLine =
           consentRequired && !consentGiven
             ? "RÈGLE ABSOLUE - CONSENTEMENT: Dès le début de l'appel, annonce UNIQUEMENT: 'Cet appel est enregistré pour préparer votre arrivée au garage. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Puis TU T'ARRÊTES et tu ATTENDS la réponse du client. Tu ne dis RIEN d'autre avant qu'il ait accepté ou refusé. Si le client dit oui je suis d'accord, d'accord ou ok: NE DIS RIEN — la salutation 'Bonjour Monsieur/Madame [nom], en quoi puis-je vous aider ?' est jouée automatiquement. Attends ensuite la question du client. Si le client refuse, tu dis au revoir et tu raccroches. Si le client dit autre chose (ex: il décrit un problème sans avoir accepté), tu réponds UNIQUEMENT: 'Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Tu ne traites aucune autre demande tant qu'il n'a pas accepté ou refusé. Ne demande le consentement QU'UNE SEULE FOIS."
@@ -3360,7 +3361,7 @@ ${transferLine}
 ${validationDevisLine}
 ${transferFailedLine ? `${transferFailedLine}\n` : ""}
 OUTILS GARAGE (OBLIGATOIRE):
-- AVANT d'appeler un outil: dis TOUJOURS "D'accord, un instant s'il vous plaît." Puis appelle l'outil. Cette phrase est obligatoire à chaque consultation (tarif, horaires, etc.).
+- Tarifs/horaires: appelle l'outil adapté directement (la phrase « un instant » est jouée automatiquement).
 - Pour tarifs/services/FAQ/horaires: appelle l'outil adapté AVANT de répondre.
 - Interdiction d'inventer un prix, un horaire, une prestation, une FAQ.
 - Si l'outil n'a pas l'info: dis que l'information doit être confirmée (devis/rappel).
@@ -3396,7 +3397,8 @@ RÈGLE ANTI-HALLUCINATION:
 - Si ambigu: poser une seule question de clarification.
 - Une question à la fois, attendre la réponse avant l'étape suivante.
 - Français oral impeccable obligatoire (orthographe, espaces, ponctuation, tirets; style naturel).
-- AVANT tout appel d'outil (get_garage_pricing, get_opening_hours, etc.): dis TOUJOURS "D'accord, un instant s'il vous plaît." puis appelle l'outil. Ne saute jamais cette phrase quand tu dois réfléchir ou consulter des données.
+- Pour get_garage_pricing, get_opening_hours, etc.: N'écris JAMAIS "un instant s'il vous plaît" — cette phrase est jouée automatiquement. Appelle directement l'outil.
+- Si le client dit "allo", "hein", "pardon", "oui" seul ou autre interjection: réponds "Oui, je vous écoute" ou "Comment puis-je vous aider ?" SANS appeler d'outil.
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${clientInfoSection ? `${clientInfoSection}\n` : ""}
 FIN D'APPEL:
@@ -3816,19 +3818,23 @@ But: être naturel et mettre le client en confiance.`,
                   const rawOutput = msg.response.output;
                   const outputOnlyFunctionCalls = Array.isArray(rawOutput) && rawOutput.length > 0 && rawOutput.every((item) => item && item.type === "function_call");
                   const outputEmpty = Array.isArray(rawOutput) && rawOutput.length === 0;
-                  if (outputOnlyFunctionCalls || outputEmpty) {
+                    if (outputOnlyFunctionCalls || outputEmpty) {
                     if (LOG_VERBOSE) console.log("📋 response.done:", outputEmpty ? "output vide (normal après tool call ou court)" : "uniquement appels d'outils (normal), pas de texte à extraire.");
-                    // Retry si réponse vide après get_garage_pricing (IA peut bugger après plusieurs tarifs)
                     const now = nowMs();
                     if (pendingGaragePricingResponseAt > 0 && (now - pendingGaragePricingResponseAt) < 20000 && !pendingGaragePricingRetryDone) {
                       pendingGaragePricingRetryDone = true;
                       pendingGaragePricingResponseAt = 0;
-                      console.log("🔄 Réponse vide après get_garage_pricing, retry response.create");
-                      setTimeout(() => {
-                        if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
-                          requestResponseCreate("after_function_call_output_retry");
-                        }
-                      }, 500);
+                      if (lastGaragePricingFallbackPhrase && lastGaragePricingFallbackPhrase.trim()) {
+                        console.log("🔄 Réponse vide après get_garage_pricing, fallback TTS direct");
+                        enqueuePremiumTts(lastGaragePricingFallbackPhrase, { interrupt: false, source: "get_garage_pricing_fallback", allowWithoutUser: true });
+                      } else {
+                        console.log("🔄 Réponse vide après get_garage_pricing, retry response.create");
+                        setTimeout(() => {
+                          if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                            requestResponseCreate("after_function_call_output_retry");
+                          }
+                        }, 500);
+                      }
                     }
                   } else {
                     console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
@@ -4691,6 +4697,7 @@ But: être naturel et mettre le client en confiance.`,
                 } catch (_) { /* ignore */ }
                 if (raw === "Tarifs non renseignés.") {
                   output = raw;
+                  lastGaragePricingFallbackPhrase = "";
                   console.log("📌 get_garage_pricing:", { prestation, matched: "none", reason: "no_pricing" });
                 } else if (prestation) {
                   const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
@@ -4709,6 +4716,28 @@ But: être naturel et mettre le client en confiance.`,
                       .replace(/\s*\(\s*\d+\s*h(?:\s*\d+)?\s*min\s*\)\s*$/i, "")
                       .replace(/\s*\(\s*\d+\s*min\s*\)\s*$/i, "")
                       .trim();
+                    const colonIdx = matchedForSpeech.indexOf(":");
+                    const serviceName = colonIdx >= 0 ? matchedForSpeech.substring(0, colonIdx).trim() : prestation;
+                    let pricePart = colonIdx >= 0 ? matchedForSpeech.substring(colonIdx + 1).trim() : "";
+                    pricePart = pricePart.replace(/(\d)O(?=\s|à|€|$)/gi, "$10"); // Corriger 5O -> 50
+                    const article = /\b(vidange|révision)\b/i.test(serviceName) ? "la " : /\b(plaquettes|disques)\b/i.test(serviceName) ? "les " : "le ";
+                    const rangeMatch = pricePart.match(/de\s*(\d+)\s*à\s*(\d+)/i) || pricePart.match(/De\s*(\d+)\s*à\s*(\d+)/);
+                    let fallbackPrice = "";
+                    if (rangeMatch) {
+                      const low = Number(rangeMatch[1]);
+                      const high = Number(rangeMatch[2]);
+                      fallbackPrice = `entre ${numberToFrenchWordsTts(low)} et ${numberToFrenchWordsTts(high)} euros`;
+                      lastGaragePricingFallbackPhrase = `Le tarif pour ${article}${serviceName.toLowerCase()} est ${fallbackPrice}. Avez-vous besoin d'autre chose ?`;
+                    } else {
+                      const singleMatch = pricePart.match(/(\d+)\s*€/);
+                      if (singleMatch) {
+                        fallbackPrice = `${numberToFrenchWordsTts(Number(singleMatch[1]))} euros`;
+                        lastGaragePricingFallbackPhrase = `Le tarif pour ${article}${serviceName.toLowerCase()} est de ${fallbackPrice}. Avez-vous besoin d'autre chose ?`;
+                      } else {
+                        fallbackPrice = pricePart.replace(/\s*\([^)]*\)\s*/g, " ").trim() || "varie";
+                        lastGaragePricingFallbackPhrase = "";
+                      }
+                    }
                     const stateLine = garageClosed ? "État actuel: le garage est actuellement FERMÉ." : "État actuel: le garage est actuellement OUVERT.";
                     const hoursBlock = [garageHoursText || "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
                     output = `TARIF et HORAIRES:\n\nTARIF:\n${matchedForSpeech}\n\nHORAIRES:\n${hoursBlock}\n\nRÈGLE OBLIGATOIRE: Tu DOIS TOUJOURS annoncer le tarif au client. Si le client a demandé UNIQUEMENT le tarif (sans vouloir de rendez-vous): annonce UNIQUEMENT le tarif puis dis "Avez-vous besoin d'autre chose ?". Ne reste JAMAIS silencieux. Ne demande PAS le jour, PAS la plaque (ne dis JAMAIS "Je vois que vous êtes déjà dans nos dossiers" ni "Est-ce bien correct ?" pour la plaque). Si le client a demandé un rendez-vous: annonce tarif + horaires puis demande "Quel jour vous conviendrait le mieux ?".`;
@@ -4719,10 +4748,12 @@ But: être naturel et mettre le client en confiance.`,
                     });
                   } else {
                     output = raw;
+                    lastGaragePricingFallbackPhrase = "";
                     console.log("📌 get_garage_pricing:", { prestation, matched: "none", reason: "no_match", linesCount: lines.length });
                   }
                 } else {
                   output = `TARIFS (chaque ligne = NOM : TARIF). Pour un RDV, rappelle get_garage_pricing avec prestation (plaquettes|freins|diagnostic|vidange|révision|disques) pour recevoir la ligne exacte.\n\n${raw}`;
+                  lastGaragePricingFallbackPhrase = "";
                   console.log("📌 get_garage_pricing:", { prestation: "(vide)", reason: "generic_list" });
                 }
               }
