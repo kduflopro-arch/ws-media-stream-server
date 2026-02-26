@@ -2539,6 +2539,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const hasHourWords = t.match(/\b(huit|sept|six|cinq|quatre|trois|deux|une)\s+heures?\s+(trois|zéro|zero|\d)/i);
     t = t.replace(/[\s\u00a0\u2000-\u200b\u202f\u205f\u3000]+/g, " ");
     t = t.replace(/\.([A-ZÀÂÆÇÉÈÊËÎÏÔÙÛÜŸ])/g, ". $1");
+    // Collages TTS horaires: "et14h" → "et quatorze heures", "sonthuit" → "sont huit"
+    t = t.replace(/\bet(\d{1,2})[hH]\b/gi, (_, h) => {
+      const n = Number(h);
+      return "et " + (n === 12 ? "midi" : n === 0 ? "minuit" : numberToFrenchWordsTts(n) + " heures");
+    });
+    t = t.replace(/\bsont(huit|sept|six|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dix-sept|dix-huit|dix-neuf|vingt|trente|quarante|cinquante|soixante)\b/gi, "sont $1");
     // Corriger "cinquante cent" ou "cinquantecent" (tarif 50 à 190) -> "cinquante euros à cent"
     t = t.replace(/\bcinquante\s*cent\s+/gi, "cinquante euros à cent ");
     t = t.replace(/\bcent\s+quatre\s+vingt\s+dix\b/gi, "cent-quatre-vingt-dix");
@@ -3399,7 +3405,8 @@ RÈGLE ANTI-HALLUCINATION:
 - Si ambigu: poser une seule question de clarification.
 - Une question à la fois, attendre la réponse avant l'étape suivante.
 - Français oral impeccable obligatoire (orthographe, espaces, ponctuation, tirets; style naturel).
-- Pour get_garage_pricing, get_opening_hours, etc.: N'écris JAMAIS "un instant s'il vous plaît" — cette phrase est jouée automatiquement. Appelle directement l'outil.
+- HORAIRES pour le TTS: quand tu annonces les horaires d'ouverture, dis-les en toutes lettres avec des espaces (ex: "de huit heures trente à midi et de quatorze heures à dix-huit heures, du lundi au vendredi"). N'écris JAMAIS "8h30", "14h" ou "12h" seuls dans ta réponse — le TTS doit entendre "huit heures trente", "quatorze heures", "midi".
+- Pour get_garage_pricing, get_opening_hours, etc.: N'écris JAMAIS "un instant s'il vous plaît" — cette phrase est jouée automatiquement. Appelle directement l'outil. Pour get_garage_pricing tu DOIS toujours passer le paramètre prestation (plaquettes, freins, diagnostic, vidange, révision, disques) selon la demande du client.
 - Si le client dit "allo", "hein", "pardon", "oui" seul ou autre interjection: réponds "Oui, je vous écoute" ou "Comment puis-je vous aider ?" SANS appeler d'outil.
 ${availableAppointmentSlotsLine ? `${availableAppointmentSlotsLine}\n` : ""}
 ${clientInfoSection ? `${clientInfoSection}\n` : ""}
@@ -4747,7 +4754,7 @@ But: être naturel et mettre le client en confiance.`,
                     }
                     const stateLine = garageClosed ? "État actuel: le garage est actuellement FERMÉ." : "État actuel: le garage est actuellement OUVERT.";
                     const hoursBlock = [garageHoursText || "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
-                    output = `TARIF et HORAIRES:\n\nTARIF:\n${matchedForSpeech}\n\nHORAIRES:\n${hoursBlock}\n\nRÈGLE OBLIGATOIRE: Tu DOIS TOUJOURS annoncer le tarif au client. Si le client a demandé UNIQUEMENT le tarif (sans vouloir de rendez-vous): annonce UNIQUEMENT le tarif puis dis "Avez-vous besoin d'autre chose ?". Ne reste JAMAIS silencieux. Ne demande PAS le jour, PAS la plaque (ne dis JAMAIS "Je vois que vous êtes déjà dans nos dossiers" ni "Est-ce bien correct ?" pour la plaque). Si le client a demandé un rendez-vous: annonce tarif + horaires puis demande "Quel jour vous conviendrait le mieux ?".`;
+                    output = `TARIF et HORAIRES:\n\nTARIF:\n${matchedForSpeech}\n\nHORAIRES:\n${hoursBlock}\n\nRÈGLE OBLIGATOIRE: Tu DOIS TOUJOURS annoncer le tarif au client. Pour les horaires, dis-les en toutes lettres (ex: de huit heures trente à midi et de quatorze heures à dix-huit heures) — jamais "8h30" ou "14h" seuls. Si le client a demandé UNIQUEMENT le tarif (sans vouloir de rendez-vous): annonce UNIQUEMENT le tarif puis dis "Avez-vous besoin d'autre chose ?". Ne reste JAMAIS silencieux. Ne demande PAS le jour, PAS la plaque (ne dis JAMAIS "Je vois que vous êtes déjà dans nos dossiers" ni "Est-ce bien correct ?" pour la plaque). Si le client a demandé un rendez-vous: annonce tarif + horaires (en toutes lettres) puis demande "Quel jour vous conviendrait le mieux ?".`;
                     console.log("📌 get_garage_pricing:", {
                       prestation,
                       matchedLine: matchedForSpeech.substring(0, 80),
@@ -4759,9 +4766,9 @@ But: être naturel et mettre le client en confiance.`,
                     console.log("📌 get_garage_pricing:", { prestation, matched: "none", reason: "no_match", linesCount: lines.length });
                   }
                 } else {
-                  output = `TARIFS (chaque ligne = NOM : TARIF). Pour un RDV, rappelle get_garage_pricing avec prestation (plaquettes|freins|diagnostic|vidange|révision|disques) pour recevoir la ligne exacte.\n\n${raw}`;
+                  output = `ERREUR - PRESTATION MANQUANTE: Tu DOIS rappeler get_garage_pricing en passant le paramètre prestation. Valeurs possibles: plaquettes, freins, diagnostic, vidange, révision, disques (selon la demande du client: ex. "changement des plaquettes" ou "plaquettes de frein" → prestation: "plaquettes"). Ne donne aucun tarif ni horaires au client avant d'avoir rappelé get_garage_pricing avec la bonne prestation.`;
                   lastGaragePricingFallbackPhrase = "";
-                  console.log("📌 get_garage_pricing:", { prestation: "(vide)", reason: "generic_list" });
+                  console.log("📌 get_garage_pricing:", { prestation: "(vide)", reason: "prestation_required" });
                 }
               }
               else if (toolName === "get_garage_services") output = servicesSummary || "Services non renseignés.";
