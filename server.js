@@ -664,6 +664,8 @@ wss.on("connection", (ws, req) => {
   let garageClosed = false;
   let garageClosedReason = "";
   let garageClosedText = "";
+  let lunchFullToday = false; // Complet midi : IA dit "nous sommes complets" pour résa midi jour même
+  let dinnerFullToday = false; // Complet soir : IA dit "nous sommes complets" pour résa soir jour même
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -3197,6 +3199,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const closedInfoLine = garageClosed
           ? `GARAGE FERMÉ (${garageClosedReason || "closed"}): le garage est actuellement fermé. ${garageClosedText || ""} Si le client demande à être transféré, à parler à un humain ou à quelqu'un du garage, tu DOIS dire exactement: "Le garage est actuellement fermé mais je peux gérer votre demande." Puis propose un rappel si besoin. Tu ne transfères JAMAIS quand le garage est fermé (tu n'as pas l'outil transfer_to_garage dans ce cas).`
           : "Info horaires (interne): garage indiqué ouvert.";
+        const completMidiSoirLine = (lunchFullToday || dinnerFullToday)
+          ? `COMPLET MIDI/SOIR: ${lunchFullToday ? "Si le client demande une réservation pour le service du midi (déjeuner) du jour même, tu DOIS dire exactement: \"Nous sommes complets actuellement pour le service du midi aujourd'hui.\" Puis propose une autre date ou le service du soir. " : ""}${dinnerFullToday ? "Si le client demande une réservation pour le service du soir (dîner) du jour même, tu DOIS dire exactement: \"Nous sommes complets actuellement pour le service du soir aujourd'hui.\" Puis propose une autre date ou le service du midi." : ""}`
+          : "";
         const transferLine = allowTransfer
           ? "TRANSFERT VERS LE GARAGE: activé. AVANT d'appeler transfer_to_garage, tu DOIS appeler get_opening_hours. Si le résultat indique 'État actuel: le garage est actuellement FERMÉ', ne transfère PAS et dis: 'Le garage est actuellement fermé mais je peux gérer votre demande. Souhaitez-vous que le garage vous rappelle ?' Si le garage est OUVERT, appelle transfer_to_garage puis dis: 'Je vous transfère vers le garage, un instant.' Si le transfert échoue (réponse de l'outil indique un échec), suis la consigne dans la réponse de l'outil (validation devis ou proposition de rappel)."
           : (garageClosed
@@ -3365,6 +3370,7 @@ ${consentLine}
 ${todayDateLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
+${completMidiSoirLine ? `${completMidiSoirLine}\n` : ""}
 ${transferLine}
 ${validationDevisLine}
 ${transferFailedLine ? `${transferFailedLine}\n` : ""}
@@ -5343,6 +5349,8 @@ But: être naturel et mettre le client en confiance.`,
         const finalFaqsSummary = startParams.faqsSummary || "";
         const finalClosedDaysText = startParams.closedDaysText || "";
         const finalCallToken = startParams.callToken || "";
+        const finalLunchFullToday = startParams.lunchFullToday || "";
+        const finalDinnerFullToday = startParams.dinnerFullToday || "";
         callStartIso = startParams.callStartIso || "";
         console.log("🎬 Stream start:", {
           streamCallSid,
@@ -5380,6 +5388,8 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalGarageClosedText === "string") garageClosedText = String(finalGarageClosedText || "").trim();
         if (typeof finalGarageHoursText === "string") garageHoursText = String(finalGarageHoursText || "").trim();
         if (typeof finalClosedDaysText === "string") closedDaysText = String(finalClosedDaysText || "").trim();
+        if (typeof finalLunchFullToday === "string" && finalLunchFullToday.trim()) lunchFullToday = finalLunchFullToday.trim().toLowerCase() === "true";
+        if (typeof finalDinnerFullToday === "string" && finalDinnerFullToday.trim()) dinnerFullToday = finalDinnerFullToday.trim().toLowerCase() === "true";
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
