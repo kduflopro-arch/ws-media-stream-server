@@ -5512,6 +5512,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalCallToken = startParams.callToken || "";
         const finalLunchFullToday = startParams.lunchFullToday || "";
         const finalDinnerFullToday = startParams.dinnerFullToday || "";
+        const finalLunchPassedForToday = startParams.lunchPassedForToday || "";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
         if (finalGarageType === "restaurant") effectiveSector = "restaurant";
         console.log("🏷️ Secteur effectif:", effectiveSector, "(garageType reçu:", finalGarageType || "non fourni", ")");
@@ -5554,6 +5555,8 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalClosedDaysText === "string") closedDaysText = String(finalClosedDaysText || "").trim();
         if (typeof finalLunchFullToday === "string" && finalLunchFullToday.trim()) lunchFullToday = finalLunchFullToday.trim().toLowerCase() === "true";
         if (typeof finalDinnerFullToday === "string" && finalDinnerFullToday.trim()) dinnerFullToday = finalDinnerFullToday.trim().toLowerCase() === "true";
+        let lunchPassedForToday = false;
+        if (typeof finalLunchPassedForToday === "string" && finalLunchPassedForToday.trim()) lunchPassedForToday = finalLunchPassedForToday.trim().toLowerCase() === "true";
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";

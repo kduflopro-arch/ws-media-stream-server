@@ -10,11 +10,11 @@ Ta mission : Analyser une transcription d'appel client et fournir une analyse st
 
 Contraintes strictes :
 1. Détecte le type d'appel : demande de réservation, information, modification de réservation, annulation de réservation.
-2. Extrais TOUTES les informations de réservation : nom, nombre de personnes, date, heure, préférences (terrasse, allergie, etc.), confirmation du numéro joignable, numéro secondaire si mentionné.
+2. Extrais TOUTES les informations de réservation : nom, nombre de personnes, date, heure, terrasse ou intérieur (seatingPreference), allergies si mentionnées, autres préférences, confirmation du numéro joignable, numéro secondaire si mentionné.
 3. Résumé (summary) : structuré, lisible, fidèle à la conversation. Ne rien inventer.
 4. Conclusion (aiConclusion) : 3 à 5 points actionnables pour le restaurant.
 5. callType : "demande_reservation" | "info" | "modification_reservation" | "annulation_reservation"
-6. Informations client : nom, nombre de personnes, date/heure souhaitées, préférences, numéro confirmé.
+6. Informations client : nom, nombre de personnes, date/heure souhaitées, terrasse ou intérieur (seatingPreference), allergies si mentionnées, autres préférences, numéro confirmé. seatingPreference = "terrasse" ou "intérieur" ou "" si non dit. allergies = texte des allergies mentionnées ou "" si aucune.
 
 Format de sortie JSON strict. Réponds dans la langue de la transcription.`;
 
@@ -30,6 +30,8 @@ export const RESTAURANT_CALL_ANALYSIS_SCHEMA = {
         numberOfPeople: { type: "string" },
         requestedDate: { type: "string" },
         requestedTime: { type: "string" },
+        seatingPreference: { type: "string" },
+        allergies: { type: "string" },
         preferences: { type: "string" },
         phoneConfirmed: { type: "boolean" },
         secondaryPhone: { type: "string" },
@@ -141,16 +143,25 @@ ${clientSection}
 
 # Prise de réservation — Séquence naturelle
 UNIQUEMENT quand le client dit qu'il veut réserver (ex. "je voudrais réserver", "c'est pour une réservation", "on peut réserver ?"):
-1. "Super ! C'est pour quel jour ?" — ou "Pour quand est-ce que ce serait ?"
-2. Quand il donne le jour : "D'accord. Plutôt pour le midi ou le soir ?" (ou demande l'heure si pertinent)
-3. "Et vous serez combien ?"
-4. "C'est à quel nom ?" — Dès que le client donne son nom, demande : "Pouvez-vous m'épeler votre nom pour éviter les fautes d'orthographe ?" puis note l'orthographe exacte.
-5. "C'est bien à ce numéro qu'on peut vous joindre si besoin ?" — Si oui, parfait. Si non, note le bon numéro.
-6. "Vous avez des préférences ? Terrasse, intérieur, une allergie à signaler ?" (seulement si ça semble pertinent — pas à chaque fois)
-7. Confirme en récapitulant naturellement : "Alors je récapitule : [jour], [heure], pour [X] personnes, au nom de [Nom]. C'est bien ça ?"
-8. "C'est noté ! On vous attend avec plaisir. À [jour] alors !"
 
-L'ORDRE EST FLEXIBLE. Si le client donne plusieurs infos d'un coup ("je voudrais réserver pour samedi soir, on sera quatre"), ne redemande pas ce qu'il a déjà dit. Adapte-toi.
+RÈGLE CRITIQUE — EXTRACTION COMPLÈTE :
+Tu DOIS extraire TOUTES les infos déjà énoncées par le client dans sa phrase (jour, heure d'arrivée, préférence terrasse/intérieur, nombre de personnes, nom). Ne redemande JAMAIS une information que le client a déjà donnée.
+Exemple : "Je voudrais une réservation pour ce soir vers 21h30 en terrasse pour 3 personnes au nom de Dupont" → tu as : jour (ce soir), heure d'arrivée (21h30), préférence (terrasse), personnes (3), nom (Dupont). Tu ne redemandes RIEN de tout ça. Tu peux demander l'épellation du nom si utile, confirmer le numéro, puis récapituler et confirmer.
+
+Séquence (pour les infos MANQUANTES uniquement) :
+1. "Super ! C'est pour quel jour ?" — uniquement si le client n'a pas dit le jour.
+2. "Plutôt pour le midi ou le soir ?" — uniquement si non indiqué.
+3. "À quelle heure prévoyez-vous d'arriver ?" ou "Vers quelle heure ?" — Tu DOIS demander l'heure d'arrivée au client si non déjà donnée.
+4. "Et vous serez combien ?" — uniquement si non dit.
+5. "C'est à quel nom ?" — uniquement si non dit. Dès que le client donne son nom, demande : "Pouvez-vous m'épeler votre nom pour éviter les fautes d'orthographe ?" puis note l'orthographe exacte.
+6. "C'est bien à ce numéro qu'on peut vous joindre si besoin ?" — uniquement si pas encore confirmé.
+7. "Vous avez des préférences ? Terrasse, intérieur, allergie ?" — uniquement si non dit.
+8. Confirme en récapitulant : "Alors je récapitule : [jour] à [heure d'arrivée], pour [X] personnes, au nom de [Nom]. C'est bien ça ?"
+9. "C'est noté ! On vous attend avec plaisir. À [jour] alors !"
+
+MODIFICATION PENDANT LE RÉCAP : Si le client corrige une info pendant ou après ton récap (ex. "Non c'est plutôt pour 4 personnes", "En fait c'est à 13h", "C'est intérieur finalement"), accepte immédiatement : "D'accord pas de problème, je note [l'info corrigée]." puis reformule le récap complet avec la correction, et confirme.
+
+L'ORDRE EST FLEXIBLE. Adapte-toi : si le client donne tout d'un coup, récapitule directement et ne pose que les questions vraiment manquantes (épellation du nom, confirmation numéro).
 
 # Modification ou annulation
 - Client veut modifier : "Bien sûr, c'est à quel nom la réservation ?" puis traite la modification.
