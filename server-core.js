@@ -768,6 +768,12 @@ wss.on("connection", (ws, req) => {
   let garageClosedText = "";
   let lunchFullToday = false; // Complet midi : IA dit "nous sommes complets" pour résa midi jour même
   let dinnerFullToday = false; // Complet soir : IA dit "nous sommes complets" pour résa soir jour même
+  let lunchPassedForToday = false; // Heure limite déjeuner dépassée (restaurant)
+  let dinnerPassedForToday = false; // Heure limite dîner dépassée (restaurant)
+  let lunchReservationEnd = "";
+  let dinnerReservationEnd = "";
+  let referenceDateLine = "";
+  let referenceTimeLine = "";
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -3547,7 +3553,9 @@ ${compactPersona}`;
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : []),
         ];
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
-        const todayDateLineRest = `[Référence] Aujourd'hui: ${restNow.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
+        const todayDateLineRest = referenceDateLine && referenceTimeLine
+          ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.`
+          : `[Référence] Aujourd'hui: ${restNow.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
         const restaurantInstructions = effectiveSector === "restaurant" ? buildRestaurantInstructions({
           restaurantName: garageName,
           assistantName,
@@ -3555,6 +3563,10 @@ ${compactPersona}`;
           openingHoursText: garageHoursText || "Horaires non renseignés.",
           lunchFullToday,
           dinnerFullToday,
+          lunchPassedForToday,
+          dinnerPassedForToday,
+          lunchReservationEnd,
+          dinnerReservationEnd,
           todayDateLine: todayDateLineRest,
           allowTransfer,
           consentRequired,
@@ -3579,8 +3591,8 @@ ${compactPersona}`;
           };
         }
         const updatePromptWithClientInfo = () => {
-          if (effectiveSector === "restaurant") return;
           console.log("🔄 updatePromptWithClientInfo appelée:", {
+            sector: effectiveSector,
             hasClientInfo: !!clientInfo,
             hasOpenAI: !!openaiWs,
             openAIState: openaiWs?.readyState,
@@ -3595,6 +3607,51 @@ ${compactPersona}`;
             console.warn("⚠️ OpenAI WebSocket pas connecté (état:", openaiWs?.readyState, ")");
             return;
           }
+          if (effectiveSector === "restaurant" && clientInfo?.name) {
+            const todayDateLineRestUpd = referenceDateLine && referenceTimeLine
+              ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.`
+              : (() => {
+                  const restNowUpd = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
+                  return `[Référence] Aujourd'hui: ${restNowUpd.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
+                })();
+            const updatedRestaurantInstructions = buildRestaurantInstructions({
+              restaurantName: garageName,
+              assistantName,
+              menuText: String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")),
+              openingHoursText: garageHoursText || "Horaires non renseignés.",
+              lunchFullToday,
+              dinnerFullToday,
+              lunchPassedForToday,
+              dinnerPassedForToday,
+              lunchReservationEnd,
+              dinnerReservationEnd,
+              todayDateLine: todayDateLineRestUpd,
+              allowTransfer,
+              consentRequired,
+              consentGiven,
+              clientInfo,
+              garageTone,
+            });
+            let instructionsToSend = updatedRestaurantInstructions;
+            if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
+              const truncNote = "\n\n[RÈGLES: réservation naturelle, une question à la fois, multilangue.]";
+              instructionsToSend = instructionsToSend.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - truncNote.length - 400) + truncNote;
+            }
+            openaiWs.send(JSON.stringify({
+              type: "session.update",
+              session: {
+                type: "realtime",
+                instructions: instructionsToSend,
+                output_modalities: ["text"],
+                tools: restaurantTools,
+                tool_choice: "auto",
+              },
+            }));
+            ws.__sessionInstructions = String(instructionsToSend || "");
+            console.log("✅ Prompt restaurant mis à jour avec client connu:", { clientName: clientInfo.name });
+            return;
+          }
+          if (effectiveSector === "restaurant") return;
           const newClientInfoLine = buildClientInfoLine();
           if (!newClientInfoLine) {
             return;
@@ -5535,6 +5592,11 @@ But: être naturel et mettre le client en confiance.`,
         const finalLunchFullToday = startParams.lunchFullToday || "";
         const finalDinnerFullToday = startParams.dinnerFullToday || "";
         const finalLunchPassedForToday = startParams.lunchPassedForToday || "";
+        const finalDinnerPassedForToday = startParams.dinnerPassedForToday || "";
+        const finalLunchReservationEnd = startParams.lunchReservationEnd || "";
+        const finalDinnerReservationEnd = startParams.dinnerReservationEnd || "";
+        const finalReferenceDateLine = startParams.referenceDateLine || "";
+        const finalReferenceTimeLine = startParams.referenceTimeLine || "";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
         if (finalGarageType === "restaurant") effectiveSector = "restaurant";
         console.log("🏷️ Secteur effectif:", effectiveSector, "(garageType reçu:", finalGarageType || "non fourni", ")");
@@ -5577,8 +5639,12 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalClosedDaysText === "string") closedDaysText = String(finalClosedDaysText || "").trim();
         if (typeof finalLunchFullToday === "string" && finalLunchFullToday.trim()) lunchFullToday = finalLunchFullToday.trim().toLowerCase() === "true";
         if (typeof finalDinnerFullToday === "string" && finalDinnerFullToday.trim()) dinnerFullToday = finalDinnerFullToday.trim().toLowerCase() === "true";
-        let lunchPassedForToday = false;
         if (typeof finalLunchPassedForToday === "string" && finalLunchPassedForToday.trim()) lunchPassedForToday = finalLunchPassedForToday.trim().toLowerCase() === "true";
+        if (typeof finalDinnerPassedForToday === "string" && finalDinnerPassedForToday.trim()) dinnerPassedForToday = finalDinnerPassedForToday.trim().toLowerCase() === "true";
+        if (typeof finalLunchReservationEnd === "string" && finalLunchReservationEnd.trim()) lunchReservationEnd = String(finalLunchReservationEnd).trim();
+        if (typeof finalDinnerReservationEnd === "string" && finalDinnerReservationEnd.trim()) dinnerReservationEnd = String(finalDinnerReservationEnd).trim();
+        if (typeof finalReferenceDateLine === "string" && finalReferenceDateLine.trim()) referenceDateLine = String(finalReferenceDateLine).trim();
+        if (typeof finalReferenceTimeLine === "string" && finalReferenceTimeLine.trim()) referenceTimeLine = String(finalReferenceTimeLine).trim();
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
