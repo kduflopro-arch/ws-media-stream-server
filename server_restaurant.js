@@ -1,11 +1,8 @@
 #!/usr/bin/env node
 /**
- * Point d'entrée pour le serveur WebSocket RESTAURANT.
- * Démarre le serveur avec ACCOUNT_SECTOR=restaurant pour activer la logique
- * réservations (résa, infos, modification, annulation) et le multilangue.
- *
- * Usage: node server_restaurant.js
- * Ou: ACCOUNT_SECTOR=restaurant node server.js
+ * Point d'entrée RESTAURANT uniquement.
+ * Les appels restaurant sont routés vers ce serveur.
+ * Pour les garages, utiliser server.js (service Render séparé).
  */
 process.env.ACCOUNT_SECTOR = "restaurant";
-await import("./server.js");
+await import("./server-core.js");
