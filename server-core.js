@@ -12,11 +12,15 @@ const PORT = process.env.PORT || 8080;
 const ACCOUNT_SECTOR = process.env.ACCOUNT_SECTOR || "garage";
 const HOST = process.env.HOST || "0.0.0.0";
 
-/** Helper: libellé de l'établissement pour les salutations (garage vs restaurant) */
-function getPlaceLabelForGreeting(name) {
+/** Helper: libellé de l'établissement pour les salutations (garage vs restaurant).
+ * @param {string} name - Nom de l'établissement
+ * @param {string} [sector] - Secteur effectif ("restaurant" | "garage"), sinon ACCOUNT_SECTOR
+ */
+function getPlaceLabelForGreeting(name, sector) {
+  const s = (sector || ACCOUNT_SECTOR);
   const raw = String(name || "AutoGuru").trim();
   const nom = /^(garage|restaurant)\s+/i.test(raw) ? raw.replace(/^(garage|restaurant)\s+/i, "").trim() : raw;
-  if (ACCOUNT_SECTOR === "restaurant") {
+  if (s === "restaurant") {
     return /^restaurant\b/i.test(nom) ? nom : `restaurant ${nom}`;
   }
   return /^garage\b/i.test(nom) ? nom : `garage ${nom}`;
@@ -526,6 +530,7 @@ wss.on("connection", (ws, req) => {
     if (LOG_VERBOSE) console.log("⚠️ req.url est null");
   }
   if (LOG_VERBOSE) console.log("📞 Paramètres extraits:", { callSid, garageId, garageName, fromNumber });
+  let effectiveSector = ACCOUNT_SECTOR; // Surchargé par garageType des params (restaurant vs garage)
   let goodbyeDetected = false;
   let goodbyeTimer = null;
   let deferredFinalizeTimer = null; // fallback finalize si on a différé (client raccroche sans 2e stream)
@@ -688,7 +693,7 @@ wss.on("connection", (ws, req) => {
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   function playPostConsentGreeting() {
     if (ws.__postConsentGreetingPlayed || !PREMIUM_TTS_ENABLED) return;
-    const placePart = getPlaceLabelForGreeting(garageName);
+    const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
     let phrase = `Bonjour. Ici ${assistantName} du ${placePart}. En quoi puis-je vous aider ?`;
     if (clientInfo?.name) {
       const parts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
@@ -3216,7 +3221,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const ASSISTANT_PERSONA = (process.env.ASSISTANT_PERSONA ?? "mecanicien").toLowerCase();
         const rawGarageName = String(garageName || "AutoGuru").trim();
         const garageLabel = /^garage\b/i.test(rawGarageName) ? rawGarageName : `Garage ${rawGarageName}`;
-        const placeLabel = ACCOUNT_SECTOR === "restaurant"
+        const placeLabel = effectiveSector === "restaurant"
           ? (/^restaurant\b/i.test(rawGarageName) ? rawGarageName : `Restaurant ${rawGarageName}`)
           : garageLabel;
         const modeLine =
@@ -3500,7 +3505,7 @@ ${compactPersona}`;
         ];
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
         const todayDateLineRest = `[Référence] Aujourd'hui: ${restNow.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
-        const restaurantInstructions = ACCOUNT_SECTOR === "restaurant" ? buildRestaurantInstructions({
+        const restaurantInstructions = effectiveSector === "restaurant" ? buildRestaurantInstructions({
           restaurantName: garageName,
           assistantName,
           menuText: String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")),
@@ -3513,8 +3518,8 @@ ${compactPersona}`;
           consentGiven,
           clientInfo,
         }) : "";
-        const activeTools = ACCOUNT_SECTOR === "restaurant" ? restaurantTools : garageTools;
-        let initialInstructionsText = ACCOUNT_SECTOR === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
+        const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
+        let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
         const sessionUpdate = {
           type: "session.update",
           session: {
@@ -3530,7 +3535,7 @@ ${compactPersona}`;
           };
         }
         const updatePromptWithClientInfo = () => {
-          if (ACCOUNT_SECTOR === "restaurant") return;
+          if (effectiveSector === "restaurant") return;
           console.log("🔄 updatePromptWithClientInfo appelée:", {
             hasClientInfo: !!clientInfo,
             hasOpenAI: !!openaiWs,
@@ -3582,7 +3587,7 @@ ${compactPersona}`;
         if (initialInstructionsText.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
           const restInitial = ``;
           const maxBaseInitial = REALTIME_INSTRUCTIONS_MAX_CHARS - restInitial.length - 400;
-          const truncNoteInitial = ACCOUNT_SECTOR === "restaurant"
+          const truncNoteInitial = effectiveSector === "restaurant"
             ? "\n\n[RÈGLES: réservation naturelle, une question à la fois, multilangue.]"
             : "\n\n[RÈGLES CRITIQUES: OBLIGATOIRE — appelle get_garage_pricing(prestation) AVANT tout tarif ou horaire. Ne JAMAIS inventer un prix ni des horaires. RDV: tarif+horaires AVANT jour. Jour PUIS matin/après-midi séparément. Plaque: oui=confirmation.]";
           initialInstructionsText = initialInstructionsText.slice(0, maxBaseInitial - truncNoteInitial.length) + truncNoteInitial + restInitial;
@@ -3659,7 +3664,7 @@ ${compactPersona}`;
                     {
                       type: "input_text",
                         text:
-                        `Commence l'appel ${ACCOUNT_SECTOR === "restaurant" ? "comme une standardiste de restaurant" : "comme un mécanicien au téléphone"}, très humain.
+                        `Commence l'appel ${effectiveSector === "restaurant" ? "comme une standardiste de restaurant" : "comme un mécanicien au téléphone"}, très humain.
 Voici une suggestion d'accueil (tu peux la dire telle quelle, sans la répéter deux fois):
 "${pickGreetingText(placeLabel)}"
 Ensuite: pose UNE question simple si besoin.
@@ -4781,7 +4786,7 @@ But: être naturel et mettre le client en confiance.`,
               const previousItemId = msg.item.id;
               const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
               const restaurantDataTools = ["get_restaurant_info"];
-              const dataTools = ACCOUNT_SECTOR === "restaurant" ? restaurantDataTools : garageDataTools;
+              const dataTools = effectiveSector === "restaurant" ? restaurantDataTools : garageDataTools;
               if (dataTools.includes(toolName)) {
                 const recentMs = 15000;
                 const alreadySaidUnInstant = (premiumTtsLastText && /un\s+instant|instant\s+s'il\s+vous/i.test(premiumTtsLastText))
@@ -5474,6 +5479,9 @@ But: être naturel et mettre le client en confiance.`,
         const finalCallToken = startParams.callToken || "";
         const finalLunchFullToday = startParams.lunchFullToday || "";
         const finalDinnerFullToday = startParams.dinnerFullToday || "";
+        const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
+        if (finalGarageType === "restaurant") effectiveSector = "restaurant";
+        console.log("🏷️ Secteur effectif:", effectiveSector, "(garageType reçu:", finalGarageType || "non fourni", ")");
         callStartIso = startParams.callStartIso || "";
         console.log("🎬 Stream start:", {
           streamCallSid,
@@ -5615,10 +5623,10 @@ But: être naturel et mettre le client en confiance.`,
                     console.log("👋 Timer greeting fallback annulé (client-info a joué le greeting générique).");
                   }
                   if (!transferFailed && !hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
-                    const placePart = getPlaceLabelForGreeting(garageName);
+                    const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
                     const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
                     const consentText = consentRequired && !consentGiven
-                      ? (ACCOUNT_SECTOR === "restaurant" ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN
+                      ? (effectiveSector === "restaurant" ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN
                       : "";
                     let greeting;
                     if (consentRequired && !consentGiven) {
@@ -5685,10 +5693,10 @@ But: être naturel et mettre le client en confiance.`,
           if (!transferFailed && (!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
             ws.__greetingFallbackTimer = setTimeout(() => {
               if (initialAssistantGreetingText || clientInfo) return;
-              const placePart = getPlaceLabelForGreeting(garageName);
+              const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
               const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
               const consentText = consentRequired && !consentGiven
-                ? (ACCOUNT_SECTOR === "restaurant" ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN
+                ? (effectiveSector === "restaurant" ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN
                 : "";
               const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
               const greeting = consentRequired && !consentGiven
@@ -5714,10 +5722,10 @@ But: être naturel et mettre le client en confiance.`,
             const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "150");
             setTimeout(() => {
               const rawName = String(garageName || "AutoGuru").trim();
-              const label = ACCOUNT_SECTOR === "restaurant"
+              const label = effectiveSector === "restaurant"
                 ? (/^restaurant\b/i.test(rawName) ? rawName : `Restaurant ${rawName}`)
                 : (/^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`);
-              const variations = ACCOUNT_SECTOR === "restaurant"
+              const variations = effectiveSector === "restaurant"
                 ? [
                     `Oui allô, bonjour. ${label}. Je vous écoute.`,
                     `Bonjour. ${label}. Dites-moi ce qui se passe.`,
