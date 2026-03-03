@@ -694,18 +694,39 @@ wss.on("connection", (ws, req) => {
   function playPostConsentGreeting() {
     if (ws.__postConsentGreetingPlayed || !PREMIUM_TTS_ENABLED) return;
     const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
-    let phrase = `Bonjour. Ici ${assistantName} du ${placePart}. En quoi puis-je vous aider ?`;
-    if (clientInfo?.name) {
-      const parts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
-      const ln = clientInfo.last_name?.trim() || parts[parts.length - 1] || clientInfo.name;
-      const tt = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
-      phrase = `Bonjour ${tt ? tt + " " + ln : ln}. En quoi puis-je vous aider ?`;
-    }
-    const apt = (clientInfo?.appointments || []).find(a => !a.en_attente_confirmation_garage);
-    if (apt) {
-      const d = new Date(apt.appointment_date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-      const t = (apt.appointment_time || "").slice(0, 5);
-      phrase = phrase.replace("En quoi puis-je vous aider ?", `Je vois que vous avez un rendez-vous enregistré pour le ${d} à ${t}. En quoi puis-je vous aider ?`);
+    const isResto = effectiveSector === "restaurant";
+    let phrase;
+    if (isResto) {
+      const rawName = String(garageName || "").trim();
+      const label = /^restaurant\b/i.test(rawName) ? rawName : `restaurant ${rawName}`;
+      if (clientInfo?.name) {
+        const parts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
+        const ln = clientInfo.last_name?.trim() || parts[parts.length - 1] || clientInfo.name;
+        const tt = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
+        phrase = `Bonjour ${tt ? tt + " " + ln : ln}. ${assistantName} du ${label}, je vous écoute.`;
+      } else {
+        phrase = `${label}, ${assistantName} à l'appareil. Je vous écoute.`;
+      }
+      const apt = (clientInfo?.appointments || []).find(a => !a.en_attente_confirmation_garage);
+      if (apt) {
+        const d = new Date(apt.appointment_date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+        const t = (apt.appointment_time || "").slice(0, 5);
+        phrase = phrase.replace("Je vous écoute.", `Je vois que vous avez une réservation pour le ${d} à ${t}. Je vous écoute.`);
+      }
+    } else {
+      phrase = `Bonjour. Ici ${assistantName} du ${placePart}. En quoi puis-je vous aider ?`;
+      if (clientInfo?.name) {
+        const parts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
+        const ln = clientInfo.last_name?.trim() || parts[parts.length - 1] || clientInfo.name;
+        const tt = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
+        phrase = `Bonjour ${tt ? tt + " " + ln : ln}. En quoi puis-je vous aider ?`;
+      }
+      const apt = (clientInfo?.appointments || []).find(a => !a.en_attente_confirmation_garage);
+      if (apt) {
+        const d = new Date(apt.appointment_date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+        const t = (apt.appointment_time || "").slice(0, 5);
+        phrase = phrase.replace("En quoi puis-je vous aider ?", `Je vois que vous avez un rendez-vous enregistré pour le ${d} à ${t}. En quoi puis-je vous aider ?`);
+      }
     }
     ws.__postConsentGreetingPlayed = true;
     enqueuePremiumTts(phrase, { interrupt: true, source: "post_consent_greeting", allowWithoutUser: true });
@@ -717,7 +738,7 @@ wss.on("connection", (ws, req) => {
         }));
       } catch (e) { /* ignore */ }
     }
-    console.log("👋 Post-consent greeting joué (Bonjour Monsieur/Madame X, en quoi puis-je vous aider ?).", { hasClientName: !!clientInfo?.name });
+    console.log("👋 Post-consent greeting joué.", { hasClientName: !!clientInfo?.name, sector: effectiveSector });
   }
   let appointmentMode = "request";
   let garageClosed = false;
@@ -3517,6 +3538,7 @@ ${compactPersona}`;
           consentRequired,
           consentGiven,
           clientInfo,
+          garageTone,
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
@@ -3602,6 +3624,7 @@ ${compactPersona}`;
         const estTokensInitial = Math.round(initialInstructions.length / 2.7);
         openaiWs.send(JSON.stringify(sessionUpdate));
         function pickGreetingText(label) {
+          const isRestoGT = effectiveSector === "restaurant";
           const clientName = clientInfo?.name ? String(clientInfo.name).trim() : null;
           if (clientName && clientInfo) {
             let lastName = clientInfo.last_name ? String(clientInfo.last_name).trim() : null;
@@ -3614,7 +3637,13 @@ ${compactPersona}`;
             const salutationName = (lastName && lastName.trim().length > 0)
               ? (title ? `${title} ${lastName}` : lastName)
               : (title ? `${title} ${clientName}` : clientName);
+            if (isRestoGT) {
+              return `Bonjour ${salutationName}. ${assistantName} du ${label}, je vous écoute.`;
+            }
             return `Bonjour ${salutationName}. Ici ${assistantName}, du ${label}. En quoi puis-je vous aider ?`;
+          }
+          if (isRestoGT) {
+            return `${label}, ${assistantName} à l'appareil. Je vous écoute.`;
           }
           return `Bonjour. Ici ${assistantName} du ${label}. En quoi puis-je vous aider ?`;
         }
@@ -3664,7 +3693,11 @@ ${compactPersona}`;
                     {
                       type: "input_text",
                         text:
-                        `Commence l'appel ${effectiveSector === "restaurant" ? "comme une standardiste de restaurant" : "comme un mécanicien au téléphone"}, très humain.
+                        effectiveSector === "restaurant"
+                        ? `Tu décroches le téléphone au restaurant. Dis EXACTEMENT cette phrase d'accueil, telle quelle, sans rien ajouter ni reformuler:
+"${pickGreetingText(placeLabel)}"
+Puis TAIS-TOI et attends que le client parle. Ne propose rien.`
+                        : `Commence l'appel comme un mécanicien au téléphone, très humain.
 Voici une suggestion d'accueil (tu peux la dire telle quelle, sans la répéter deux fois):
 "${pickGreetingText(placeLabel)}"
 Ensuite: pose UNE question simple si besoin.
@@ -5623,23 +5656,36 @@ But: être naturel et mettre le client en confiance.`,
                     console.log("👋 Timer greeting fallback annulé (client-info a joué le greeting générique).");
                   }
                   if (!transferFailed && !hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
+                    const isRestoCI = effectiveSector === "restaurant";
                     const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
-                    const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                    const consentText = consentRequired && !consentGiven
-                      ? (effectiveSector === "restaurant" ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN
-                      : "";
                     let greeting;
                     if (consentRequired && !consentGiven) {
+                      const baseHello = isRestoCI
+                        ? `Bonjour. ${assistantName} du ${placePart}.`
+                        : `Bonjour. Ici ${assistantName} du ${placePart}.`;
+                      const consentText = (isRestoCI ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
                       greeting = [baseHello, consentText].filter(Boolean).join(" ");
+                    } else if (isRestoCI) {
+                      const rawN = String(garageName || "").trim();
+                      const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
+                      if (clientInfo.name) {
+                        const nameParts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
+                        const lastName = clientInfo.last_name?.trim() || nameParts[nameParts.length - 1] || clientInfo.name;
+                        const title = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
+                        const salutation = title ? `${title} ${lastName}` : lastName;
+                        greeting = `Bonjour ${salutation}. ${assistantName} du ${lbl}, je vous écoute.`;
+                      } else {
+                        greeting = `${lbl}, ${assistantName} à l'appareil. Je vous écoute.`;
+                      }
                     } else {
-                      const parts = clientInfo.name ? (() => {
+                      const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
+                      greeting = clientInfo.name ? (() => {
                         const nameParts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
                         const lastName = clientInfo.last_name?.trim() || nameParts[nameParts.length - 1] || clientInfo.name;
                         const title = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
                         const salutation = title ? `${title} ${lastName}` : lastName;
                         return `Bonjour ${salutation}. Ici ${assistantName} du ${placePart}. En quoi puis-je vous aider ?`;
                       })() : baseHello + " En quoi puis-je vous aider ?";
-                      greeting = parts;
                     }
                     initialAssistantGreetingText = greeting;
                     hasSentInitialGreeting = true;
@@ -5693,15 +5739,24 @@ But: être naturel et mettre le client en confiance.`,
           if (!transferFailed && (!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
             ws.__greetingFallbackTimer = setTimeout(() => {
               if (initialAssistantGreetingText || clientInfo) return;
+              const isRestoFb = effectiveSector === "restaurant";
               const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
-              const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
-              const consentText = consentRequired && !consentGiven
-                ? (effectiveSector === "restaurant" ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN
-                : "";
-              const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
-              const greeting = consentRequired && !consentGiven
-                ? [baseHello, consentText].filter(Boolean).join(" ")
-                : [baseHello, question].filter(Boolean).join(" ");
+              let greeting;
+              if (consentRequired && !consentGiven) {
+                const baseHello = isRestoFb
+                  ? `Bonjour. ${assistantName} du ${placePart}.`
+                  : `Bonjour. Ici ${assistantName} du ${placePart}.`;
+                const consentText = (isRestoFb ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
+                greeting = [baseHello, consentText].filter(Boolean).join(" ");
+              } else if (isRestoFb) {
+                const rawN = String(garageName || "").trim();
+                const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
+                greeting = `${lbl}, ${assistantName} à l'appareil. Je vous écoute.`;
+              } else {
+                const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
+                const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
+                greeting = [baseHello, question].filter(Boolean).join(" ");
+              }
               initialAssistantGreetingText = greeting;
               hasSentInitialGreeting = true;
               enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
@@ -5727,10 +5782,10 @@ But: être naturel et mettre le client en confiance.`,
                 : (/^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`);
               const variations = effectiveSector === "restaurant"
                 ? [
-                    `Oui allô, bonjour. ${label}. Je vous écoute.`,
-                    `Bonjour. ${label}. Dites-moi ce qui se passe.`,
-                    `Oui bonjour, ${label}. Comment puis-je vous aider ?`,
-                    `Bonjour, vous êtes bien chez ${label}. Souhaitez-vous réserver ?`,
+                    `${label}, ${assistantName} à l'appareil. Je vous écoute.`,
+                    `Bonjour, ${label}, ${assistantName}. Qu'est-ce que je peux faire pour vous ?`,
+                    `${label} bonjour, ${assistantName} à l'appareil. Je vous écoute.`,
+                    `Bonjour, ici ${label}. ${assistantName}, je vous écoute.`,
                   ]
                 : [
                     `Oui allô, bonjour. Ici ${label}. Je vous écoute.`,
