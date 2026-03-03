@@ -36,7 +36,7 @@ export const RESTAURANT_CALL_ANALYSIS_SCHEMA = {
         phoneConfirmed: { type: "boolean" },
         secondaryPhone: { type: "string" },
       },
-      required: ["clientName", "numberOfPeople", "requestedDate", "requestedTime", "preferences", "phoneConfirmed", "secondaryPhone"],
+      required: ["clientName", "numberOfPeople", "requestedDate", "requestedTime", "seatingPreference", "allergies", "preferences", "phoneConfirmed", "secondaryPhone"],
       additionalProperties: false,
     },
     callType: { type: "string", enum: ["demande_reservation", "info", "modification_reservation", "annulation_reservation"] },
