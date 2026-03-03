@@ -2,7 +2,10 @@ import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
+import { RESTAURANT_CALL_ANALYSIS_PROMPT, RESTAURANT_CALL_ANALYSIS_SCHEMA, buildRestaurantInstructions } from "./config-restaurant.js";
+
 const PORT = process.env.PORT || 8080;
+const ACCOUNT_SECTOR = process.env.ACCOUNT_SECTOR || "garage";
 const HOST = process.env.HOST || "0.0.0.0";
 const CALL_ANALYSIS_PROMPT = `Tu es AutoGuru, assistant d'analyse d'appels garages.
 Objectif: produire une analyse JSON fiable, utile au rappel client et à l'accueil atelier.
@@ -99,8 +102,15 @@ async function handleRunAnalysis(callId, res) {
     }).eq("id", callId);
     return send(200, { ok: true, message: "consent_denied_no_analysis" });
   }
+  const { data: garageRow } = await supabase
+    .schema("autoguru")
+    .from("garages")
+    .select("type")
+    .eq("id", call.garage_id)
+    .maybeSingle();
+  const isRestaurant = garageRow?.type === "restaurant";
   let appointmentMode = "request";
-  if (call.garage_id) {
+  if (call.garage_id && !isRestaurant) {
     const { data: settings } = await supabase
       .schema("autoguru")
       .from("garage_settings")
@@ -141,7 +151,12 @@ async function handleRunAnalysis(callId, res) {
     return send(500, { error: "config", message: "OPENAI_API_KEY non configuré" });
   }
   const model = process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
-  const userInput = `Transcription: ${transcript}\nSymptômes déclarés: ${(call.symptom_summary ?? "non précisé")}\n${callDateIso ? `Date de l'appel (utilise cette année pour les dates du type "mercredi 11 février"): ${callDateIso}\n` : ""}`;
+  const analysisPrompt = isRestaurant ? RESTAURANT_CALL_ANALYSIS_PROMPT : CALL_ANALYSIS_PROMPT;
+  const analysisSchema = isRestaurant ? RESTAURANT_CALL_ANALYSIS_SCHEMA : CALL_ANALYSIS_SCHEMA;
+  const userInput = isRestaurant
+    ? `Transcription: ${transcript}\n${callDateIso ? `Date de l'appel: ${callDateIso}\n` : ""}`
+    : `Transcription: ${transcript}\nSymptômes déclarés: ${(call.symptom_summary ?? "non précisé")}\n${callDateIso ? `Date de l'appel (utilise cette année pour les dates du type "mercredi 11 février"): ${callDateIso}\n` : ""}`;
+  const systemContent = isRestaurant ? analysisPrompt : `${analysisPrompt} ${rdvInstruction}`;
   try {
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -154,12 +169,12 @@ async function handleRunAnalysis(callId, res) {
         stream: false,
         temperature: 0.3,
         messages: [
-          { role: "system", content: `${CALL_ANALYSIS_PROMPT} ${rdvInstruction}` },
+          { role: "system", content: systemContent },
           { role: "user", content: userInput },
         ],
         response_format: {
           type: "json_schema",
-          json_schema: { name: "call_analysis", schema: CALL_ANALYSIS_SCHEMA, strict: true },
+          json_schema: { name: "call_analysis", schema: analysisSchema, strict: true },
         },
       }),
     });
@@ -184,51 +199,77 @@ async function handleRunAnalysis(callId, res) {
     if (summaryText == null || conclusionText == null) {
       console.warn("[run-analysis] Champs manquants:", { hasSummary: summaryText != null, hasConclusion: conclusionText != null, keys: Object.keys(analysis) });
     } else {
-      console.log("[run-analysis] Écriture résumé/conclusion:", { summaryLen: String(summaryText).length, conclusionLen: String(conclusionText).length });
+      console.log("[run-analysis] Écriture résumé/conclusion:", { summaryLen: String(summaryText).length, conclusionLen: String(conclusionText).length, isRestaurant });
     }
-    const filteredProbableCauses = Array.isArray(analysis.probableCauses)
-      ? analysis.probableCauses.filter(
-          (c) =>
-            c?.label &&
-            typeof c.label === "string" &&
-            !c.label.toLowerCase().includes("fallback") &&
-            c.label.trim().length > 0
-        )
-      : [];
-    const validUrgency =
-      analysis.urgency && ["low", "medium", "high"].includes(analysis.urgency)
-        ? analysis.urgency
-        : null;
-    const existingInsights = (call.client_insights && typeof call.client_insights === "object") ? call.client_insights : {};
-    const clientInsights = {
-      ...existingInsights,
-      ...(typeof analysis.clientInsights === "object" && analysis.clientInsights ? analysis.clientInsights : {}),
-    };
-    const callOutcome = (analysis.callOutcome ?? "").trim();
-    const rdvIncompleteReason = (analysis.rdvIncompleteReason ?? "").trim();
-    const isRdvIncomplete = callOutcome === "rdv_incomplete" && rdvIncompleteReason;
-    const { data: freshCall } = await supabase.schema("autoguru").from("calls").select("call_outcome, rdv_incomplete_reason").eq("id", callId).maybeSingle();
-    const noRequestSetByWs = (freshCall?.call_outcome === "no_request");
-    const rdvIncompleteSetByWs = (freshCall?.call_outcome === "rdv_incomplete");
-    const updatePayload = {
-      status: "done",
-      updated_at: new Date().toISOString(),
-      call_summary: summaryText,
-      ai_conclusion: conclusionText,
-      probable_causes: filteredProbableCauses,
-      urgency_level: validUrgency,
-      symptom_summary: Array.isArray(analysis.symptoms)
-        ? analysis.symptoms.filter(Boolean).slice(0, 8).join(" ; ")
-        : null,
-      symptoms: Array.isArray(analysis.symptoms) ? analysis.symptoms : null,
-      client_insights: clientInsights,
-      ...(noRequestSetByWs || rdvIncompleteSetByWs
-        ? {}
-        : {
-            call_outcome: isRdvIncomplete ? "rdv_incomplete" : "completed",
-            rdv_incomplete_reason: isRdvIncomplete ? rdvIncompleteReason : null,
-          }),
-    };
+    let updatePayload;
+    if (isRestaurant) {
+      const reservationDetails = analysis.reservationDetails && typeof analysis.reservationDetails === "object" ? analysis.reservationDetails : {};
+      const existingInsights = (call.client_insights && typeof call.client_insights === "object") ? call.client_insights : {};
+      const clientInsights = {
+        ...existingInsights,
+        ...(typeof analysis.clientInsights === "object" && analysis.clientInsights ? analysis.clientInsights : {}),
+        reservationDetails,
+      };
+      const callOutcomeRest = (analysis.callOutcome ?? "").trim();
+      const rdvRequested = (analysis.callType ?? "") === "demande_reservation";
+      updatePayload = {
+        status: "done",
+        updated_at: new Date().toISOString(),
+        call_summary: summaryText,
+        ai_conclusion: conclusionText,
+        client_insights: clientInsights,
+        call_outcome: callOutcomeRest || "completed",
+        rdv_requested: rdvRequested,
+        rdv_incomplete_reason: null,
+        symptom_summary: null,
+        probable_causes: [],
+        urgency_level: null,
+      };
+    } else {
+      const filteredProbableCauses = Array.isArray(analysis.probableCauses)
+        ? analysis.probableCauses.filter(
+            (c) =>
+              c?.label &&
+              typeof c.label === "string" &&
+              !c.label.toLowerCase().includes("fallback") &&
+              c.label.trim().length > 0
+          )
+        : [];
+      const validUrgency =
+        analysis.urgency && ["low", "medium", "high"].includes(analysis.urgency)
+          ? analysis.urgency
+          : null;
+      const existingInsights = (call.client_insights && typeof call.client_insights === "object") ? call.client_insights : {};
+      const clientInsights = {
+        ...existingInsights,
+        ...(typeof analysis.clientInsights === "object" && analysis.clientInsights ? analysis.clientInsights : {}),
+      };
+      const callOutcome = (analysis.callOutcome ?? "").trim();
+      const rdvIncompleteReason = (analysis.rdvIncompleteReason ?? "").trim();
+      const isRdvIncomplete = callOutcome === "rdv_incomplete" && rdvIncompleteReason;
+      const { data: freshCall } = await supabase.schema("autoguru").from("calls").select("call_outcome, rdv_incomplete_reason").eq("id", callId).maybeSingle();
+      const noRequestSetByWs = (freshCall?.call_outcome === "no_request");
+      const rdvIncompleteSetByWs = (freshCall?.call_outcome === "rdv_incomplete");
+      updatePayload = {
+        status: "done",
+        updated_at: new Date().toISOString(),
+        call_summary: summaryText,
+        ai_conclusion: conclusionText,
+        probable_causes: filteredProbableCauses,
+        urgency_level: validUrgency,
+        symptom_summary: Array.isArray(analysis.symptoms)
+          ? analysis.symptoms.filter(Boolean).slice(0, 8).join(" ; ")
+          : null,
+        symptoms: Array.isArray(analysis.symptoms) ? analysis.symptoms : null,
+        client_insights: clientInsights,
+        ...(noRequestSetByWs || rdvIncompleteSetByWs
+          ? {}
+          : {
+              call_outcome: isRdvIncomplete ? "rdv_incomplete" : "completed",
+              rdv_incomplete_reason: isRdvIncomplete ? rdvIncompleteReason : null,
+            }),
+      };
+    }
     const { data: updatedRow, error: updateError } = await supabase
       .schema("autoguru")
       .from("calls")
@@ -677,6 +718,7 @@ wss.on("connection", (ws, req) => {
   let servicesRequiringStockSummary = "";
   let servicesIncludesSummary = "";
   let faqsSummary = "";
+  let menuSummary = "";
   let ingestSeq = 0;
   let ingestChain = Promise.resolve();
   function recordAssistantQuestionIntent(text) {
@@ -3161,6 +3203,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const ASSISTANT_PERSONA = (process.env.ASSISTANT_PERSONA ?? "mecanicien").toLowerCase();
         const rawGarageName = String(garageName || "AutoGuru").trim();
         const garageLabel = /^garage\b/i.test(rawGarageName) ? rawGarageName : `Garage ${rawGarageName}`;
+        const placeLabel = ACCOUNT_SECTOR === "restaurant"
+          ? (/^restaurant\b/i.test(rawGarageName) ? rawGarageName : `Restaurant ${rawGarageName}`)
+          : garageLabel;
         const modeLine =
           appointmentMode === "none"
             ? "Mode rendez-vous: aucun (tu ne proposes pas de RDV, tu prends un message)."
@@ -3436,11 +3481,32 @@ ${compactPersona}`;
           { type: "function", name: "get_garage_services_includes", description: "Récupère les prestations incluses (ex: révision comprend diagnostic). À appeler pour éviter doublons ou expliquer qu'une prestation en inclut une autre.", parameters: { type: "object", properties: {} } },
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_garage", description: "Transfère l'appel vers le garage (un humain). À appeler quand le client demande à être transféré, à parler à quelqu'un du garage ou pour VALIDER un devis. Argument validation_devis: true si le client appelle POUR VALIDER un devis déjà établi (ex: 'j'appelle pour valider mon devis').", parameters: { type: "object", properties: { validation_devis: { type: "boolean", description: "true si le client appelle pour valider un devis déjà établi par le garage" } } } }] : []),
         ];
+        const restaurantTools = [
+          { type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires d'ouverture et informations du restaurant. À appeler pour questions sur le menu, les horaires, l'adresse.", parameters: { type: "object", properties: {} } },
+          ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : []),
+        ];
+        const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
+        const todayDateLineRest = `[Référence] Aujourd'hui: ${restNow.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
+        const restaurantInstructions = ACCOUNT_SECTOR === "restaurant" ? buildRestaurantInstructions({
+          restaurantName: garageName,
+          assistantName,
+          menuText: String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")),
+          openingHoursText: garageHoursText || "Horaires non renseignés.",
+          lunchFullToday,
+          dinnerFullToday,
+          todayDateLine: todayDateLineRest,
+          allowTransfer,
+          consentRequired,
+          consentGiven,
+          clientInfo,
+        }) : "";
+        const activeTools = ACCOUNT_SECTOR === "restaurant" ? restaurantTools : garageTools;
+        let initialInstructionsText = ACCOUNT_SECTOR === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
         const sessionUpdate = {
           type: "session.update",
           session: {
             type: "realtime",
-            instructions: buildCompactInstructions(clientInfoLine),
+            instructions: initialInstructionsText,
             output_modalities: ["text"],
           },
         };
@@ -3451,6 +3517,7 @@ ${compactPersona}`;
           };
         }
         const updatePromptWithClientInfo = () => {
+          if (ACCOUNT_SECTOR === "restaurant") return;
           console.log("🔄 updatePromptWithClientInfo appelée:", {
             hasClientInfo: !!clientInfo,
             hasOpenAI: !!openaiWs,
@@ -3480,7 +3547,6 @@ ${compactPersona}`;
             updatedInstructions = `${baseForUpdate}${rest}`;
             console.warn("⚠️ Instructions tronquées pour limite API (16384 tokens)", { length: updatedInstructions.length });
           }
-          const estTokensUpdate = Math.round(updatedInstructions.length / 2.7);
           openaiWs.send(JSON.stringify({
             type: "session.update",
             session: {
@@ -3500,16 +3566,17 @@ ${compactPersona}`;
             promptLength: updatedInstructions.length,
           });
         };
-        let initialInstructionsText = buildCompactInstructions(clientInfoLine);
         if (initialInstructionsText.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
           const restInitial = ``;
           const maxBaseInitial = REALTIME_INSTRUCTIONS_MAX_CHARS - restInitial.length - 400;
-          const truncNoteInitial = "\n\n[RÈGLES CRITIQUES: OBLIGATOIRE — appelle get_garage_pricing(prestation) AVANT tout tarif ou horaire. Ne JAMAIS inventer un prix ni des horaires. RDV: tarif+horaires AVANT jour. Jour PUIS matin/après-midi séparément. Plaque: oui=confirmation.]";
+          const truncNoteInitial = ACCOUNT_SECTOR === "restaurant"
+            ? "\n\n[RÈGLES: réservation naturelle, une question à la fois, multilangue.]"
+            : "\n\n[RÈGLES CRITIQUES: OBLIGATOIRE — appelle get_garage_pricing(prestation) AVANT tout tarif ou horaire. Ne JAMAIS inventer un prix ni des horaires. RDV: tarif+horaires AVANT jour. Jour PUIS matin/après-midi séparément. Plaque: oui=confirmation.]";
           initialInstructionsText = initialInstructionsText.slice(0, maxBaseInitial - truncNoteInitial.length) + truncNoteInitial + restInitial;
           console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
         }
         sessionUpdate.session.instructions = initialInstructionsText;
-        sessionUpdate.session.tools = garageTools;
+        sessionUpdate.session.tools = activeTools;
         sessionUpdate.session.tool_choice = "auto";
         ws.__sessionInstructions = String(sessionUpdate.session.instructions || "");
         ws.__updatePromptWithClientInfo = updatePromptWithClientInfo;
@@ -3578,10 +3645,10 @@ ${compactPersona}`;
                   content: [
                     {
                       type: "input_text",
-                      text:
-                        `Commence l'appel comme un mécanicien au téléphone, très humain.
+                        text:
+                        `Commence l'appel ${ACCOUNT_SECTOR === "restaurant" ? "comme une standardiste de restaurant" : "comme un mécanicien au téléphone"}, très humain.
 Voici une suggestion d'accueil (tu peux la dire telle quelle, sans la répéter deux fois):
-"${pickGreetingText(garageLabel)}"
+"${pickGreetingText(placeLabel)}"
 Ensuite: pose UNE question simple si besoin.
 But: être naturel et mettre le client en confiance.`,
                     },
@@ -4700,7 +4767,9 @@ But: être naturel et mettre le client en confiance.`,
               const toolName = msg.item.name;
               const previousItemId = msg.item.id;
               const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
-              if (garageDataTools.includes(toolName)) {
+              const restaurantDataTools = ["get_restaurant_info"];
+              const dataTools = ACCOUNT_SECTOR === "restaurant" ? restaurantDataTools : garageDataTools;
+              if (dataTools.includes(toolName)) {
                 const recentMs = 15000;
                 const alreadySaidUnInstant = (premiumTtsLastText && /un\s+instant|instant\s+s'il\s+vous/i.test(premiumTtsLastText))
                   || recentAssistantTexts.some((t) => (Date.now() - t.ts) <= recentMs && /un\s+instant|instant\s+s'il\s+vous/i.test(t.text));
@@ -4786,6 +4855,46 @@ But: être naturel et mettre le client en confiance.`,
                 output = [garageHoursText || "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
               }
               else if (toolName === "get_garage_services_includes") output = [servicesIncludesSummary || "", servicesRequiringStockSummary ? `Prestations avec stock: ${servicesRequiringStockSummary}` : ""].filter(Boolean).join("\n") || "Prestations incluses non renseignées.";
+              else if (toolName === "get_restaurant_info") {
+                const menuText = String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")).trim();
+                const stateLine = garageClosed ? "État actuel: le restaurant est actuellement FERMÉ." : "État actuel: le restaurant est actuellement OUVERT.";
+                output = [menuText ? `MENU: ${menuText}` : "", garageHoursText ? `HORAIRES: ${garageHoursText}` : "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
+              }
+              else if (toolName === "transfer_to_restaurant") {
+                try {
+                  const baseUrl = (typeof autoguruIngestUrl === "string" && autoguruIngestUrl) ? autoguruIngestUrl.replace(/\/api\/twilio\/realtime-ingest.*$/, "").replace(/\/$/, "") : "";
+                  const token = (typeof autoguruIngestToken === "string" && autoguruIngestToken) ? autoguruIngestToken : "";
+                  const prevItemId = previousItemId;
+                  if (baseUrl && token && callSid && garageId) {
+                    transferOutputDeferred = true;
+                    transferTriggered = true;
+                    enqueuePremiumTts("Transfert vers le restaurant, un instant.", { interrupt: true, source: "transfer_to_restaurant", allowWithoutUser: true });
+                    const waitForOutboundDrain = () => {
+                      if (outboundQueuedBytes === 0 && outboundQueue.length === 0) {
+                        fetch(`${baseUrl}/api/twilio/call-transfer`, {
+                          method: "POST",
+                          headers: autoguruApiHeaders(),
+                          body: JSON.stringify({ callSid, garageId, token, ...(callToken ? { callToken } : {}) }),
+                        }).then(async (res) => {
+                          const data = await res.json().catch(() => ({}));
+                          const out = (res.ok && data.ok) ? "Transfert en cours. L'appel est redirigé vers le restaurant." : "Le transfert n'a pas pu être effectué. Propose de prendre un message.";
+                          try {
+                            openaiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: out }, previous_item_id: prevItemId }));
+                          } catch (e) { /* ignore */ }
+                        }).catch(() => {
+                          try {
+                            openaiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: "Transfert impossible. Propose de prendre un message." }, previous_item_id: prevItemId }));
+                          } catch (e) { /* ignore */ }
+                        });
+                        return;
+                      }
+                      setTimeout(waitForOutboundDrain, 200);
+                    };
+                    waitForOutboundDrain();
+                    output = "Transfert annoncé.";
+                  } else output = "Transfert non configuré.";
+                } catch (_) { output = "Transfert impossible."; }
+              }
               else if (toolName === "transfer_to_garage") {
                 try {
                   const args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {};
@@ -5347,6 +5456,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalServicesRequiringStockSummary = startParams.servicesRequiringStockSummary || "";
         const finalServicesIncludesSummary = startParams.servicesIncludesSummary || "";
         const finalFaqsSummary = startParams.faqsSummary || "";
+        const finalMenuSummary = startParams.menuSummary || "";
         const finalClosedDaysText = startParams.closedDaysText || "";
         const finalCallToken = startParams.callToken || "";
         const finalLunchFullToday = startParams.lunchFullToday || "";
@@ -5411,6 +5521,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalServicesRequiringStockSummary === "string") servicesRequiringStockSummary = String(finalServicesRequiringStockSummary || "").trim();
         if (typeof finalServicesIncludesSummary === "string") servicesIncludesSummary = String(finalServicesIncludesSummary || "").trim();
         if (typeof finalFaqsSummary === "string") faqsSummary = String(finalFaqsSummary || "").trim();
+        if (typeof finalMenuSummary === "string") menuSummary = String(finalMenuSummary || "").trim();
         if (typeof finalCallToken === "string" && finalCallToken.trim()) callToken = String(finalCallToken).trim();
         if (transferFailed) {
           const transferFailedMsg = validationDevisByClient
