@@ -96,12 +96,13 @@ export function buildRestaurantInstructions(ctx) {
     : "";
 
   const cutoffParts = [];
-  if (lunchReservationEnd) cutoffParts.push(`Déjeuner: après ${lunchReservationEnd}, on ne prend plus de résa midi. Dis: "On ne prend plus de réservations pour le déjeuner après ${lunchReservationEnd}." Si le client demande une résa midi après cette heure (pour aujourd'hui), propose demain midi ou le soir.`);
-  if (dinnerReservationEnd) cutoffParts.push(`Dîner: après ${dinnerReservationEnd}, on ne prend plus de résa soir. Dis: "On ne prend plus de réservations pour le dîner après ${dinnerReservationEnd}." Si le client demande une résa soir après cette heure (pour aujourd'hui), propose demain soir.`);
-  if (lunchPassedForToday) cutoffParts.push("État actuel: l'heure limite déjeuner est dépassée pour aujourd'hui.");
-  if (dinnerPassedForToday) cutoffParts.push("État actuel: l'heure limite dîner est dépassée pour aujourd'hui.");
+  if (lunchReservationEnd) cutoffParts.push(`Déjeuner: après ${lunchReservationEnd}, on ne prend plus de résa midi.`);
+  if (dinnerReservationEnd) cutoffParts.push(`Dîner: après ${dinnerReservationEnd}, on ne prend plus de résa soir.`);
+  if (lunchPassedForToday) cutoffParts.push("⚠️ MAINTENANT: l'heure limite déjeuner est DÉPASSÉE pour aujourd'hui — refuse toute résa midi aujourd'hui.");
+  if (dinnerPassedForToday) cutoffParts.push("⚠️ MAINTENANT: l'heure limite dîner est DÉPASSÉE pour aujourd'hui — refuse toute résa CE SOIR (ce soir = dîner aujourd'hui).");
+  const dinnerEndDisplay = dinnerReservationEnd ? dinnerReservationEnd.replace(":", "h") : "l'heure limite";
   const cutoffLine = cutoffParts.length > 0
-    ? `HEURES DE FIN DE RÉSERVATION (après ces heures, on ne prend plus de résa pour ce service):\n${cutoffParts.map((p) => `- ${p}`).join("\n")}`
+    ? `HEURES DE FIN DE RÉSERVATION (règle OBLIGATOIRE — vérifie AVANT de prendre une résa):\n${cutoffParts.map((p) => `- ${p}`).join("\n")}\nSi le client dit "ce soir", "pour ce soir" ou "ce soir à Xh" et que l'heure limite dîner est dépassée : dis "Malheureusement on ne prend plus de réservations pour ce soir, c'est après ${dinnerEndDisplay}. Je peux vous proposer demain soir ?" — NE PRENDS JAMAIS la résa.`
     : "";
 
   const transferLine = allowTransfer
@@ -165,7 +166,10 @@ ${clientSection}
 - DISPONIBILITÉ : Si le client demande s'il reste de la place (ex. "Il reste de la place pour ce soir ?", "Y a-t-il des tables pour ce soir ?") : réponds d'abord à la question (oui/non), puis demande "Voulez-vous faire une réservation ?" ou "Souhaitez-vous réserver ?". NE PAS enchaîner directement avec "À quelle heure ?" — attends que le client confirme vouloir réserver.
 
 # Prise de réservation — Séquence naturelle
-UNIQUEMENT quand le client dit qu'il veut réserver (ex. "je voudrais réserver", "c'est pour une réservation", "on peut réserver ?"):
+RÈGLE PRIORITAIRE — HEURE LIMITE DÉPASSÉE :
+Si la section ci-dessus indique "l'heure limite dîner est DÉPASSÉE" et que le client demande une réservation pour "ce soir", "ce soir à 21h", "pour ce soir", etc. : tu REFUSES immédiatement. Tu ne demandes PAS l'heure ni le nombre de personnes. Tu dis : "Malheureusement on ne prend plus de réservations pour le dîner ce soir, c'est après l'heure limite. Je peux vous proposer demain soir ?" Même logique pour le midi si l'heure limite déjeuner est dépassée.
+
+UNIQUEMENT quand le client dit qu'il veut réserver (ex. "je voudrais réserver", "c'est pour une réservation", "on peut réserver ?") ET que l'heure limite n'est pas dépassée pour le créneau demandé :
 
 POINT D'HONNEUR — DEMANDE DE RÉSERVATION UNIQUEMENT :
 Tu ne PRENDS PAS de réservation automatiquement. Tu notes une DEMANDE de réservation. Utilise TOUJOURS les termes "demande de réservation" (jamais "réservation prise", "réservation confirmée", "je confirme"). Le restaurant confirmera au client par SMS. Répète régulièrement : "C'est une demande de réservation, le restaurant vous confirmera par SMS dans quelques instants."
