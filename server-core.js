@@ -305,6 +305,28 @@ async function handleRunAnalysis(callId, res) {
     if (writtenSummaryLen === 0 || writtenConclusionLen === 0) {
       console.warn("[run-analysis] ATTENTION: résumé ou conclusion vides après update (vérifier même projet Supabase que l'app AutoGuru)");
     }
+    // Restaurant : création automatique du dossier client pour les prochaines réservations
+    if (isRestaurant) {
+      const reservationDetails = analysis.reservationDetails && typeof analysis.reservationDetails === "object" ? analysis.reservationDetails : {};
+      const clientName = (reservationDetails.clientName ?? "").trim();
+      const fromNumber = (call.from_number ?? "").trim();
+      if (clientName && fromNumber && call.garage_id) {
+        const ingestUrl = process.env.AUTOGURU_INGEST_URL || "";
+        const baseUrl = ingestUrl ? ingestUrl.replace(/\/api\/twilio\/realtime-(?:ingest|finalize)\/?$/i, "").replace(/\/+$/, "") : (process.env.AUTOGURU_API_BASE || "").replace(/\/+$/, "");
+        const secret = process.env.RUN_ANALYSIS_SECRET || "";
+        if (baseUrl && secret) {
+          const createClientUrl = `${baseUrl.replace(/\/$/, "")}/api/internal/create-restaurant-client`;
+          fetch(createClientUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` },
+            body: JSON.stringify({ garage_id: call.garage_id, phone_number: fromNumber, name: clientName }),
+          }).then((r) => {
+            if (r.ok) console.log("[run-analysis] Dossier client restaurant créé/mis à jour:", clientName);
+            else r.text().then((t) => console.warn("[run-analysis] create-restaurant-client échec:", r.status, t));
+          }).catch((e) => console.warn("[run-analysis] create-restaurant-client erreur:", e.message));
+        }
+      }
+    }
     return send(200, { ok: true, callId, status: "done" });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
