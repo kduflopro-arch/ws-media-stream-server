@@ -775,6 +775,7 @@ wss.on("connection", (ws, req) => {
   let referenceDateLine = "";
   let referenceTimeLine = "";
   let referenceTomorrowLine = "";
+  let restaurantHasTerrace = true; // Si false, l'IA ne demande pas terrasse/intérieur
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -3574,6 +3575,7 @@ ${compactPersona}`;
           consentGiven,
           clientInfo,
           garageTone,
+          hasTerrace: restaurantHasTerrace,
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
@@ -3632,6 +3634,7 @@ ${compactPersona}`;
               consentGiven,
               clientInfo,
               garageTone,
+              hasTerrace: restaurantHasTerrace,
             });
             let instructionsToSend = updatedRestaurantInstructions;
             if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
@@ -5599,6 +5602,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalReferenceDateLine = startParams.referenceDateLine || "";
         const finalReferenceTimeLine = startParams.referenceTimeLine || "";
         const finalReferenceTomorrowLine = startParams.referenceTomorrowLine || "";
+        const finalRestaurantHasTerrace = startParams.restaurantHasTerrace || "";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
         if (finalGarageType === "restaurant") effectiveSector = "restaurant";
         console.log("🏷️ Secteur effectif:", effectiveSector, "(garageType reçu:", finalGarageType || "non fourni", ")");
@@ -5648,6 +5652,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalReferenceDateLine === "string" && finalReferenceDateLine.trim()) referenceDateLine = String(finalReferenceDateLine).trim();
         if (typeof finalReferenceTimeLine === "string" && finalReferenceTimeLine.trim()) referenceTimeLine = String(finalReferenceTimeLine).trim();
         if (typeof finalReferenceTomorrowLine === "string" && finalReferenceTomorrowLine.trim()) referenceTomorrowLine = String(finalReferenceTomorrowLine).trim();
+        if (typeof finalRestaurantHasTerrace === "string") restaurantHasTerrace = finalRestaurantHasTerrace.trim().toLowerCase() !== "false";
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
