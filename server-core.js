@@ -3995,47 +3995,47 @@ But: être naturel et mettre le client en confiance.`,
                     if (LOG_VERBOSE) console.log("📊 assistantTurnCount (response.done):", assistantTurnCount);
                   }
                   const existingText = transcriptMap.get(rid) || "";
-                    if (!existingText.includes(extractedText)) {
+                  if (!existingText.includes(extractedText)) {
                     if (LOG_VERBOSE) console.log("📝 Texte extrait depuis response.done:", extractedText.substring(0, 160));
                     if (process.env.OPENAI_OUTPUT_DEBUG === "true") {
                       console.log("📋 DEBUG response.output brut:", JSON.stringify(rawOutput).substring(0, 400));
                     }
                     transcriptMap.set(rid, (existingText + " " + extractedText).trim());
-                    const endsWithQuestion = /[?？]\s*$/.test(extractedText.trim());
-                    const mentionsCauses = /\b(peut|pourrait|peuvent|pourraient)\s+(venir|provenir|être|découler)\s+(de|du|d'|des)/i.test(extractedText);
-                    const hasQuestionMark = extractedText.includes('?');
-                    if (mentionsCauses && !hasQuestionMark) {
-                      console.warn("⚠️⚠️⚠️ ALERTE: L'IA a mentionné des causes possibles SANS poser de question !", extractedText.substring(0, 200));
-                    }
-                    if (REALTIME_ELEVEN_CHUNKING_ENABLED) {
-                      pendingGaragePricingResponseAt = 0;
-                      flushRealtimeElevenChunks(rid, true);
-                    } else if (!spokenSet.has(rid) && !REALTIME_USE_ELEVEN) {
-                      spokenSet.add(rid);
-                      pendingGaragePricingResponseAt = 0;
-                      if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
-                        console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
-                        playConsentRefusalAndHangup();
-                      } else {
-                        const textForTts = applyPricingHoursGuard(extractedText);
-                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
-                        enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
-                      }
-                    } else if (REALTIME_USE_ELEVEN && !spokenSet.has(rid)) {
-                      spokenSet.add(rid);
-                      if (ws.__conversationItemTextByRid) ws.__conversationItemTextByRid.delete(rid);
-                      pendingGaragePricingResponseAt = 0; // Réponse reçue, pas besoin de retry
-                      if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
-                        console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
-                        playConsentRefusalAndHangup();
-                      } else {
-                        const textForTts = applyPricingHoursGuard(extractedText);
-                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
-                        enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
-                      }
+                  }
+                  const endsWithQuestion = /[?？]\s*$/.test(extractedText.trim());
+                  const mentionsCauses = /\b(peut|pourrait|peuvent|pourraient)\s+(venir|provenir|être|découler)\s+(de|du|d'|des)/i.test(extractedText);
+                  const hasQuestionMark = extractedText.includes('?');
+                  if (mentionsCauses && !hasQuestionMark) {
+                    console.warn("⚠️⚠️⚠️ ALERTE: L'IA a mentionné des causes possibles SANS poser de question !", extractedText.substring(0, 200));
+                  }
+                  if (REALTIME_ELEVEN_CHUNKING_ENABLED) {
+                    pendingGaragePricingResponseAt = 0;
+                    flushRealtimeElevenChunks(rid, true);
+                  } else if (!spokenSet.has(rid) && !REALTIME_USE_ELEVEN) {
+                    spokenSet.add(rid);
+                    pendingGaragePricingResponseAt = 0;
+                    if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
+                      console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
+                      playConsentRefusalAndHangup();
                     } else {
-                      if (LOG_TTS) console.log(`[TTS] SKIPPED response.done (déjà dans spokenSet):`, { rid, text: extractedText.substring(0, 100) });
+                      const textForTts = applyPricingHoursGuard(extractedText);
+                      console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
+                      enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
                     }
+                  } else if (REALTIME_USE_ELEVEN && !spokenSet.has(rid)) {
+                    spokenSet.add(rid);
+                    if (ws.__conversationItemTextByRid) ws.__conversationItemTextByRid.delete(rid);
+                    pendingGaragePricingResponseAt = 0;
+                    if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
+                      console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
+                      playConsentRefusalAndHangup();
+                    } else {
+                      const textForTts = applyPricingHoursGuard(extractedText);
+                      console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
+                      enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
+                    }
+                  } else if (spokenSet.has(rid)) {
+                    if (LOG_TTS) console.log(`[TTS] SKIPPED response.done (déjà dans spokenSet):`, { rid, text: extractedText.substring(0, 100) });
                   }
                 } else if (msg.response?.output) {
                   const rawOutput = msg.response.output;
