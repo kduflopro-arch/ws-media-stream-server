@@ -124,6 +124,7 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
 
   const capacityLine = reservationCapacityEnabled && reservationPeoplePerDayService && (maxPeopleLunch > 0 || maxPeopleDinner > 0)
     ? `CAPACITÉ PAR SERVICE (nombre de personnes) — RÈGLE OBLIGATOIRE ET BLOQUANTE :
+⚠️ À CHAQUE APPEL, SANS EXCEPTION : Cette vérification s'applique à CHAQUE appel téléphonique (premier, deuxième, dixième...). Tu DOIS TOUJOURS vérifier la capacité dès que le client donne le nombre de personnes. Aucune exception. Même si le client semble connaître le restaurant, même si c'est une "reprise" de conversation — vérifie à CHAQUE fois.
 La liste indique, pour chaque jour (format YYYY-MM-DD), le nombre de personnes DÉJÀ réservées au midi et au soir : ${reservationPeoplePerDayService}.
 Limites max : midi = ${maxPeopleLunch} personnes/jour, soir = ${maxPeopleDinner} personnes/jour.
 
@@ -131,12 +132,13 @@ RÈGLE CRITIQUE — VÉRIFIER AVANT D'ACCEPTER :
 Dès que le client indique le NOMBRE DE PERSONNES (ex. "4 personnes", "on sera 6"), tu DOIS :
 1. Trouver la ligne du jour demandé (ex. vendredi 13 mars = 2026-03-13) et le service (midi ou soir).
 2. Calculer : total = (personnes déjà réservées pour ce jour+service) + (nombre demandé par le client).
-3. Si total > limite du service → REFUSE. Ne prends JAMAIS la réservation. Dis : "Malheureusement nous ne pouvons pas accueillir [X] personnes en plus pour ce jour-là, il nous reste qu'une table pour [Y] personnes maximum. Voulez-vous réserver pour [Y] personnes, ou préférez-vous un autre jour ?" (Y = limite - déjà réservé). Propose aussi un autre jour : "Demain soir ça vous irait ?"
+3. Si total > limite du service → REFUSE. Ne prends JAMAIS la réservation. Dis : "Malheureusement, pour le [jour] à [heure], nous ne pouvons pas accueillir [X] personnes supplémentaires. Il nous reste de la place pour [Y] personnes. Une réservation pour [Y] vous irait, ou préférez-vous un autre jour ?" (Y = limite - déjà réservé). INTERDIT de dire "nous avons déjà X personnes réservées" ou "la limite est de Y" — ne jamais exposer ces chiffres au client.
 4. Si total <= limite → accepte et enchaîne ("Nous pouvons encore accepter [Y] personnes pour ce service ce jour-là, parfait.")
 
-Exemple : vendredi 13 mars soir, 12 déjà réservés, limite 14. Client dit "4 personnes" → 12+4=16 > 14. Tu REFUSES : "Malheureusement nous ne pouvons pas accueillir 4 personnes en plus, il nous reste qu'une table pour 2 personnes. Une table pour 2 vous irait, ou préférez-vous un autre jour ?"
+Exemple : vendredi 13 mars soir à 20h30, 12 déjà réservés, limite 14. Client dit "4 personnes" → 12+4=16 > 14. Tu REFUSES : "Malheureusement, pour le vendredi treize mars à vingt heures et demie, nous ne pouvons pas accueillir 4 personnes supplémentaires. Il nous reste de la place pour 2 personnes. Une réservation pour 2 vous irait, ou préférez-vous un autre jour ?" — NE dis JAMAIS "nous avons déjà 12 personnes réservées" ni "la limite est de 14".
 
-INTERDICTION ABSOLUE : Ne fais JAMAIS le récap ni la confirmation si (total + demande) > limite. Vérifie AVANT le récap : avant de dire "Parfait, je récapitule...", recalcule. Si 12+4 > 14 → STOP, refuse. Ne confirme jamais une réservation qui dépasse la limite.`
+INTERDICTION ABSOLUE : Ne fais JAMAIS le récap ni la confirmation si (total + demande) > limite. Vérifie AVANT le récap : avant de dire "Parfait, je récapitule...", recalcule. Si dépassement → STOP, refuse. Ne confirme jamais une réservation qui dépasse la limite.
+CHECKLIST OBLIGATOIRE (à CHAQUE appel, avant tout récap ou confirmation) : 1) Quel jour + quel service (midi/soir) ? 2) Combien de personnes le client demande ? 3) Total = déjà réservé + demande. 4) Total > limite ? → REFUSE. Ne saute JAMAIS cette étape.`
     : !reservationCapacityEnabled
       ? "CAPACITÉ : Limite de personnes par service désactivée. Tu acceptes les demandes de réservation sans plafond ; c'est le restaurant qui gère sa disponibilité."
       : "";
@@ -159,7 +161,7 @@ INTERDICTION ABSOLUE : Ne fais JAMAIS le récap ni la confirmation si (total + d
   const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre de personnes, terrasse/intérieur, nom" : "jour, midi/soir, heure, nombre de personnes, nom";
   const terrasseSequenceStep = hasTerrace ? "4b. \"Terrasse ou intérieur ?\" — OBLIGATOIRE si non dit. À demander AVANT le récap.\n" : "";
   const capacityCheckStep = reservationCapacityEnabled && reservationPeoplePerDayService
-    ? "4c. CAPACITÉ — RÈGLE BLOQUANTE : Dès que le client dit le nombre de personnes, STOP. Vérifie : (déjà réservé pour ce jour+service + ce nombre) > limite ? Si OUI → REFUSE immédiatement. Ne demande PAS terrasse/intérieur. Ne fais PAS le récap. Dis « Malheureusement nous ne pouvons pas accueillir X personnes en plus, il nous reste qu'une table pour Y personnes. Une table pour Y vous irait, ou préférez-vous un autre jour ? » (Y = limite - déjà réservé). Si total <= limite → continue. AVANT le récap : revérifie. Si dépassement → refuse.\n"
+    ? "4c. CAPACITÉ — RÈGLE BLOQUANTE (à CHAQUE appel, sans exception) : Dès que le client dit le nombre de personnes, STOP. Vérifie TOUJOURS : (déjà réservé + ce nombre) > limite ? Si OUI → REFUSE. Ne fais JAMAIS d'exception. Dis « Malheureusement, pour le [jour] à [heure], nous ne pouvons pas accueillir [X] personnes supplémentaires. Il nous reste de la place pour [Y] personnes. Une réservation pour [Y] vous irait, ou préférez-vous un autre jour ? » Ne dis JAMAIS « nous avons déjà X personnes réservées » ni « la limite est de Y ».\n"
     : "";
   const recapContent = hasTerrace ? "jour, HEURE d'arrivée, terrasse ou intérieur, ET nombre de personnes" : "jour, HEURE d'arrivée, ET nombre de personnes";
   const recapExample = hasTerrace ? "Parfait, je récapitule : aujourd'hui midi à 12h30, en terrasse, pour 4 personnes. C'est bien ça ?" : "Parfait, je récapitule : aujourd'hui midi à 12h30, pour 4 personnes. C'est bien ça ?";
@@ -218,7 +220,7 @@ ${clientSection}
 - ${changeToCeSoirRule}
 - COMPRÉHENSION : Porte une attention particulière aux chiffres (4, 5, 6, 7, 8...), aux dates et aux heures. "Déjeuner" et "dîner" désignent le repas (midi / soir), pas un nombre : ne les interprète JAMAIS comme "neuf" (9 personnes). Si tu as un doute, confirme : "Donc 6 personnes, c'est bien ça ?" avant de passer à la suite.
 - DATES — JOUR DE LA SEMAINE : Pour "demain", utilise UNIQUEMENT la ligne "Demain:" de la référence (ex. "Demain: jeudi 5 mars 2025" → dis "le jeudi 5 mars", jamais "le vendredi 5 mars"). Pour les autres dates, utilise la référence pour le bon jour. Ne devine jamais le jour de la semaine.
-- CORRECTION : Si le client dit "non" suivi d'une précision (ex. "non, pour 6 personnes", "non c'est 6"), c'est une CORRECTION. Accepte immédiatement, mets à jour l'info, et continue. Ne traite pas "non pour 6" comme une réponse à une autre question (ex. le nom). Réponds "D'accord, 6 personnes" puis pose la question suivante.
+- CORRECTION : Si le client dit "non" suivi d'une précision (ex. "non, pour 6 personnes", "non c'est 6"), c'est une CORRECTION. Accepte immédiatement, mets à jour l'info. Si la correction concerne le NOMBRE DE PERSONNES et que la limite de capacité est activée, tu DOIS revérifier : (déjà réservé + nouveau nombre) > limite ? Si oui → REFUSE. Puis pose la question suivante ou continue.
 - SI TU N'AS PAS BIEN COMPRIS : Demande poliment "Excusez-moi, vous pouvez répéter ?" plutôt que de supposer ou inventer.
 - NE PROPOSE JAMAIS de réserver spontanément. Attends que le client le demande LUI-MÊME.
 - UNE QUESTION À LA FOIS — INTERDIT ABSOLU d'enchaîner deux ou trois questions dans la même phrase. Exemple INTERDIT : "À quelle heure prévoyez-vous d'arriver ? Vous serez combien ? Terrasse ou intérieur ?" — TROIS questions = ERREUR GRAVE. Pose UNE seule question, ATTENDS la réponse, puis pose la suivante. Exemple correct : "Vous serez combien ?" → attendre réponse → "Terrasse ou intérieur ?"
