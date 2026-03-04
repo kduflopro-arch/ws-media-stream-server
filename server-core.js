@@ -774,6 +774,7 @@ wss.on("connection", (ws, req) => {
   let dinnerReservationEnd = "";
   let referenceDateLine = "";
   let referenceTimeLine = "";
+  let referenceTomorrowLine = "";
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -3554,7 +3555,7 @@ ${compactPersona}`;
         ];
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
         const todayDateLineRest = referenceDateLine && referenceTimeLine
-          ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.`
+          ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}`
           : `[Référence] Aujourd'hui: ${restNow.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
         const restaurantInstructions = effectiveSector === "restaurant" ? buildRestaurantInstructions({
           restaurantName: garageName,
@@ -3609,7 +3610,7 @@ ${compactPersona}`;
           }
           if (effectiveSector === "restaurant" && clientInfo?.name) {
             const todayDateLineRestUpd = referenceDateLine && referenceTimeLine
-              ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.`
+              ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}`
               : (() => {
                   const restNowUpd = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
                   return `[Référence] Aujourd'hui: ${restNowUpd.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
@@ -5597,6 +5598,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalDinnerReservationEnd = startParams.dinnerReservationEnd || "";
         const finalReferenceDateLine = startParams.referenceDateLine || "";
         const finalReferenceTimeLine = startParams.referenceTimeLine || "";
+        const finalReferenceTomorrowLine = startParams.referenceTomorrowLine || "";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
         if (finalGarageType === "restaurant") effectiveSector = "restaurant";
         console.log("🏷️ Secteur effectif:", effectiveSector, "(garageType reçu:", finalGarageType || "non fourni", ")");
@@ -5645,6 +5647,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalDinnerReservationEnd === "string" && finalDinnerReservationEnd.trim()) dinnerReservationEnd = String(finalDinnerReservationEnd).trim();
         if (typeof finalReferenceDateLine === "string" && finalReferenceDateLine.trim()) referenceDateLine = String(finalReferenceDateLine).trim();
         if (typeof finalReferenceTimeLine === "string" && finalReferenceTimeLine.trim()) referenceTimeLine = String(finalReferenceTimeLine).trim();
+        if (typeof finalReferenceTomorrowLine === "string" && finalReferenceTomorrowLine.trim()) referenceTomorrowLine = String(finalReferenceTomorrowLine).trim();
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
