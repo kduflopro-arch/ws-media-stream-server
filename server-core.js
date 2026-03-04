@@ -3583,19 +3583,12 @@ ${compactPersona}`;
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
-        const REALTIME_TURN_SILENCE_MS = Number(process.env.REALTIME_TURN_DETECTION_SILENCE_MS ?? "350"); // Réduire vs défaut 500ms = réponses plus rapides (moins de "répéter plusieurs fois")
         const sessionUpdate = {
           type: "session.update",
           session: {
             type: "realtime",
             instructions: initialInstructionsText,
             output_modalities: ["text"],
-            turn_detection: {
-              type: "server_vad",
-              threshold: 0.5,
-              prefix_padding_ms: 200,
-              silence_duration_ms: Math.max(200, Math.min(600, REALTIME_TURN_SILENCE_MS)),
-            },
           },
         };
         if (REALTIME_INPUT_TRANSCRIPTION_ENABLED) {
