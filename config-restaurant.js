@@ -77,6 +77,10 @@ export function buildRestaurantInstructions(ctx) {
     clientInfo = null,
     garageTone = "",
     hasTerrace = true,
+    reservationCapacityEnabled = false,
+    maxPeopleLunch = 0,
+    maxPeopleDinner = 0,
+    reservationPeoplePerDayService = "",
   } = ctx;
 
   const restaurantLabel = /^restaurant\b/i.test(restaurantName) ? restaurantName : `Restaurant ${restaurantName}`;
@@ -117,6 +121,15 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
   const cutoffLine = cutoffParts.length > 0
     ? `HEURES DE FIN DE RÉSERVATION (règle OBLIGATOIRE — vérifie AVANT de prendre une résa):\n${cutoffParts.map((p) => `- ${p}`).join("\n")}\n${arrivalCutoffLunch ? arrivalCutoffLunch + "\n" : ""}${arrivalCutoffDinner ? arrivalCutoffDinner + "\n" : ""}Si c'est DÉJÀ après ${dinnerEndDisplay} (maintenant) et le client demande "ce soir" : dis "Malheureusement on ne prend plus de réservations pour ce soir, c'est après ${dinnerEndDisplay}. Je peux vous proposer demain soir ?" — NE PRENDS JAMAIS la résa. (Ça, c'est uniquement quand l'heure actuelle est passée, pas quand le client demande une heure d'arrivée trop tardive pour un soir à venir.)`
     : "";
+
+  const capacityLine = reservationCapacityEnabled && reservationPeoplePerDayService && (maxPeopleLunch > 0 || maxPeopleDinner > 0)
+    ? `CAPACITÉ PAR SERVICE (nombre de personnes) — RÈGLE OBLIGATOIRE :
+La liste suivante indique, pour chaque jour, le nombre de personnes DÉJÀ réservées au midi et au soir : ${reservationPeoplePerDayService}.
+Limites max : service du midi = ${maxPeopleLunch} personnes par jour, service du soir = ${maxPeopleDinner} personnes par jour.
+Quand le client demande une résa pour une date et un service (midi ou soir) : trouve la ligne correspondant à cette date (format YYYY-MM-DD). Si (total déjà réservé + nombre de personnes demandé par le client) > limite du service, dis : "Pour ce jour-là nous sommes complets pour le service du midi/soir." Puis propose un autre jour ou l'autre service. Si il reste de la place, dis combien : "Nous pouvons encore accepter X personnes pour ce service ce jour-là." puis enchaîne avec la prise de réservation. Ne refuse jamais sans vérifier la liste ; ne dis pas "complet" si (total + demande) <= limite.`
+    : !reservationCapacityEnabled
+      ? "CAPACITÉ : Limite de personnes par service désactivée. Tu acceptes les demandes de réservation sans plafond ; c'est le restaurant qui gère sa disponibilité."
+      : "";
 
   const transferLine = allowTransfer
     ? "TRANSFERT: Si le client veut parler à quelqu'un du restaurant, dis 'Je vous passe quelqu'un, un instant.' puis appelle transfer_to_restaurant."
@@ -181,6 +194,7 @@ ${todayDateLine}
 HORAIRES: ${openingHoursText || "Horaires à confirmer avec le restaurant."}
 ${menuText ? `CARTE/MENU: ${menuText}` : ""}
 ${cutoffLine}
+${capacityLine ? capacityLine + "\n" : ""}
 ${completLine}
 ${consentLine}
 ${transferLine}
