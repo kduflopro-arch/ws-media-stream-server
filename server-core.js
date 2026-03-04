@@ -3558,6 +3558,9 @@ ${compactPersona}`;
         const todayDateLineRest = referenceDateLine && referenceTimeLine
           ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}`
           : `[Référence] Aujourd'hui: ${restNow.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
+        if (effectiveSector === "restaurant") {
+          console.log("🍽️ [Restaurant] Build prompt avec:", { lunchFullToday, dinnerFullToday, lunchPassedForToday, dinnerPassedForToday });
+        }
         const restaurantInstructions = effectiveSector === "restaurant" ? buildRestaurantInstructions({
           restaurantName: garageName,
           assistantName,

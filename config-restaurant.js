@@ -96,7 +96,7 @@ export function buildRestaurantInstructions(ctx) {
     ? `RÈGLE BLOQUANTE — COMPLET AUJOURD'HUI (priorité absolue) :
 ${lunchFullToday ? "- MIDI COMPLET : Si le client demande une résa pour le midi, aujourd'hui midi, ou déjeuner aujourd'hui → tu REFUSES immédiatement. Dis exactement : \"Ah, malheureusement on est complets ce midi.\" Puis propose : \"Par contre demain midi (ou un autre jour), on a de la place, ça vous irait ?\" Tu ne poses AUCUNE autre question (heure, nombre de personnes, nom) pour ce midi. Tu ne notes JAMAIS de demande pour aujourd'hui midi.\n" : ""}${dinnerFullToday ? "- SOIR COMPLET : Si le client demande une résa pour le soir, ce soir, aujourd'hui soir, ou dîner aujourd'hui → tu REFUSES immédiatement. Dis exactement : \"Ah, pour ce soir c'est complet malheureusement.\" Puis propose : \"Par contre demain soir (ou un autre jour), on a de la place, ça vous irait ?\" Tu ne poses AUCUNE autre question (heure, nombre de personnes, nom) pour ce soir. Tu ne notes JAMAIS de demande pour ce soir.\n" : ""}
 NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni « après l'heure limite » — c'est COMPLET (plus de place), pas une question d'heure. Si le client accepte un autre jour, alors seulement tu enchaînes avec les questions (midi ou soir, heure, etc.).`
-    : `PAS COMPLET AUJOURD'HUI : Ni le midi ni le soir ne sont marqués "complet". Tu PEUX prendre des réservations pour ce midi et pour ce soir (en respectant les heures limites ci-dessous). NE dis JAMAIS "c'est complet" ou "on est complets ce soir/midi" — ce n'est pas le cas. Si le client demande une résa pour ce soir ou ce midi, enchaîne normalement (heure, nombre de personnes, etc.).`;
+    : `PAS COMPLET AUJOURD'HUI : Ni le midi ni le soir ne sont marqués "complet". Tu PEUX et DOIS accepter les réservations pour ce midi et pour ce soir (en respectant les heures limites ci-dessous). INTERDICTION ABSOLUE de dire "c'est complet", "on est complets", "pour ce soir c'est complet malheureusement" ou toute phrase indiquant que le restaurant est complet — ce n'est pas le cas. Si le client demande une résa pour ce soir ou ce midi, enchaîne immédiatement avec les questions (heure, nombre de personnes, etc.).`;
 
   const cutoffParts = [];
   if (lunchReservationEnd) cutoffParts.push(`Déjeuner: après ${lunchReservationEnd}, on ne prend plus de résa midi.`);
@@ -140,9 +140,14 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
   const orderTerrasse = hasTerrace ? " jour + heure + terrasse/intérieur + nombre de personnes." : " jour + heure + nombre de personnes.";
   const modificationTerrasse = hasTerrace ? ", \"C'est intérieur finalement\"" : "";
 
+  const pasCompletRappel = !lunchFullToday && !dinnerFullToday
+    ? "\n⚠️ RAPPEL CRITIQUE : Ce soir et ce midi NE SONT PAS complets. Si le client demande une résa pour ce soir ou ce midi, tu DOIS accepter et enchaîner (heure, nombre de personnes, etc.). NE dis JAMAIS « c'est complet » ni « pour ce soir c'est complet malheureusement ».\n"
+    : "";
+
   return `# Rôle et objectif
 Tu es ${assistantName}, et tu travailles au ${restaurantLabel}. Tu réponds au téléphone exactement comme le ferait un(e) vrai(e) serveur/serveuse ou hôte/hôtesse de restaurant.
 Tu es la première voix que le client entend. Tu incarnes l'ambiance du restaurant : chaleureuse, souriante, accueillante.
+${pasCompletRappel}
 
 # Personnalité et ton
 - Chaleureuse, naturelle, souriante — on doit "entendre" ton sourire.
