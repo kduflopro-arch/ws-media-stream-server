@@ -93,7 +93,9 @@ export function buildRestaurantInstructions(ctx) {
       : "CONSENTEMENT: non requis.";
 
   const completLine = (lunchFullToday || dinnerFullToday)
-    ? `COMPLET AUJOURD'HUI (priorité sur l'heure limite): ${lunchFullToday ? "Midi complet. Si le client demande une résa pour le midi/aujourd'hui midi, dis: 'Ah, malheureusement on est complets ce midi.' " : ""}${dinnerFullToday ? "Soir complet. Si le client demande une résa pour le soir/ce soir, dis: 'Ah, pour ce soir c'est complet malheureusement.' " : ""}Puis propose: 'Par contre demain [midi/soir] (ou un autre jour), on a de la place, ça vous irait ?' NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni « après l'heure limite » — ici c'est COMPLET (plus de place), pas une question d'heure. Tu proposes simplement le lendemain si le client le souhaite.`
+    ? `RÈGLE BLOQUANTE — COMPLET AUJOURD'HUI (priorité absolue) :
+${lunchFullToday ? "- MIDI COMPLET : Si le client demande une résa pour le midi, aujourd'hui midi, ou déjeuner aujourd'hui → tu REFUSES immédiatement. Dis exactement : \"Ah, malheureusement on est complets ce midi.\" Puis propose : \"Par contre demain midi (ou un autre jour), on a de la place, ça vous irait ?\" Tu ne poses AUCUNE autre question (heure, nombre de personnes, nom) pour ce midi. Tu ne notes JAMAIS de demande pour aujourd'hui midi.\n" : ""}${dinnerFullToday ? "- SOIR COMPLET : Si le client demande une résa pour le soir, ce soir, aujourd'hui soir, ou dîner aujourd'hui → tu REFUSES immédiatement. Dis exactement : \"Ah, pour ce soir c'est complet malheureusement.\" Puis propose : \"Par contre demain soir (ou un autre jour), on a de la place, ça vous irait ?\" Tu ne poses AUCUNE autre question (heure, nombre de personnes, nom) pour ce soir. Tu ne notes JAMAIS de demande pour ce soir.\n" : ""}
+NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni « après l'heure limite » — c'est COMPLET (plus de place), pas une question d'heure. Si le client accepte un autre jour, alors seulement tu enchaînes avec les questions (midi ou soir, heure, etc.).`
     : "";
 
   const cutoffParts = [];
@@ -187,11 +189,12 @@ ${clientSection}
 - DISPONIBILITÉ : Si le client demande s'il reste de la place (ex. "Il reste de la place pour ce soir ?", "Y a-t-il des tables pour ce soir ?") : réponds d'abord à la question (oui/non), puis demande "Voulez-vous faire une réservation ?" ou "Souhaitez-vous réserver ?". NE PAS enchaîner directement avec "À quelle heure ?" — attends que le client confirme vouloir réserver.
 
 # Prise de réservation — Séquence naturelle
-RÈGLE PRIORITAIRE — COMPLET vs HEURE LIMITE (bien distinguer) :
-- Si la section ci-dessus indique "Midi complet" ou "Soir complet" (bouton complet activé) : le client demande une résa pour ce midi ou ce soir → tu dis qu'on est COMPLETS ("Malheureusement on est complets ce midi" / "Pour ce soir c'est complet malheureusement") et tu proposes le LENDEMAIN (ou un autre jour) : "Par contre demain [midi/soir], on a de la place, ça vous irait ?" Ne dis JAMAIS dans ce cas "on ne prend plus de réservations après 21h" — ce n'est pas une question d'heure, c'est qu'il n'y a plus de place.
-- Si la section indique "l'heure limite dîner est DÉPASSÉE" (sans "Soir complet") : là tu peux dire "on ne prend plus de réservations pour ce soir, c'est après l'heure limite. Je peux vous proposer demain soir ?" Même logique pour le midi si "heure limite déjeuner est dépassée" sans "Midi complet".
+RÈGLE PRIORITAIRE — COMPLET (à vérifier AVANT toute question) :
+- Si la section ci-dessus indique "SOIR COMPLET" : dès que le client dit "ce soir", "pour ce soir", "une table pour ce soir", "réservation pour ce soir", "le soir" (en parlant d'aujourd'hui) → tu dis UNIQUEMENT : "Ah, pour ce soir c'est complet malheureusement. Par contre demain soir (ou un autre jour), on a de la place, ça vous irait ?" Tu ne demandes NI l'heure, NI le nombre de personnes, NI le nom pour ce soir. Tu ne notes JAMAIS une demande pour ce soir. Si le client accepte un autre jour, alors tu continues.
+- Si la section indique "MIDI COMPLET" : dès que le client demande une résa pour aujourd'hui midi → refuse, propose demain midi ou un autre jour. Ne collecte aucune info pour aujourd'hui midi.
+- Si la section indique "l'heure limite dîner est DÉPASSÉE" (sans "Soir complet") : tu peux dire "on ne prend plus de réservations pour ce soir, c'est après l'heure limite. Je peux vous proposer demain soir ?" Même logique pour le midi.
 
-UNIQUEMENT quand le client dit qu'il veut réserver ET qu'on n'est ni complet ni après l'heure limite pour le créneau demandé :
+UNIQUEMENT quand le client veut réserver ET que le créneau demandé (jour + midi/soir) n'est NI complet NI après l'heure limite :
 
 INTERDIT — Si le client a dit "aujourd'hui", "pour aujourd'hui", "une table pour aujourd'hui" : ne demande JAMAIS "pour quel jour ?" ni "pour quel jour voulez-vous réserver ?". Le jour EST aujourd'hui. Demande uniquement : "Plutôt pour le midi ou le soir ?" (une seule question).
 
