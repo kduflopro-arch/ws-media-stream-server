@@ -4077,6 +4077,16 @@ But: être naturel et mettre le client en confiance.`,
                     } catch (jsonErr) {
                       console.error("❌ Impossible de sérialiser response.output pour debug:", jsonErr);
                     }
+                    const now = nowMs();
+                    if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                      lastEmptyResponseRetryCommitAt = lastCommitAt;
+                      console.log("🔄 Pas de texte extrait (structure?) alors que le client vient de parler — retry response.create");
+                      setTimeout(() => {
+                        if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                          requestResponseCreate("empty_response_retry");
+                        }
+                      }, 350);
+                    }
                   }
                   const respStatus = msg.response?.status;
                   const respStatusDetails = msg.response?.status_details || msg.response?.statusDetails || null;
@@ -4114,6 +4124,27 @@ But: être naturel et mettre le client en confiance.`,
                     console.log("📋 DEBUG response.output (erreur extraction):", JSON.stringify(msg.response.output).substring(0, 800));
                   } catch (_) { /* ignore */ }
                 }
+                const now = nowMs();
+                if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                  lastEmptyResponseRetryCommitAt = lastCommitAt;
+                  console.log("🔄 Erreur extraction alors que le client vient de parler — retry response.create");
+                  setTimeout(() => {
+                    if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                      requestResponseCreate("empty_response_retry");
+                    }
+                  }, 350);
+                }
+              }
+            } else if (REALTIME_USE_ELEVEN && rid && (!msg.response?.output || (Array.isArray(msg.response.output) && msg.response.output.length === 0))) {
+              const now = nowMs();
+              if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                lastEmptyResponseRetryCommitAt = lastCommitAt;
+                console.log("🔄 response.done sans output alors que le client vient de parler — retry response.create (évite de répéter)");
+                setTimeout(() => {
+                  if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                    requestResponseCreate("empty_response_retry");
+                  }
+                }, 350);
               }
             }
             if (REALTIME_USE_ELEVEN && rid && !spokenSet.has(rid)) {
