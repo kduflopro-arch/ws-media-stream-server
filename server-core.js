@@ -4678,25 +4678,27 @@ But: être naturel et mettre le client en confiance.`,
                 if (LOG_VERBOSE) console.log("ℹ️ Validation devis (IA dit mise en relation pour validation devis, output_text.done).", { text: doneText.substring(0, 80) });
               }
               const low = String(doneText || "").toLowerCase();
-              const mentionsPlate = low.includes("plaque") || low.includes("immatric");
-              const iaSaysWillSendSms = (low.includes("vais vous envoyer") || low.includes("va vous envoyer") || low.includes("vous envoie ") || low.includes("vous envoyer ") || low.includes("je vais vous envoyer") || low.includes("on va vous envoyer")) && (low.includes("message") || low.includes("sms") || low.includes("texte"));
-              const offersToSend = iaSaysWillSendSms;
-              const confirmsPlate = low.includes("oui c'est") || low.includes("c'est bien") || low.includes("c'est correct") || 
-                                    low.includes("oui c'est la bonne") || low.includes("oui c'est pour cette voiture") ||
-                                    low.includes("c'est correct") || low.includes("c'est ça") || low.includes("exact");
-              const isRecapWithPlate = (low.includes("bien noté") || low.includes("bien note")) && mentionsPlate;
-              if (isRecapWithPlate) {
-                plateSmsSendOnFinalize = false;
-                plateSmsAlreadyMentioned = true;
-                if (LOG_VERBOSE) console.log("✅ Récap avec plaque (après confirmation), SMS non envoyé:", doneText.substring(0, 60));
-              } else if (mentionsPlate && offersToSend && !plateSmsAlreadyMentioned && !confirmsPlate && !plateConfirmedByClient) {
-                plateSmsSendOnFinalize = true;
-                if (LOG_VERBOSE) console.log("📩 Détection « je vais vous envoyer un message/sms », SMS à la fin:", { offersToSend, textPreview: doneText.substring(0, 60) });
-              } else if (confirmsPlate) {
-                console.log("✅ IA confirme plaque existante, SMS non nécessaire:", { textPreview: doneText.substring(0, 100) });
-                plateSmsSendOnFinalize = false;
-                plateSmsAlreadyMentioned = true;
-                plateConfirmedByClient = true; // IA confirme que le client a validé la plaque pour le RDV
+              if (effectiveSector !== "restaurant") {
+                const mentionsPlate = low.includes("plaque") || low.includes("immatric");
+                const iaSaysWillSendSms = (low.includes("vais vous envoyer") || low.includes("va vous envoyer") || low.includes("vous envoie ") || low.includes("vous envoyer ") || low.includes("je vais vous envoyer") || low.includes("on va vous envoyer")) && (low.includes("message") || low.includes("sms") || low.includes("texte"));
+                const offersToSend = iaSaysWillSendSms;
+                const confirmsPlate = low.includes("oui c'est") || low.includes("c'est bien") || low.includes("c'est correct") || 
+                                      low.includes("oui c'est la bonne") || low.includes("oui c'est pour cette voiture") ||
+                                      low.includes("c'est correct") || low.includes("c'est ça") || low.includes("exact");
+                const isRecapWithPlate = (low.includes("bien noté") || low.includes("bien note")) && mentionsPlate;
+                if (isRecapWithPlate) {
+                  plateSmsSendOnFinalize = false;
+                  plateSmsAlreadyMentioned = true;
+                  if (LOG_VERBOSE) console.log("✅ Récap avec plaque (après confirmation), SMS non envoyé:", doneText.substring(0, 60));
+                } else if (mentionsPlate && offersToSend && !plateSmsAlreadyMentioned && !confirmsPlate && !plateConfirmedByClient) {
+                  plateSmsSendOnFinalize = true;
+                  if (LOG_VERBOSE) console.log("📩 Détection « je vais vous envoyer un message/sms », SMS à la fin:", { offersToSend, textPreview: doneText.substring(0, 60) });
+                } else if (mentionsPlate && confirmsPlate) {
+                  console.log("✅ IA confirme plaque existante, SMS non nécessaire:", { textPreview: doneText.substring(0, 100) });
+                  plateSmsSendOnFinalize = false;
+                  plateSmsAlreadyMentioned = true;
+                  plateConfirmedByClient = true; // IA confirme que le client a validé la plaque pour le RDV
+                }
               }
               const callDurationMs = nowMs() - callStartTimeMs;
               const timeSinceLastUserActivity = nowMs() - lastUserActivityMs;

@@ -131,7 +131,7 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
     : "";
 
   const terrasseRule = hasTerrace
-    ? "- Terrasse/intérieur : si le client ne l'a pas dit, tu DOIS demander \"Terrasse ou intérieur ?\". Ne passe jamais au récap sans cette préférence."
+    ? "- Terrasse/intérieur : ATTENTION — \"terrasse\" et \"intérieur\" sont des mots TRÈS différents. Si le client dit \"en terrasse\", \"terrasse\", \"sur la terrasse\" → c'est TERRASSE. Si le client dit \"à l'intérieur\", \"intérieur\", \"dedans\" → c'est INTÉRIEUR. Ne confonds JAMAIS l'un pour l'autre. En cas de doute (audio peu clair), demande : \"Terrasse ou intérieur ?\" pour confirmer. Si le client ne l'a pas dit, tu DOIS demander \"Terrasse ou intérieur ?\". Ne passe jamais au récap sans cette préférence."
     : "PAS DE TERRASSE — Le restaurant n'a pas de terrasse. Ne demande JAMAIS \"Terrasse ou intérieur ?\". Ne collecte pas cette info. Le récap et la confirmation n'incluent pas terrasse/intérieur.";
   const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre de personnes, terrasse/intérieur, nom" : "jour, midi/soir, heure, nombre de personnes, nom";
   const terrasseSequenceStep = hasTerrace ? "4b. \"Terrasse ou intérieur ?\" — OBLIGATOIRE si non dit. À demander AVANT le récap.\n" : "";
