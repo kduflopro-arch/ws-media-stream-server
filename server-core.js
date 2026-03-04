@@ -3558,7 +3558,7 @@ ${compactPersona}`;
         ];
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
         const todayDateLineRest = referenceDateLine && referenceTimeLine
-          ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}${referenceWeekCalendar ? ` Calendrier des 7 prochains jours (UTILISE CES DATES EXACTES, ne calcule jamais) : ${referenceWeekCalendar}.` : ""}`
+          ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}${referenceWeekCalendar ? ` Calendrier des 30 prochains jours (UTILISE CES DATES EXACTES, ne calcule jamais) : ${referenceWeekCalendar}.` : ""}`
           : `[Référence] Aujourd'hui: ${restNow.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
         if (effectiveSector === "restaurant") {
           console.log("🍽️ [Restaurant] Build prompt avec:", { lunchFullToday, dinnerFullToday, lunchPassedForToday, dinnerPassedForToday });
@@ -3617,7 +3617,7 @@ ${compactPersona}`;
           }
           if (effectiveSector === "restaurant" && clientInfo?.name) {
             const todayDateLineRestUpd = referenceDateLine && referenceTimeLine
-              ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}${referenceWeekCalendar ? ` Calendrier des 7 prochains jours (UTILISE CES DATES EXACTES, ne calcule jamais) : ${referenceWeekCalendar}.` : ""}`
+              ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}${referenceWeekCalendar ? ` Calendrier des 30 prochains jours (UTILISE CES DATES EXACTES, ne calcule jamais) : ${referenceWeekCalendar}.` : ""}`
               : (() => {
                   const restNowUpd = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
                   return `[Référence] Aujourd'hui: ${restNowUpd.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
