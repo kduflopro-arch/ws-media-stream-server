@@ -778,6 +778,10 @@ wss.on("connection", (ws, req) => {
   let referenceTomorrowLine = "";
   let referenceWeekCalendar = "";
   let restaurantHasTerrace = true; // Si false, l'IA ne demande pas terrasse/intérieur
+  let reservationCapacityEnabled = false; // Limite personnes par service (restaurant)
+  let maxPeopleLunch = 0;
+  let maxPeopleDinner = 0;
+  let reservationPeoplePerDayService = "";
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -5728,10 +5732,6 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalReferenceTomorrowLine === "string" && finalReferenceTomorrowLine.trim()) referenceTomorrowLine = String(finalReferenceTomorrowLine).trim();
         if (typeof finalReferenceWeekCalendar === "string" && finalReferenceWeekCalendar.trim()) referenceWeekCalendar = String(finalReferenceWeekCalendar).trim();
         if (typeof finalRestaurantHasTerrace === "string") restaurantHasTerrace = finalRestaurantHasTerrace.trim().toLowerCase() !== "false";
-        let reservationCapacityEnabled = false;
-        let maxPeopleLunch = 0;
-        let maxPeopleDinner = 0;
-        let reservationPeoplePerDayService = "";
         if (typeof finalReservationCapacityEnabled === "string" && finalReservationCapacityEnabled.trim().toLowerCase() === "true") reservationCapacityEnabled = true;
         if (typeof finalMaxPeopleLunch === "string" && finalMaxPeopleLunch.trim()) maxPeopleLunch = parseInt(finalMaxPeopleLunch.trim(), 10) || 0;
         if (typeof finalMaxPeopleDinner === "string" && finalMaxPeopleDinner.trim()) maxPeopleDinner = parseInt(finalMaxPeopleDinner.trim(), 10) || 0;
