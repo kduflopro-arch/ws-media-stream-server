@@ -776,6 +776,7 @@ wss.on("connection", (ws, req) => {
   let referenceDateLine = "";
   let referenceTimeLine = "";
   let referenceTomorrowLine = "";
+  let referenceWeekCalendar = "";
   let restaurantHasTerrace = true; // Si false, l'IA ne demande pas terrasse/intérieur
   let callStartIso = "";
   let garageHoursText = "";
@@ -3557,7 +3558,7 @@ ${compactPersona}`;
         ];
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
         const todayDateLineRest = referenceDateLine && referenceTimeLine
-          ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}`
+          ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}${referenceWeekCalendar ? ` Calendrier des 7 prochains jours (UTILISE CES DATES EXACTES, ne calcule jamais) : ${referenceWeekCalendar}.` : ""}`
           : `[Référence] Aujourd'hui: ${restNow.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
         if (effectiveSector === "restaurant") {
           console.log("🍽️ [Restaurant] Build prompt avec:", { lunchFullToday, dinnerFullToday, lunchPassedForToday, dinnerPassedForToday });
@@ -3616,7 +3617,7 @@ ${compactPersona}`;
           }
           if (effectiveSector === "restaurant" && clientInfo?.name) {
             const todayDateLineRestUpd = referenceDateLine && referenceTimeLine
-              ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}`
+              ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}${referenceWeekCalendar ? ` Calendrier des 7 prochains jours (UTILISE CES DATES EXACTES, ne calcule jamais) : ${referenceWeekCalendar}.` : ""}`
               : (() => {
                   const restNowUpd = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
                   return `[Référence] Aujourd'hui: ${restNowUpd.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
@@ -5614,6 +5615,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalReferenceDateLine = startParams.referenceDateLine || "";
         const finalReferenceTimeLine = startParams.referenceTimeLine || "";
         const finalReferenceTomorrowLine = startParams.referenceTomorrowLine || "";
+        const finalReferenceWeekCalendar = startParams.referenceWeekCalendar || "";
         const finalRestaurantHasTerrace = startParams.restaurantHasTerrace || "";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
         if (finalGarageType === "restaurant") effectiveSector = "restaurant";
@@ -5664,6 +5666,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalReferenceDateLine === "string" && finalReferenceDateLine.trim()) referenceDateLine = String(finalReferenceDateLine).trim();
         if (typeof finalReferenceTimeLine === "string" && finalReferenceTimeLine.trim()) referenceTimeLine = String(finalReferenceTimeLine).trim();
         if (typeof finalReferenceTomorrowLine === "string" && finalReferenceTomorrowLine.trim()) referenceTomorrowLine = String(finalReferenceTomorrowLine).trim();
+        if (typeof finalReferenceWeekCalendar === "string" && finalReferenceWeekCalendar.trim()) referenceWeekCalendar = String(finalReferenceWeekCalendar).trim();
         if (typeof finalRestaurantHasTerrace === "string") restaurantHasTerrace = finalRestaurantHasTerrace.trim().toLowerCase() !== "false";
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
