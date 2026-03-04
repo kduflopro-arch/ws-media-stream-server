@@ -664,6 +664,7 @@ wss.on("connection", (ws, req) => {
   let pendingGaragePricingResponseAt = 0; // Timestamp quand on attend une réponse IA après get_garage_pricing (pour fallback si vide)
   let pendingGaragePricingRetryDone = false; // Éviter boucle infinie
   let lastGaragePricingFallbackPhrase = ""; // Phrase TTS de secours si le modèle ne répond pas
+  let lastEmptyResponseRetryCommitAt = 0; // Dernier lastCommitAt pour lequel on a fait un retry "réponse vide" (une seule fois par tour)
   let spokenResponseIds = new Map(); // responseId -> timestamp (anti-répétitions par réponse)
   let recentAssistantTexts = []; // Array<{ text: string, ts: number }>
   const minimaxBillingMode = MINIMAX_USE_BALANCE ? "solde (pay-as-you-go)" : (MINIMAX_GROUP_ID ? "abonnement (GroupId)" : "solde (défaut)");
@@ -1388,7 +1389,7 @@ wss.on("connection", (ws, req) => {
   let lastBackchannelAt = 0;
   let llmInFlight = false;
   const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "700");
-  const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "120"); // plus court = reprise plus rapide après que le client parle (évite de répéter 2x)
+  const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "80"); // plus court = reprise plus rapide après que le client parle (évite de répéter 2x)
   let sttSpeechFrames = 0;
   let sttSilenceFrames = 0;
   let sttActive = false;
@@ -3582,12 +3583,19 @@ ${compactPersona}`;
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
+        const REALTIME_TURN_SILENCE_MS = Number(process.env.REALTIME_TURN_DETECTION_SILENCE_MS ?? "350"); // Réduire vs défaut 500ms = réponses plus rapides (moins de "répéter plusieurs fois")
         const sessionUpdate = {
           type: "session.update",
           session: {
             type: "realtime",
             instructions: initialInstructionsText,
             output_modalities: ["text"],
+            turn_detection: {
+              type: "server_vad",
+              threshold: 0.5,
+              prefix_padding_ms: 200,
+              silence_duration_ms: Math.max(200, Math.min(600, REALTIME_TURN_SILENCE_MS)),
+            },
           },
         };
         if (REALTIME_INPUT_TRANSCRIPTION_ENABLED) {
@@ -4056,6 +4064,14 @@ But: être naturel et mettre le client en confiance.`,
                           }
                         }, 500);
                       }
+                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                      lastEmptyResponseRetryCommitAt = lastCommitAt;
+                      console.log("🔄 Réponse vide alors que le client vient de parler — retry response.create (évite de répéter plusieurs fois)");
+                      setTimeout(() => {
+                        if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                          requestResponseCreate("empty_response_retry");
+                        }
+                      }, 350);
                     }
                   } else {
                     console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
