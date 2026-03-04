@@ -3889,6 +3889,17 @@ But: être naturel et mettre le client en confiance.`,
             walk(output, 0);
             return collected.trim();
           }
+          /** Évite de jouer deux fois la même phrase si l'API renvoie un doublon (ex. récap répété). */
+          function dedupeRepeatedPhrase(text) {
+            if (!text || typeof text !== "string") return text;
+            const t = text.trim();
+            if (t.length < 24) return t;
+            const half = Math.floor(t.length / 2);
+            const first = t.slice(0, half).trim();
+            const second = t.slice(half).trim();
+            if (first.length >= 12 && first === second) return first;
+            return t;
+          }
           function flushRealtimeElevenChunks(rid, final = false) {
             if (!REALTIME_USE_ELEVEN || !REALTIME_ELEVEN_CHUNKING_ENABLED) return;
             if (!rid) return;
@@ -3987,8 +3998,9 @@ But: être naturel et mettre le client en confiance.`,
             if (REALTIME_USE_ELEVEN && rid && msg.response?.output) {
               const rawOutput = msg.response.output;
               try {
-                const extractedText = extractTextFromResponseOutput(rawOutput);
+                let extractedText = extractTextFromResponseOutput(rawOutput);
                 if (extractedText) {
+                  extractedText = dedupeRepeatedPhrase(extractedText);
                   if (extractedText.trim() && !assistantTurnRids.has(rid)) {
                     assistantTurnRids.add(rid);
                     assistantTurnCount++;
@@ -4000,7 +4012,8 @@ But: être naturel et mettre le client en confiance.`,
                     if (process.env.OPENAI_OUTPUT_DEBUG === "true") {
                       console.log("📋 DEBUG response.output brut:", JSON.stringify(rawOutput).substring(0, 400));
                     }
-                    transcriptMap.set(rid, (existingText + " " + extractedText).trim());
+                    const combined = dedupeRepeatedPhrase((existingText + " " + extractedText).trim());
+                    transcriptMap.set(rid, combined);
                   }
                   const endsWithQuestion = /[?？]\s*$/.test(extractedText.trim());
                   const mentionsCauses = /\b(peut|pourrait|peuvent|pourraient)\s+(venir|provenir|être|découler)\s+(de|du|d'|des)/i.test(extractedText);
@@ -4148,8 +4161,9 @@ But: être naturel et mettre le client en confiance.`,
               }
             }
             if (REALTIME_USE_ELEVEN && rid && !spokenSet.has(rid)) {
-              const buffered = ws.__conversationItemTextByRid?.get(rid);
+              let buffered = ws.__conversationItemTextByRid?.get(rid);
               if (buffered && buffered.trim()) {
+                buffered = dedupeRepeatedPhrase(buffered);
                 spokenSet.add(rid);
                 ws.__conversationItemTextByRid.delete(rid);
                 console.log("📝 Texte TTS depuis buffer (conversation.item.done):", buffered.substring(0, 160));
@@ -5203,6 +5217,7 @@ But: être naturel et mettre le client en confiance.`,
                   }
                 }
                 if (extractedText.trim()) {
+                  extractedText = dedupeRepeatedPhrase(extractedText);
                   if (isAssistantSayingValidationDevisTransfer(extractedText)) {
                     validationDevisByClient = true;
                     if (LOG_VERBOSE) console.log("ℹ️ Validation devis (IA dit mise en relation pour validation devis, output_item).", { text: extractedText.substring(0, 80) });
