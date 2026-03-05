@@ -3585,6 +3585,9 @@ ${compactPersona}`;
         ];
         const restaurantTools = [
           { type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires d'ouverture et informations du restaurant. À appeler pour questions sur le menu, les horaires, l'adresse.", parameters: { type: "object", properties: {} } },
+          ...(effectiveSector === "restaurant" && reservationCapacityEnabled && reservationCapacityCalendar
+            ? [{ type: "function", name: "check_restaurant_capacity", description: "Vérifie si le restaurant peut accueillir un nombre de personnes donné pour une date et un service (midi ou soir). À appeler dès que le client dit le nombre de personnes pour le jour choisi, et avant de proposer une nouvelle date. Ne dis jamais « Je vérifie la disponibilité » ni « Un instant » — appelle cet outil puis dis uniquement ce que l'outil te renvoie.", parameters: { type: "object", properties: { date_iso: { type: "string", description: "Date au format YYYY-MM-DD (ex. 2026-03-13)" }, service: { type: "string", enum: ["lunch", "dinner"], description: "lunch = midi/déjeuner, dinner = soir/dîner" }, requested_people: { type: "number", description: "Nombre de personnes demandé par le client" } }, required: ["date_iso", "service", "requested_people"] } }]
+            : []),
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : []),
         ];
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
@@ -5066,7 +5069,7 @@ But: être naturel et mettre le client en confiance.`,
               const toolName = msg.item.name;
               const previousItemId = msg.item.id;
               const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
-              const restaurantDataTools = ["get_restaurant_info"];
+              const restaurantDataTools = ["get_restaurant_info"]; // check_restaurant_capacity exclu : pas de "Un instant" pour ne pas annoncer la vérification
               const dataTools = effectiveSector === "restaurant" ? restaurantDataTools : garageDataTools;
               if (dataTools.includes(toolName)) {
                 const recentMs = 15000;
@@ -5158,6 +5161,40 @@ But: être naturel et mettre le client en confiance.`,
                 const menuText = String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")).trim();
                 const stateLine = garageClosed ? "État actuel: le restaurant est actuellement FERMÉ." : "État actuel: le restaurant est actuellement OUVERT.";
                 output = [menuText ? `MENU: ${menuText}` : "", garageHoursText ? `HORAIRES: ${garageHoursText}` : "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
+              }
+              else if (toolName === "check_restaurant_capacity") {
+                let dateIso = "";
+                let service = "";
+                let requestedPeople = 0;
+                try {
+                  const args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {};
+                  dateIso = String(args.date_iso || "").trim();
+                  service = String(args.service || "").toLowerCase();
+                  requestedPeople = typeof args.requested_people === "number" ? args.requested_people : parseInt(String(args.requested_people || "0"), 10) || 0;
+                } catch (_) { /* ignore */ }
+                const calendar = String(reservationCapacityCalendar || "").trim();
+                let canAccept = false;
+                let placesRestantes = 0;
+                if (dateIso && (service === "lunch" || service === "dinner") && calendar) {
+                  const line = calendar.split("\n").find((l) => l.startsWith(dateIso) || l.includes(`(${dateIso})`));
+                  if (line) {
+                    const isDinner = service === "dinner";
+                    const re = isDinner ? /soir\s+(\d+)\/(\d+)/i : /midi\s+(\d+)\/(\d+)/i;
+                    const match = line.match(re);
+                    if (match) {
+                      const reserved = parseInt(match[1], 10) || 0;
+                      const max = parseInt(match[2], 10) || 0;
+                      placesRestantes = Math.max(0, max - reserved);
+                      canAccept = requestedPeople > 0 && requestedPeople <= placesRestantes;
+                    }
+                  }
+                }
+                if (canAccept) {
+                  output = "can_accept=true. Tu peux enchaîner (Terrasse ou intérieur ? si pas encore dit, puis récap).";
+                } else {
+                  const Y = placesRestantes;
+                  output = `can_accept=false, places_restantes=${Y}. Dis UNIQUEMENT au client : « Il nous reste de la place pour ${Y} personne${Y !== 1 ? "s" : ""} ce jour-là. Souhaitez-vous réserver pour ${Y} personne${Y !== 1 ? "s" : ""} ou pour un autre jour ? » Ne dis rien d'autre : pas de « nous avons déjà X réservées », pas de « maximum », pas de « Je vérifie la disponibilité », pas de « Un instant ».`;
+                }
               }
               else if (toolName === "transfer_to_restaurant") {
                 try {
