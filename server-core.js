@@ -654,7 +654,7 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1"); // 0.5 à 2.0
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0"); // 0.0 à 1.0
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0"); // -12 à 12
-  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "happy"; // happy = plus d'énergie, calm, fluent (2.6+), etc. — "" = auto
+  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "fluent"; // fluent = naturel, calm = posé, happy = énergique — "" = auto
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
@@ -3971,30 +3971,26 @@ But: être naturel et mettre le client en confiance.`,
             walk(output, 0);
             return collected.trim();
           }
-          /** Évite de jouer deux fois la même phrase si l'API renvoie un doublon (ex. récap répété). */
+          /** Évite de jouer deux fois la même phrase si l'API renvoie un doublon. */
           function dedupeRepeatedPhrase(text) {
             if (!text || typeof text !== "string") return text;
             const norm = (s) => String(s).replace(/\s+/g, " ").trim();
             const t = norm(text);
             if (t.length < 24) return text;
             const half = Math.floor(t.length / 2);
-            const first = norm(t.slice(0, half));
-            const second = norm(t.slice(half));
-            if (first.length >= 12 && first === second) return first;
-            // Détecte une phrase entière répétée (ex. "…Duflo ?D'accord, une table…" en double)
-            for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 10) {
+            const first = t.slice(0, half);
+            const second = t.slice(half);
+            if (first.length >= 12 && norm(first) === norm(second)) return norm(first);
+            for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 5) {
               const block = t.slice(0, L);
-              const next = t.slice(L, L + L);
-              if (block === next) return norm(block);
+              const next = t.slice(L, L + block.length);
+              if (norm(block) === norm(next)) return norm(block);
             }
-            const prefixLen = Math.min(80, Math.floor(t.length / 3));
-            if (prefixLen >= 30) {
-              const prefix = norm(t.slice(0, prefixLen));
-              const rest = t.slice(prefixLen);
-              if (rest.startsWith(prefix) || rest.includes(prefix)) {
-                const idx = t.indexOf(prefix, 10);
-                if (idx > 0 && idx < t.length * 0.6) return norm(t.slice(0, idx));
-              }
+            const sep = t.indexOf(" ? ");
+            if (sep >= 40 && sep < t.length / 2) {
+              const block = t.slice(0, sep + 3);
+              const rest = t.slice(sep + 3);
+              if (rest.includes(block) || norm(rest.slice(0, block.length)) === norm(block)) return norm(block);
             }
             return text;
           }
