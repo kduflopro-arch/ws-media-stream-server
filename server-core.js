@@ -5208,11 +5208,20 @@ But: être naturel et mettre le client en confiance.`,
                       const max = parseInt(match[2], 10) || 0;
                       placesRestantes = Math.max(0, max - reserved);
                       canAccept = requestedPeople > 0 && requestedPeople <= placesRestantes;
+                      console.log("[CAPACITY-Check]", { dateIso, service, requestedPeople, reserved, max, placesRestantes, canAccept });
+                    } else {
+                      console.log("[CAPACITY-Warn] Ligne trouvée mais format midi/soir invalide:", { dateIso, service, linePreview: line.slice(0, 80) });
                     }
+                  } else {
+                    console.log("[CAPACITY-Warn] Date absente du calendrier:", { dateIso, service });
                   }
+                } else if (!calendar) {
+                  console.log("[CAPACITY-Warn] Calendrier vide — can_accept=false par défaut.");
                 }
                 if (canAccept) {
                   output = "can_accept=true. Tu peux enchaîner (Terrasse ou intérieur ? si pas encore dit, puis récap).";
+                } else if (placesRestantes === 0) {
+                  output = "can_accept=false, places_restantes=0. Ce créneau est complet. Dis qu'il n'y a plus de place pour ce jour et propose une autre date ou un autre créneau. INTERDIT de dire qu'il reste de la place.";
                 } else {
                   output = `can_accept=false, places_restantes=${placesRestantes}. Formule à ta façon : communique uniquement qu'il reste de la place pour ${placesRestantes} personne${placesRestantes !== 1 ? "s" : ""} ce jour-là, et propose de réserver pour ce nombre ou un autre jour. INTERDIT : « nous avons déjà X réservées », « sur un maximum de Y », « Je vérifie la disponibilité », « Un instant ».`;
                 }
