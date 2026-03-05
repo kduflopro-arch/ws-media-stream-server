@@ -85,7 +85,7 @@ export function buildRestaurantInstructions(ctx) {
 
   const restaurantLabel = /^restaurant\b/i.test(restaurantName) ? restaurantName : `Restaurant ${restaurantName}`;
 
-  const postConsentPhrase = `Bienvenue ! En quoi puis-je vous aider ?`;
+  const postConsentPhrase = `Bienvenue au ${restaurantLabel} ! En quoi puis-je vous aider ?`;
 
   const consentLine = consentRequired && !consentGiven
     ? `CONSENTEMENT — OBLIGATOIRE AVANT TOUT:
@@ -140,7 +140,7 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
     ? `\n# CAPACITÉ — outil check_restaurant_capacity (OBLIGATOIRE)
 Utilisation : date_iso (YYYY-MM-DD), service (lunch/dinner), requested_people. Réponse : can_accept + places_restantes.
 
-AVANT d'appeler l'outil : dis "Un instant, je consulte les places disponibles pour [X] personnes pour ce créneau." (X = nombre dit par le client). Puis appelle l'outil.
+AVANT d'appeler l'outil : dis UNE SEULE phrase complète "Un instant, je consulte les places disponibles pour [X] personnes pour ce créneau." (X = nombre dit par le client). Finis cette phrase AVANT d'appeler l'outil et AVANT de dire quoi que ce soit d'autre. Attends la réponse de l'outil, puis enchaîne.
 
 Confusion 4/5 : "quatre" et "cinq" se confondent à l'oral. Si le client dit un nombre, en cas de doute confirme : "Vous serez bien [X] personnes ?" avant d'appeler l'outil. Utilise le nombre que tu as compris.
 
@@ -150,8 +150,8 @@ RÈGLE 1 — NE JAMAIS MENTIONNER LA CAPACITÉ AVANT LE NOMBRE DU CLIENT :
 
 RÈGLE 2 — QUAND can_accept=false (nombre demandé > places restantes) :
 • OBLIGATOIRE : dis d'abord "Pour ce créneau, nous n'avons de la place que pour [places_restantes] personnes." Puis propose : "Souhaitez-vous réserver pour [places_restantes], ou préférez-vous que je vous propose une autre date avec de la place pour [nombre demandé] ?"
-• Si client refuse places_restantes → tu DOIS proposer une date alternative. AVANT de proposer : appelle check_restaurant_capacity(date, service, nombre_demandé_client). Ne propose QUE si can_accept=true pour CE nombre. INTERDIT de proposer une date où le nombre demandé dépasserait encore la limite — vérifie avec l'outil pour chaque date candidate.
-• Dans la proposition, ne redis pas "où nous avons de la place pour X" — dis simplement "Je peux vous proposer le [date] à [heure], est-ce que cela vous conviendrait ?"
+• Si client demande une autre date → tu DOIS proposer une date où can_accept=true pour le NOMBRE DEMANDÉ par le client. INTERDIT ABSOLU de proposer une date si check_restaurant_capacity(date, service, nombre_demandé) retourne can_accept=false. Pour chaque date candidate : appelle l'outil avec le nombre demandé ; ne propose que si can_accept=true. Si aucune date n'a de place pour ce nombre, dis "Je ne trouve pas de disponibilité pour [X] personnes. Souhaitez-vous réserver pour [places_restantes] au créneau initial ?"
+• Dans la proposition, dis simplement "Je peux vous proposer le [date] à [heure], est-ce que cela vous conviendrait ?"
 
 RÈGLE 3 — QUAND can_accept=true : enchaîne (Terrasse ou récap). Ne mentionne pas la capacité.
 • Avant « C'est noté » → can_accept=true obligatoire. Sinon refuse.\n`
@@ -173,8 +173,8 @@ RÈGLE 3 — QUAND can_accept=true : enchaîne (Terrasse ou récap). Ne mentionn
   return `# 1. RÈGLES ABSOLUES (priorité maximale — à respecter AVANT toute autre instruction)
 
 <INTERDITS_STRICTS>
-• INTERDIT "Bonjour" suivi du nom du client (ex. "Bonjour Monsieur Dupont"). Après consentement : "Merci [nom]" ou "Bienvenue", jamais "Bonjour [nom]".
-• INTERDIT de répéter la même phrase ou le même bloc. Dis UNE SEULE FOIS, puis attends. Si tu viens de dire quelque chose, ne le redis pas.
+• INTERDIT "Bonjour" suivi du nom du client. Après consentement : "Bienvenue au [restaurant]" uniquement.
+• INTERDIT de répéter la même phrase ou le même bloc. Dis UNE SEULE FOIS, puis attends. INTERDIT de produire deux fois le même texte dans une même réplique (ex. "Phrase. Phrase.").
 </INTERDITS_STRICTS>
 
 <CONSENTEMENT>
