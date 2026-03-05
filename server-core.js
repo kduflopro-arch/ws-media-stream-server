@@ -3992,6 +3992,7 @@ But: être naturel et mettre le client en confiance.`,
               const chunk = remaining.slice(0, cutIdx).trim();
               if (chunk.length >= REALTIME_ELEVEN_CHUNK_MIN_CHARS || st.started) {
                 spokenSet.add(rid);
+                if (typeof ws !== "undefined" && ws && rid) ws.__lastEnqueuedResponseIdForTts = rid;
                 enqueueElevenLabsTts(chunk, { interrupt: !st.started });
                 st.started = true;
                 st.cursor += cutIdx;
@@ -4004,6 +4005,7 @@ But: être naturel et mettre le client en confiance.`,
               const tail = String(full.slice(st.cursor)).trim();
               if (tail) {
                 spokenSet.add(rid);
+                if (typeof ws !== "undefined" && ws && rid) ws.__lastEnqueuedResponseIdForTts = rid;
                 enqueueElevenLabsTts(tail, { interrupt: !st.started });
               }
               elevenStateMap.delete(rid);
