@@ -717,6 +717,7 @@ wss.on("connection", (ws, req) => {
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   function playPostConsentGreeting() {
     if (ws.__postConsentGreetingPlayed || !PREMIUM_TTS_ENABLED) return;
+    if (effectiveSector === "restaurant") return; // Restaurant: l'IA dit elle-même la salutation post-consent (évite doublon)
     const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
     const isResto = effectiveSector === "restaurant";
     let phrase;
