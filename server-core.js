@@ -2221,7 +2221,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     console.warn("🛡️ Correction serveur (tarif/horaires inventés):", { prestation, pricePart: pricePart.substring(0, 60) });
     return corrected;
   }
-  /** Supprime une phrase répétée en double (ex. "A. A." → "A.") pour éviter envoi double à Minimax/TTS. */
+  /** Supprime une phrase répétée en double (ex. "A. A." → "A." ou phrase entière en double) pour éviter envoi double à Minimax/TTS. */
   function dedupeRepeatedPhraseAtTts(text) {
     if (!text || typeof text !== "string") return text;
     const norm = (s) => String(s).replace(/\s+/g, " ").trim();
@@ -2231,6 +2231,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const first = norm(t.slice(0, half));
     const second = norm(t.slice(half));
     if (first.length >= 12 && first === second) return first;
+    for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 10) {
+      const block = t.slice(0, L);
+      if (block === t.slice(L, L + L)) return norm(block);
+    }
     const prefixLen = Math.min(80, Math.floor(t.length / 3));
     if (prefixLen >= 30) {
       const prefix = norm(t.slice(0, prefixLen));
@@ -3956,6 +3960,12 @@ But: être naturel et mettre le client en confiance.`,
             const first = norm(t.slice(0, half));
             const second = norm(t.slice(half));
             if (first.length >= 12 && first === second) return first;
+            // Détecte une phrase entière répétée (ex. "…Duflo ?D'accord, une table…" en double)
+            for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 10) {
+              const block = t.slice(0, L);
+              const next = t.slice(L, L + L);
+              if (block === next) return norm(block);
+            }
             const prefixLen = Math.min(80, Math.floor(t.length / 3));
             if (prefixLen >= 30) {
               const prefix = norm(t.slice(0, prefixLen));

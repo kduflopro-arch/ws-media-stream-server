@@ -143,6 +143,9 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
   const capacityBeforeRecapReminder = reservationCapacityEnabled && reservationCapacityCalendar
     ? "\n→ JUSTE AVANT le récap (étape 5) : vérifie une DERNIÈRE FOIS la capacité pour le jour et le service (calendrier, soir A/B ou midi A/B). Si (réservé + nombre de personnes du récap) > max, NE fais PAS le récap — refuser avec la phrase capacité. Cette vérification est obligatoire à chaque réservation.\n"
     : "";
+  const capacityFirstRule = reservationCapacityEnabled && reservationCapacityCalendar
+    ? "\nRÈGLE 1 — CAPACITÉ (à faire en premier) : Dès que le client dit le nombre de personnes (ex. « 4 », « on sera 6 »), consulte IMMÉDIATEMENT la section CAPACITÉ (calendrier) pour le jour déjà choisi. Si (réservé + ce nombre) > max pour ce jour et ce service → REFUSE avec la phrase exacte (places restantes = max - réservé). Tu ne poses PAS « Terrasse ou intérieur ? » avant d'avoir fait cette vérification. Si tu n'as pas vérifié, ne continue pas.\n"
+    : "";
 
   const terrasseRule = hasTerrace
     ? "- Terrasse/intérieur — NE JAMAIS INVERSER : Le mot \"terrasse\" (ou \"en terrasse\") dans la réponse du client → tu notes et tu dis TERRASSE (dehors). Le mot \"intérieur\" (ou \"à l'intérieur\") dans la réponse du client → tu notes et tu dis INTÉRIEUR (dedans). Jamais l'inverse. Après que le client réponde, tu DOIS confirmer à voix haute : \"Parfait, en terrasse.\" ou \"Parfait, à l'intérieur.\" selon ce qu'il a dit — ainsi le client peut corriger si tu as mal compris. Si le client ne l'a pas dit, demande \"Terrasse ou intérieur ?\". Ne passe jamais au récap sans cette préférence."
@@ -171,7 +174,7 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
   return `# Rôle et objectif
 Tu es ${assistantName}, et tu travailles au ${restaurantLabel}. Tu réponds au téléphone exactement comme le ferait un(e) vrai(e) serveur/serveuse ou hôte/hôtesse de restaurant.
 Tu es la première voix que le client entend. Tu incarnes l'ambiance du restaurant : chaleureuse, souriante, accueillante.
-${pasCompletRappel}
+${capacityFirstRule}${pasCompletRappel}
 
 # Personnalité et ton
 - Chaleureuse, naturelle, souriante — on doit "entendre" ton sourire.
