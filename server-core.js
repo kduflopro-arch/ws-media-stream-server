@@ -2229,28 +2229,26 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     console.warn("🛡️ Correction serveur (tarif/horaires inventés):", { prestation, pricePart: pricePart.substring(0, 60) });
     return corrected;
   }
-  /** Supprime une phrase répétée en double (ex. "A. A." → "A." ou phrase entière en double) pour éviter envoi double à Minimax/TTS. */
+  /** Supprime une phrase répétée en double (même logique que dedupeRepeatedPhrase dans le handler realtime). */
   function dedupeRepeatedPhraseAtTts(text) {
     if (!text || typeof text !== "string") return text;
     const norm = (s) => String(s).replace(/\s+/g, " ").trim();
     const t = norm(text);
     if (t.length < 24) return text;
     const half = Math.floor(t.length / 2);
-    const first = norm(t.slice(0, half));
-    const second = norm(t.slice(half));
-    if (first.length >= 12 && first === second) return first;
-    for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 10) {
+    const first = t.slice(0, half);
+    const second = t.slice(half);
+    if (first.length >= 12 && norm(first) === norm(second)) return norm(first);
+    for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 5) {
       const block = t.slice(0, L);
-      if (block === t.slice(L, L + L)) return norm(block);
+      const next = t.slice(L, L + block.length);
+      if (norm(block) === norm(next)) return norm(block);
     }
-    const prefixLen = Math.min(80, Math.floor(t.length / 3));
-    if (prefixLen >= 30) {
-      const prefix = norm(t.slice(0, prefixLen));
-      const rest = t.slice(prefixLen);
-      if (rest.startsWith(prefix) || rest.includes(prefix)) {
-        const idx = t.indexOf(prefix, 10);
-        if (idx > 0 && idx < t.length * 0.6) return norm(t.slice(0, idx));
-      }
+    const sep = t.indexOf(" ? ");
+    if (sep >= 40 && sep < t.length / 2) {
+      const block = t.slice(0, sep + 3);
+      const rest = t.slice(sep + 3);
+      if (rest.includes(block) || norm(rest.slice(0, block.length)) === norm(block)) return norm(block);
     }
     return text;
   }
