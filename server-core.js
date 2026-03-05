@@ -3084,9 +3084,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     return slice.trim() + "…";
   }
   const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "false").toLowerCase() === "true";
-  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "15000"); // Seuil élevé pour éviter les faux positifs
-  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "35"); // ~700ms de parole continue nécessaire
+  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "5000"); // 5000: sensible (restaurant); 15000 = très strict
+  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "18"); // ~360ms de parole pour déclencher (18 frames × 20ms)
   let twilioSpeechFrames = 0;
+  let lastBargeInLogAt = 0;
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
   const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible (recommandé si l'utilisateur doit répéter); 900–1200: plus strict
   const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "10"); // Augmenté de 6 à 10 (~200ms au lieu de 120ms)
@@ -5664,6 +5665,11 @@ But: être naturel et mettre le client en confiance.`,
             awaitingUserResponse = true;
             bytesSinceSpeechStart = 0;
             userHasSpoken = true;
+            // Barge-in restaurant : dès qu'OpenAI détecte la parole client alors que l'IA parle, interrompre
+            const bargeInActive = effectiveSector === "restaurant" || BARGE_IN_ENABLED;
+            if (bargeInActive && responseInProgress) {
+              cancelResponseForBargeIn();
+            }
           }
           if (msg.type === "input_audio_buffer.speech_stopped") {
             speechActive = false;
@@ -6391,6 +6397,13 @@ But: être naturel et mettre le client en confiance.`,
               if (bargeInActive && responseInProgress && twilioSpeechFrames >= BARGE_IN_FRAMES) {
                 cancelResponseForBargeIn();
                 twilioSpeechFrames = 0;
+              }
+              if (bargeInActive && responseInProgress && mediaCount % 50 === 1) {
+                const nowB = nowMs();
+                if (nowB - lastBargeInLogAt > 2000) {
+                  lastBargeInLogAt = nowB;
+                  console.log("[BARGE-IN] VAD Twilio:", { avg: Math.round(avg), seuil: TWILIO_SPEECH_THRESHOLD, frames: twilioSpeechFrames, needed: BARGE_IN_FRAMES });
+                }
               }
               const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
               const assistantIsReallyTalking =
