@@ -2221,13 +2221,34 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     console.warn("🛡️ Correction serveur (tarif/horaires inventés):", { prestation, pricePart: pricePart.substring(0, 60) });
     return corrected;
   }
+  /** Supprime une phrase répétée en double (ex. "A. A." → "A.") pour éviter envoi double à Minimax/TTS. */
+  function dedupeRepeatedPhraseAtTts(text) {
+    if (!text || typeof text !== "string") return text;
+    const norm = (s) => String(s).replace(/\s+/g, " ").trim();
+    const t = norm(text);
+    if (t.length < 24) return text;
+    const half = Math.floor(t.length / 2);
+    const first = norm(t.slice(0, half));
+    const second = norm(t.slice(half));
+    if (first.length >= 12 && first === second) return first;
+    const prefixLen = Math.min(80, Math.floor(t.length / 3));
+    if (prefixLen >= 30) {
+      const prefix = norm(t.slice(0, prefixLen));
+      const rest = t.slice(prefixLen);
+      if (rest.startsWith(prefix) || rest.includes(prefix)) {
+        const idx = t.indexOf(prefix, 10);
+        if (idx > 0 && idx < t.length * 0.6) return norm(t.slice(0, idx));
+      }
+    }
+    return text;
+  }
   function enqueuePremiumTts(text, { interrupt = true, source = "unknown", responseId = null, allowWithoutUser = false, onComplete = null } = {}) {
     if (ws.__consentRefused && source !== "consent_refusal") {
       if (LOG_TTS) console.log("[TTS] Ignoré (consentement refusé, seul le message de refus est joué).");
       return;
     }
-    const rawTextStr = String(text || "");
-    const rawText = String(text || "").substring(0, 200);
+    const rawTextStr = dedupeRepeatedPhraseAtTts(String(text || "").trim());
+    const rawText = rawTextStr.substring(0, 200);
     if (LOG_TTS) {
       console.log(`[TTS-ENQUEUE] ENTRÉE [source: ${source}] [interrupt=${interrupt}] [queueLen=${premiumTtsQueue.length}] [inFlight=${premiumTtsInFlight}]`);
       console.log(`[TTS-ENQUEUE] TEXTE:`, rawText);
@@ -2243,7 +2264,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       return;
     }
-    const normalized = normalizeFrenchTtsText((text || "").trim());
+    const normalized = normalizeFrenchTtsText(rawTextStr);
     if (!normalized) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] SORTIE: texte vide après normalisation`);
