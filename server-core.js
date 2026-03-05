@@ -3633,6 +3633,12 @@ ${compactPersona}`;
           console.log("[DEBUG-capacity]", JSON.stringify({ reservationCapacityEnabled, hasCapacityRule, hasCapacityStepReminder, calendarHasMarch13, calendarLength: (reservationCapacityCalendar || "").length }));
         }
         // #endregion
+        // Log pour distinguer IA (VOIX LIBRE) vs protocole (phrases imposées)
+        if (effectiveSector === "restaurant" && restaurantInstructions) {
+          const hasVoixLibre = /VOIX LIBRE|VOIX_LIBRE/i.test(restaurantInstructions);
+          const scriptedCount = (restaurantInstructions.match(/Dis UNIQUEMENT|Dis exactement|phrase UNIQUE|recopier|réciter|script/gi) || []).length;
+          console.log("[RESTAURANT-PROMPT] contrôle:", hasVoixLibre ? "VOIX_LIBRE (IA s'exprime)" : "protocole / phrases imposées", "| indicateurs scriptés:", scriptedCount, "| longueur:", restaurantInstructions.length);
+        }
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
         const sessionUpdate = {
@@ -3710,6 +3716,9 @@ ${compactPersona}`;
               fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:updatePromptTruncation", message: "Update prompt capacity after truncation", data: { hypothesisId: "H4", truncated, instructionsLengthAfter: instructionsToSend.length, stillHasCapacityRule: stillHasCapacity }, timestamp: Date.now() }) }).catch(() => {});
             }
             // #endregion
+            const hasVoixLibreUpd = /VOIX LIBRE|VOIX_LIBRE/i.test(instructionsToSend);
+            const scriptedCountUpd = (instructionsToSend.match(/Dis UNIQUEMENT|Dis exactement|phrase UNIQUE|recopier|réciter|script/gi) || []).length;
+            console.log("[RESTAURANT-PROMPT] session.update (client reçu): contrôle:", hasVoixLibreUpd ? "VOIX_LIBRE (IA)" : "protocole", "| indicateurs scriptés:", scriptedCountUpd);
             openaiWs.send(JSON.stringify({
               type: "session.update",
               session: {
