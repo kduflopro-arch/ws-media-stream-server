@@ -147,9 +147,9 @@ Finis la phrase AVANT d'appeler l'outil. Attends la réponse, puis enchaîne.
 
 Confusion 4/5 : "quatre" et "cinq" se confondent à l'oral. Si le client dit un nombre, en cas de doute confirme : "Vous serez bien [X] personnes ?" avant d'appeler l'outil. Utilise le nombre que tu as compris.
 
-RÈGLE 1 — NE JAMAIS MENTIONNER LA CAPACITÉ AVANT LE NOMBRE DU CLIENT :
-• Le client donne date+heure mais PAS le nombre → demande "Vous serez combien ?" — INTERDIT d'appeler l'outil ou de mentionner des places. Tu ne connais pas encore le besoin.
-• Seulement QUAND le client a dit le nombre → appelle l'outil avec ce nombre.
+RÈGLE 1 — NOMBRE OBLIGATOIRE AVANT CHECK CAPACITÉ (priorité absolue) :
+• Si le client n'a PAS dit le nombre de personnes → demande "Vous serez combien ?" — STOP. INTERDIT d'appeler check_restaurant_capacity, INTERDIT de dire "je consulte les places", "Un instant je vérifie", ou toute phrase évoquant la disponibilité. Tu n'as pas encore le besoin.
+• Seulement QUAND le client a explicitement dit le nombre (ex. "quatre", "on sera trois") → appelle l'outil avec ce nombre. Pas de défaut, pas de supposition.
 
 RÈGLE 2 — QUAND can_accept=false (nombre demandé > places restantes) :
 • OBLIGATOIRE : dis d'abord "Pour ce créneau, nous n'avons de la place que pour [places_restantes] personnes." Puis propose : "Souhaitez-vous réserver pour [places_restantes], ou préférez-vous que je vous propose une autre date avec de la place pour [nombre demandé] ?"
@@ -163,7 +163,7 @@ RÈGLE 3 — QUAND can_accept=true : enchaîne (Terrasse ou récap). Ne mentionn
     : "";
 
   const terrasseRule = hasTerrace
-    ? "Terrasse = dehors, intérieur = dedans. Ne jamais inverser. Confirme à voix haute après réponse. Obligatoire avant récap."
+    ? "Terrasse = dehors, intérieur = dedans. Ne jamais inverser. Après la réponse du client : dis 'Très bien, terrasse' ou 'Très bien, intérieur' et attends — le client peut corriger si le STT a mal compris. Ne passe au récap qu'après cette confirmation. Obligatoire avant récap."
     : "PAS DE TERRASSE : ne demande pas terrasse/intérieur, récap sans.";
   const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre, terrasse/intérieur, nom" : "jour, midi/soir, heure, nombre, nom";
   const recapContent = hasTerrace ? "jour, heure, terrasse/intérieur, nombre" : "jour, heure, nombre";
@@ -242,7 +242,7 @@ ${ceMidiAfterCeSoirCompletRule ? `"Et pour ce midi ?" après "ce soir complet" :
 1. JOUR : "C'est pour quel jour ?" ou confirme date complète. Une phrase, stop, attends oui.
 2. MIDI/SOIR : "Plutôt midi ou soir ?" — SAUTE si heure donnée (20h = soir) ou "ce midi/ce soir".
 3. HEURE : "À quelle heure ?" — SAUTE si client a donné l'heure ou si tu viens de proposer date+heure et il a dit oui.
-4. NOMBRE : "Vous serez combien ?" — OBLIGATOIRE avant récap.
+4. NOMBRE : "Vous serez combien ?" — OBLIGATOIRE. Si tu as jour+heure mais PAS le nombre : demande "Vous serez combien ?" — n'appelle PAS check_restaurant_capacity, ne consulte PAS les places.
 5. TERRASSE : ${terrasseRule}
 6. RÉCAP : ${recapContent}. Valeurs réelles (jamais [crochets]). Une fois, attends confirmation.
 7. NOM : client connu → "C'est bien au nom de [Nom] ?" ; inconnu → épellation → Dupont (lisible).
