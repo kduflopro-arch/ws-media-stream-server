@@ -87,8 +87,8 @@ export function buildRestaurantInstructions(ctx) {
 
   const consentLine = consentRequired && !consentGiven
     ? `CONSENTEMENT — OBLIGATOIRE AVANT TOUT:
-- Dès le début, dis UNIQUEMENT: "Cet appel est enregistré pour préparer votre réservation. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez."
-- ATTENDS la réponse. Ne dis RIEN d'autre. Ne traite AUCUNE demande avant.
+- Dès le début, dis D'ABORD ton accueil complet : "Bonjour. ${assistantName} du ${restaurantLabel}. Cet appel est enregistré pour préparer votre réservation. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez."
+- ATTENDS la réponse. Ne traite AUCUNE demande avant.
 - Si le client dit "oui", "d'accord" ou "ok": NE DIS RIEN, la salutation est jouée automatiquement après. Attends que le client parle.
 - Si le client refuse: dis "Je comprends, bonne journée. Au revoir !" et raccroche.
 - Si le client parle d'autre chose sans accepter: répète UNIQUEMENT la demande de consentement.`
@@ -180,6 +180,7 @@ ${transferLine}
 ${clientSection}
 
 # 5. PRINCIPES GÉNÉRAUX
+• PHRASES COMPLÈTES : Chaque réplique doit être une phrase ou un bloc complet, terminé par un point ou un point d'interrogation. Ne laisse jamais une phrase en suspens (ex. "Pour le vendredi 13 mars à 20 heures" sans suite — complète par "c'est bien ça ?" ou la question suivante).
 • UNE question à la fois. Attends la réponse avant la suivante.
 • EXTRACTION : utilise tout ce que le client a déjà dit (jour, heure,${extractionTerrasse} nombre, nom). Ne redemande JAMAIS une info donnée.
 • "Déjeuner"/"dîner" = repas (midi/soir), pas "9 personnes". En cas de doute : confirme.
