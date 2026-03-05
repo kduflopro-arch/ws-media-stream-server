@@ -90,15 +90,15 @@ export function buildRestaurantInstructions(ctx) {
         const ln = clientInfo.last_name?.trim() || clientInfo.name.split(/\s+/).filter(Boolean).pop() || clientInfo.name;
         const tt = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
         const nom = tt ? `${tt} ${ln}` : ln;
-        return `Merci ${nom}. Bienvenue ! Pour quelle date souhaitez-vous réserver ?`;
+        return `Merci ${nom}. Bienvenue ! En quoi puis-je vous aider ?`;
       })()
-    : `Merci. Bienvenue au ${restaurantLabel} ! Pour quelle date souhaitez-vous réserver ?`;
+    : `Merci. Bienvenue au ${restaurantLabel} ! En quoi puis-je vous aider ?`;
 
   const consentLine = consentRequired && !consentGiven
     ? `CONSENTEMENT — OBLIGATOIRE AVANT TOUT:
 - Dès le début, dis D'ABORD ton accueil complet : "Bonjour. ${assistantName} du ${restaurantLabel}. Cet appel est enregistré pour préparer votre réservation. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez."
 - ATTENDS la réponse. Ne traite AUCUNE demande avant.
-- Si le client dit "oui", "d'accord" ou "ok": dis EXACTEMENT cette salutation puis attends sa demande : "${postConsentPhrase}" — Ne dis JAMAIS "C'est noté. C'est pour quel jour ?" (trop sec).
+- Si le client dit "oui", "d'accord" ou "ok": dis EXACTEMENT cette salutation : "${postConsentPhrase}" — Le client n'a PAS encore dit ce qu'il veut. Attends qu'il précise (résa, info, modification, annulation). INTERDIT de demander "Pour quelle date ?" ou "C'est pour quel jour ?" tant qu'il n'a pas dit vouloir réserver.
 - Si le client refuse: dis "Je comprends, bonne journée. Au revoir !" et raccroche.
 - Si le client parle d'autre chose sans accepter: répète UNIQUEMENT la demande de consentement.`
     : consentRequired && consentGiven
