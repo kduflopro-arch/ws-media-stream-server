@@ -5635,9 +5635,16 @@ But: être naturel et mettre le client en confiance.`,
           }
           if (msg.type === "error") {
             const err = msg.error || {};
-            console.error("❌ Erreur OpenAI:", err.code || "?", err.message || err, err.param ? `(param: ${err.param})` : "");
-            const errParam = String(msg?.error?.param ?? "");
             const errCode = String(msg?.error?.code ?? "");
+            // response_cancel_not_active = barge-in envoyé alors qu'OpenAI n'avait plus de réponse active (race condition, sans gravité)
+            if (errCode === "response_cancel_not_active") {
+              if (LOG_VERBOSE) console.log("ℹ️ OpenAI response.cancel ignoré (aucune réponse active — barge-in sans effet)");
+              responseInProgress = false;
+              activeResponseId = null;
+            } else {
+              console.error("❌ Erreur OpenAI:", err.code || "?", err.message || err, err.param ? `(param: ${err.param})` : "");
+            }
+            const errParam = String(msg?.error?.param ?? "");
             if (errCode === "unknown_parameter" && errParam.startsWith("session.")) {
               if (!ws.__didSessionFallback) {
                 ws.__didSessionFallback = true;

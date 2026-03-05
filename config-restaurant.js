@@ -85,14 +85,7 @@ export function buildRestaurantInstructions(ctx) {
 
   const restaurantLabel = /^restaurant\b/i.test(restaurantName) ? restaurantName : `Restaurant ${restaurantName}`;
 
-  const postConsentPhrase = clientInfo?.name
-    ? (() => {
-        const ln = clientInfo.last_name?.trim() || clientInfo.name.split(/\s+/).filter(Boolean).pop() || clientInfo.name;
-        const tt = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
-        const nom = tt ? `${tt} ${ln}` : ln;
-        return `Merci ${nom}. Bienvenue ! En quoi puis-je vous aider ?`;
-      })()
-    : `Merci. Bienvenue au ${restaurantLabel} ! En quoi puis-je vous aider ?`;
+  const postConsentPhrase = `Bienvenue ! En quoi puis-je vous aider ?`;
 
   const consentLine = consentRequired && !consentGiven
     ? `CONSENTEMENT — OBLIGATOIRE AVANT TOUT:
