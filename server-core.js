@@ -2496,6 +2496,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     lastAssistantSpokenAt = now;
     lastAssistantSpokenResponseId = responseId ?? lastAssistantSpokenResponseId;
     if (responseId) {
+      ws.__lastEnqueuedResponseIdForTts = responseId;
       spokenResponseIds.set(responseId, now);
       if (spokenResponseIds.size > 500) {
         for (const [rid, ts] of spokenResponseIds) {
@@ -5597,24 +5598,24 @@ But: être naturel et mettre le client en confiance.`,
             appendedBytes = 0;
             const COMMIT_SPEECH_WINDOW_MS = Number(process.env.COMMIT_SPEECH_WINDOW_MS ?? "15000");
             const hasRealSpeech = speechActive || (nowMs() - lastSpeechTs) < COMMIT_SPEECH_WINDOW_MS;
+            const commitTs = nowMs();
+            lastCommitAt = commitTs;
             if (hasRealSpeech) {
-              const commitTs = nowMs();
-              lastCommitAt = commitTs; // Pour que le watchdog envoie response.create (lastCommittedAt n'est mis à jour qu'après le transcript)
               console.log("🟢 Le client a parlé (buffer audio envoyé au modèle - committed)", { item_id: msg.item_id, timeSinceSpeech: commitTs - lastSpeechTs });
               if (LOG_VERBOSE) console.log("✅ OpenAI buffer committed:", { item_id: msg.item_id, previous_item_id: msg.previous_item_id, timeSinceSpeech: commitTs - lastSpeechTs });
-              const canRequest = (commitTs - lastResponseAt) > 600;
-              if (canRequest) {
-                lastResponseAt = commitTs;
-                awaitingUserResponse = false;
-                setTimeout(() => {
-                  if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-                  if (responseInProgress) return;
-                  if (lastResponseCreatedAt >= lastCommitAt) return;
-                  requestResponseCreate("watchdog_after_commit");
-                }, WATCHDOG_AFTER_COMMIT_MS);
-              }
             } else {
-              if (LOG_VERBOSE) console.log("⚠️ OpenAI buffer committed IGNORÉ (pas de parole réelle):", { item_id: msg.item_id, timeSinceSpeech: nowMs() - lastSpeechTs });
+              if (LOG_VERBOSE) console.log("⚠️ OpenAI buffer committed (sans speech_started récent, on envoie quand même response.create si délai ok):", { item_id: msg.item_id, timeSinceSpeech: nowMs() - lastSpeechTs });
+            }
+            const canRequest = (commitTs - lastResponseAt) > 300;
+            if (canRequest) {
+              lastResponseAt = commitTs;
+              awaitingUserResponse = false;
+              setTimeout(() => {
+                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+                if (responseInProgress) return;
+                if (lastResponseCreatedAt >= lastCommitAt) return;
+                requestResponseCreate("watchdog_after_commit");
+              }, WATCHDOG_AFTER_COMMIT_MS);
             }
           }
           if (msg.type === "response.created") {
@@ -5630,6 +5631,7 @@ But: être naturel et mettre le client en confiance.`,
             }, 30000);
           }
           if (msg.type === "response.done") {
+            const doneRid = activeResponseId;
             responseInProgress = false;
             activeResponseId = null;
             const commitAfterResponse = lastCommitAt > lastResponseCreatedAt;
@@ -5639,6 +5641,16 @@ But: être naturel et mettre le client en confiance.`,
                 console.log("🔄 response.done: commit en attente détecté, envoi response.create pour ne pas manquer la réplique client.");
                 requestResponseCreate("after_response_done_pending_commit");
               }, 100);
+            }
+            const noTtsEnqueuedForThisResponse = doneRid && ws.__lastEnqueuedResponseIdForTts !== doneRid;
+            const userSpokeRecently = lastCommitAt > 0 && (nowMs() - lastCommitAt) < 10000;
+            if (effectiveSector === "restaurant" && noTtsEnqueuedForThisResponse && userSpokeRecently) {
+              setTimeout(() => {
+                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
+                console.log("🔄 response.done: réponse vide ou sans TTS pour ce tour — fallback + retry response.create", { doneRid });
+                enqueuePremiumTts("Un instant, s'il vous plaît.", { interrupt: false, source: "empty_realtime_fallback", allowWithoutUser: true });
+                requestResponseCreate("empty_realtime_fallback");
+              }, 150);
             }
           }
           if (msg.type === "session.created" || msg.type === "session.updated") {
