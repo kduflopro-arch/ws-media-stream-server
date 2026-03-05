@@ -5645,8 +5645,10 @@ But: être naturel et mettre le client en confiance.`,
               }, 100);
             }
             const noTtsEnqueuedForThisResponse = doneRid && ws.__lastEnqueuedResponseIdForTts !== doneRid;
+            const transcriptForDone = (ws.__premiumTranscriptByResponseId && ws.__premiumTranscriptByResponseId.get && ws.__premiumTranscriptByResponseId.get(doneRid)) || "";
+            const responseTextEmpty = !doneRid || !String(transcriptForDone).trim();
             const userSpokeRecently = lastCommitAt > 0 && (nowMs() - lastCommitAt) < 10000;
-            if (effectiveSector === "restaurant" && noTtsEnqueuedForThisResponse && userSpokeRecently) {
+            if (effectiveSector === "restaurant" && (noTtsEnqueuedForThisResponse || responseTextEmpty) && userSpokeRecently) {
               setTimeout(() => {
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
                 console.log("🔄 response.done: réponse vide ou sans TTS pour ce tour — fallback + retry response.create", { doneRid });
