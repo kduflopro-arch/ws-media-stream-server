@@ -3995,7 +3995,8 @@ But: être naturel et mettre le client en confiance.`,
           function flushRealtimeElevenChunks(rid, final = false) {
             if (!REALTIME_USE_ELEVEN || !REALTIME_ELEVEN_CHUNKING_ENABLED) return;
             if (!rid) return;
-            const full = String(transcriptMap.get(rid) || "");
+            let full = String(transcriptMap.get(rid) || "");
+            full = dedupeRepeatedPhrase(full);
             const st = elevenStateMap.get(rid) || { cursor: 0, started: false };
             if (!full || st.cursor >= full.length) {
               if (final) elevenStateMap.delete(rid);

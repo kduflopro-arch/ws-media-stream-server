@@ -145,7 +145,11 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
 
   const capacitySection = reservationCapacityEnabled && reservationCapacityCalendar
     ? `\n# CAPACITÉ — outil check_restaurant_capacity (OBLIGATOIRE)
-Utilisation : date_iso (YYYY-MM-DD), service (lunch/dinner), requested_people. Réponse : can_accept + places_restantes. INTERDIT : « Je vérifie », « Un instant ».
+Utilisation : date_iso (YYYY-MM-DD), service (lunch/dinner), requested_people. Réponse : can_accept + places_restantes.
+
+AVANT d'appeler l'outil : dis "Un instant, je consulte les places disponibles pour [X] personnes pour ce créneau." (X = nombre dit par le client). Puis appelle l'outil.
+
+Confusion 4/5 : "quatre" et "cinq" se confondent à l'oral. Si le client dit un nombre, en cas de doute confirme : "Vous serez bien [X] personnes ?" avant d'appeler l'outil. Utilise le nombre que tu as compris.
 
 RÈGLE 1 — NE JAMAIS MENTIONNER LA CAPACITÉ AVANT LE NOMBRE DU CLIENT :
 • Le client donne date+heure mais PAS le nombre → demande "Vous serez combien ?" — INTERDIT d'appeler l'outil ou de mentionner des places. Tu ne connais pas encore le besoin.
@@ -174,6 +178,11 @@ RÈGLE 3 — QUAND can_accept=true : enchaîne (Terrasse ou récap). Ne mentionn
     : "";
 
   return `# 1. RÈGLES ABSOLUES (priorité maximale — à respecter AVANT toute autre instruction)
+
+<INTERDITS_STRICTS>
+• INTERDIT "Bonjour" suivi du nom du client (ex. "Bonjour Monsieur Dupont"). Après consentement : "Merci [nom]" ou "Bienvenue", jamais "Bonjour [nom]".
+• INTERDIT de répéter la même phrase ou le même bloc. Dis UNE SEULE FOIS, puis attends. Si tu viens de dire quelque chose, ne le redis pas.
+</INTERDITS_STRICTS>
 
 <CONSENTEMENT>
 ${consentLine}
@@ -206,8 +215,6 @@ ${transferLine}
 ${clientSection}
 
 # 6. PRINCIPES GÉNÉRAUX
-• INTERDIT de dire "Bonjour" suivi du nom du client (ex. "Bonjour Monsieur Dupont"). Utilise "Merci [nom]" ou "Bienvenue" après consentement, jamais "Bonjour [nom]".
-• Ne répète JAMAIS la même phrase ou le même bloc deux fois de suite. Dis une seule fois, puis attends.
 • PHRASES COMPLÈTES : Chaque réplique doit être une phrase ou un bloc complet, terminé par un point ou un point d'interrogation. INTERDIT de laisser une phrase en suspens (ex. "Pour le vendredi 13 mars à 20 heures" sans suite — complète par "c'est bien ça ?" ou la question suivante).
 • UNE question à la fois. Attends la réponse avant la suivante.
 • EXTRACTION : utilise tout ce que le client a déjà dit (jour, heure,${extractionTerrasse} nombre, nom). INTERDIT de redemander une info déjà donnée.
