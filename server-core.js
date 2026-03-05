@@ -5176,6 +5176,15 @@ But: être naturel et mettre le client en confiance.`,
                 output = [menuText ? `MENU: ${menuText}` : "", garageHoursText ? `HORAIRES: ${garageHoursText}` : "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
               }
               else if (toolName === "check_restaurant_capacity") {
+                const userTextForCheck = String(lastUserMessageText || "").trim();
+                const hasHeadcount = /\b(deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze)\b(?!\s*heures?)/i.test(userTextForCheck)
+                  || /\b(une?)\s*(personne|place)\b/i.test(userTextForCheck)
+                  || /\b[2-9]\s*(personnes|convives)?\b/.test(userTextForCheck)
+                  || /\b(quatre|trois|deux|cinq)\s*(personnes|convives)?\b/i.test(userTextForCheck);
+                if (effectiveSector === "restaurant" && reservationCapacityEnabled && !hasHeadcount) {
+                  output = "ERREUR_PROTOCOLE: Le client n'a pas encore dit le nombre de personnes. Tu DOIS demander 'Vous serez combien ?' et attendre sa réponse AVANT d'appeler cet outil. N'appelle JAMAIS check_restaurant_capacity tant que le client n'a pas explicitement donné le nombre (ex. 'quatre', 'on sera trois', 'pour deux personnes'). Dis simplement 'Vous serez combien ?' et attendre.";
+                  console.log("[CAPACITY-BLOCK] check_restaurant_capacity refusé: client n'a pas dit le nombre. lastUserMessage:", userTextForCheck.slice(0, 120));
+                } else {
                 let dateIso = "";
                 let service = "";
                 let requestedPeople = 0;
@@ -5206,6 +5215,7 @@ But: être naturel et mettre le client en confiance.`,
                   output = "can_accept=true. Tu peux enchaîner (Terrasse ou intérieur ? si pas encore dit, puis récap).";
                 } else {
                   output = `can_accept=false, places_restantes=${placesRestantes}. Formule à ta façon : communique uniquement qu'il reste de la place pour ${placesRestantes} personne${placesRestantes !== 1 ? "s" : ""} ce jour-là, et propose de réserver pour ce nombre ou un autre jour. INTERDIT : « nous avons déjà X réservées », « sur un maximum de Y », « Je vérifie la disponibilité », « Un instant ».`;
+                }
                 }
               }
               else if (toolName === "transfer_to_restaurant") {
