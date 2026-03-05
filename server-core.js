@@ -4465,13 +4465,13 @@ But: être naturel et mettre le client en confiance.`,
                 });
               }
               if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
-                const textForTts = applyPricingHoursGuard(doneText);
+                const textForTts = dedupeRepeatedPhrase(applyPricingHoursGuard(doneText));
                 transcriptMap.set(rid, textForTts);
                 flushRealtimeElevenChunks(rid, true);
               } else if (!rid || !spokenSet.has(rid)) {
                 if (rid) spokenSet.add(rid);
                 const alreadySpeaking = rid && spokenSet.has(rid);
-                const textForTts = applyPricingHoursGuard(doneText);
+                const textForTts = dedupeRepeatedPhrase(applyPricingHoursGuard(doneText));
                 enqueueElevenLabsTts(textForTts, { interrupt: !alreadySpeaking });
               }
             }
@@ -4890,7 +4890,7 @@ But: être naturel et mettre le client en confiance.`,
                 });
               }
               if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
-                const textForTts = applyPricingHoursGuard(doneText);
+                const textForTts = dedupeRepeatedPhrase(applyPricingHoursGuard(doneText));
                 transcriptMap.set(rid, textForTts);
                 flushRealtimeElevenChunks(rid, true);
               }
