@@ -709,6 +709,7 @@ wss.on("connection", (ws, req) => {
   let transferFailed = false; // true si reconnexion après transfert raté (garage n'a pas répondu) — utilisé dans connectToOpenAI
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let lastUserMessageText = ""; // Dernier texte client (pour safeguard hangup : ne pas raccrocher si demande devis/RDV)
+  let lastCheckCapacityFallback = null; // { canAccept, placesRestantes } après check_restaurant_capacity — fallback si IA répond vide
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
   let userSpeakCount = 0; // Nombre de fois que le client a parlé (conversation.item.done user) → si < 1 au finalize = no_request
   let assistantTurnCount = 0; // Nombre de réponses IA (response.done avec texte) ; si >= 2 on considère que le client a parlé (secours si userSpeakCount reste 0)
@@ -5218,6 +5219,7 @@ But: être naturel et mettre le client en confiance.`,
                 } else if (!calendar) {
                   console.log("[CAPACITY-Warn] Calendrier vide — can_accept=false par défaut.");
                 }
+                lastCheckCapacityFallback = { canAccept, placesRestantes };
                 if (canAccept) {
                   output = "can_accept=true. Tu peux enchaîner (Terrasse ou intérieur ? si pas encore dit, puis récap).";
                 } else if (placesRestantes === 0) {
@@ -5758,8 +5760,22 @@ But: être naturel et mettre le client en confiance.`,
             if (effectiveSector === "restaurant" && (noTtsEnqueuedForThisResponse || responseTextEmpty) && userSpokeRecently) {
               setTimeout(() => {
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
-                console.log("🔄 response.done: réponse vide ou sans TTS pour ce tour — fallback + retry response.create", { doneRid });
-                enqueuePremiumTts("Un instant, s'il vous plaît.", { interrupt: false, source: "empty_realtime_fallback", allowWithoutUser: true });
+                let fallbackPhrase = "Un instant, s'il vous plaît.";
+                if (lastCheckCapacityFallback) {
+                  const { canAccept, placesRestantes } = lastCheckCapacityFallback;
+                  lastCheckCapacityFallback = null;
+                  if (canAccept) {
+                    fallbackPhrase = "Je peux vous proposer ce créneau. Préférez-vous la terrasse ou l'intérieur ?";
+                  } else if (placesRestantes === 0) {
+                    fallbackPhrase = "Pour ce créneau nous n'avons plus de place. Souhaitez-vous que je vous propose une autre date ?";
+                  } else {
+                    fallbackPhrase = `Pour ce créneau, nous n'avons de la place que pour ${placesRestantes} personne${placesRestantes !== 1 ? "s" : ""}. Souhaitez-vous réserver pour ${placesRestantes}, ou une autre date ?`;
+                  }
+                  console.log("🔄 response.done: réponse vide après check_restaurant_capacity — fallback synthétisé:", fallbackPhrase.slice(0, 60));
+                } else {
+                  console.log("🔄 response.done: réponse vide ou sans TTS — fallback + retry response.create", { doneRid });
+                }
+                enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_realtime_fallback", allowWithoutUser: true });
                 requestResponseCreate("empty_realtime_fallback");
               }, 150);
             }
