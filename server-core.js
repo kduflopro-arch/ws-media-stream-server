@@ -654,10 +654,7 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1"); // 0.5 à 2.0
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0"); // 0.0 à 1.0
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0"); // -12 à 12
-  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "calm"; // calm, happy, fluent (2.6+), etc. — "" = auto
-  const MINIMAX_VOICE_MODIFY_INTENSITY = process.env.MINIMAX_VOICE_MODIFY_INTENSITY !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_INTENSITY) : 25; // -100 à 100, positif = plus doux
-  const MINIMAX_VOICE_MODIFY_TIMBRE = process.env.MINIMAX_VOICE_MODIFY_TIMBRE !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_TIMBRE) : 15; // -100 à 100, positif = plus clair
-  const MINIMAX_VOICE_MODIFY_PITCH = process.env.MINIMAX_VOICE_MODIFY_PITCH !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_PITCH) : 0; // -100 à 100 (différent de voice_setting.pitch)
+  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "calm"; // calm, happy, fluent (2.6+), etc. — "" = auto (voice_modify non dispo avec pcm)
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
@@ -1870,16 +1867,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           channel: 1,
         },
       };
-      const voiceModifyInt = Math.max(-100, Math.min(100, MINIMAX_VOICE_MODIFY_INTENSITY ?? 0));
-      const voiceModifyTimb = Math.max(-100, Math.min(100, MINIMAX_VOICE_MODIFY_TIMBRE ?? 0));
-      const voiceModifyPit = Math.max(-100, Math.min(100, MINIMAX_VOICE_MODIFY_PITCH ?? 0));
-      if (voiceModifyInt !== 0 || voiceModifyTimb !== 0 || voiceModifyPit !== 0) {
-        taskStartMsg.voice_modify = {
-          pitch: voiceModifyPit,
-          intensity: voiceModifyInt,
-          timbre: voiceModifyTimb,
-        };
-      }
+      // voice_modify non compatible avec format pcm (doc Minimax : mp3/wav/flac uniquement)
       if (LOG_MINIMAX_EVENTS) console.log("📤 Envoi task_start:", JSON.stringify(taskStartMsg, null, 2));
       minimaxWs.send(JSON.stringify(taskStartMsg));
       if (LOG_VERBOSE) console.log("🔊 Minimax: waiting task_started (5s)...");
