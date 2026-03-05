@@ -590,6 +590,7 @@ wss.on("connection", (ws, req) => {
   let outboundQueuedBytes = 0;
   let hasSentInitialGreeting = false;
   let initialAssistantGreetingText = "";
+  let pendingRestaurantConsentAiResponse = false; // après intro courte, l'IA doit dire le consentement avec ses mots
   let rdvNotificationFollowupPlayed = false; // une seule fois par appel pour ne pas rejouer "Je vois que vous avez un RDV..." en plein flux
   let loggedFirstAudioDelta = false;
   let outboundTimer = null;
@@ -5737,6 +5738,14 @@ But: être naturel et mettre le client en confiance.`,
           }
           if (msg.type === "session.created" || msg.type === "session.updated") {
             console.log("✅ Session OpenAI configurée");
+            if (pendingRestaurantConsentAiResponse && effectiveSector === "restaurant" && initialAssistantGreetingText && openaiWs?.readyState === WebSocket.OPEN && !responseInProgress) {
+              try {
+                openaiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "assistant", content: [{ type: "output_text", text: initialAssistantGreetingText }] } }));
+                pendingRestaurantConsentAiResponse = false;
+                requestResponseCreate("initial_consent_restaurant");
+                console.log("🎤 IA restaurant: demande de consentement (session prête).");
+              } catch (e) { console.error("❌ initial_consent_restaurant (session):", e); }
+            }
           }
         } catch (err) {
           console.error("❌ Erreur parsing OpenAI message:", err, data.toString().substring(0, 100));
@@ -6012,8 +6021,13 @@ But: être naturel et mettre le client en confiance.`,
                       const baseHello = isRestoCI
                         ? `Bonjour. ${assistantName} du ${placePart}.`
                         : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                      const consentText = (isRestoCI ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
-                      greeting = [baseHello, consentText].filter(Boolean).join(" ");
+                      if (isRestoCI) {
+                        greeting = baseHello;
+                        pendingRestaurantConsentAiResponse = true;
+                      } else {
+                        const consentText = "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN;
+                        greeting = [baseHello, consentText].filter(Boolean).join(" ");
+                      }
                     } else if (isRestoCI) {
                       const rawN = String(garageName || "").trim();
                       const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
@@ -6042,6 +6056,18 @@ But: être naturel et mettre le client en confiance.`,
                     const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
                     console.log(`👋 Greeting ${consentRequired && !consentGiven ? "générique (consent)" : "post-consent avec nom"} joué via ${providerName}.`, { callSid, consentRequired });
                     if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+                    if (pendingRestaurantConsentAiResponse && effectiveSector === "restaurant") {
+                      setTimeout(() => {
+                        if (!pendingRestaurantConsentAiResponse) return;
+                        if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
+                        try {
+                          openaiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "assistant", content: [{ type: "output_text", text: initialAssistantGreetingText }] } }));
+                          pendingRestaurantConsentAiResponse = false;
+                          requestResponseCreate("initial_consent_restaurant");
+                          console.log("🎤 IA restaurant: demande de consentement envoyée (réplique avec ses mots).");
+                        } catch (e) { console.error("❌ initial_consent_restaurant:", e); }
+                      }, 700);
+                    }
                   } else if (!transferFailed && !rdvNotificationFollowupPlayed && (initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
                     const appointments = clientInfo.appointments || [];
                     if (appointments.length > 0) {
@@ -6095,8 +6121,13 @@ But: être naturel et mettre le client en confiance.`,
                 const baseHello = isRestoFb
                   ? `Bonjour. ${assistantName} du ${placePart}.`
                   : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                const consentText = (isRestoFb ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
-                greeting = [baseHello, consentText].filter(Boolean).join(" ");
+                if (isRestoFb) {
+                  greeting = baseHello;
+                  pendingRestaurantConsentAiResponse = true;
+                } else {
+                  const consentText = "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN;
+                  greeting = [baseHello, consentText].filter(Boolean).join(" ");
+                }
               } else if (isRestoFb) {
                 const rawN = String(garageName || "").trim();
                 const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
@@ -6113,6 +6144,18 @@ But: être naturel et mettre le client en confiance.`,
               console.log(`👋 Greeting générique (sans nom client) joué APRÈS délai fallback via ${providerName}.`, { callSid, consentRequired, fallbackDelayMs });
               if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
               ws.__greetingFallbackTimer = null;
+              if (pendingRestaurantConsentAiResponse && effectiveSector === "restaurant") {
+                setTimeout(() => {
+                  if (!pendingRestaurantConsentAiResponse) return;
+                  if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
+                  try {
+                    openaiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "assistant", content: [{ type: "output_text", text: initialAssistantGreetingText }] } }));
+                    pendingRestaurantConsentAiResponse = false;
+                    requestResponseCreate("initial_consent_restaurant");
+                    console.log("🎤 IA restaurant: demande de consentement envoyée (réplique avec ses mots).");
+                  } catch (e) { console.error("❌ initial_consent_restaurant:", e); }
+                }, 700);
+              }
             }, fallbackDelayMs);
           }
         } catch (e) {
