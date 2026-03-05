@@ -5603,7 +5603,7 @@ But: être naturel et mettre le client en confiance.`,
               console.log("🟢 Le client a parlé (buffer audio envoyé au modèle - committed)", { item_id: msg.item_id, timeSinceSpeech: commitTs - lastSpeechTs });
               if (LOG_VERBOSE) console.log("✅ OpenAI buffer committed:", { item_id: msg.item_id, previous_item_id: msg.previous_item_id, timeSinceSpeech: commitTs - lastSpeechTs });
               const canRequest = (commitTs - lastResponseAt) > 600;
-              if (awaitingUserResponse && canRequest) {
+              if (canRequest) {
                 lastResponseAt = commitTs;
                 awaitingUserResponse = false;
                 setTimeout(() => {
@@ -5632,6 +5632,14 @@ But: être naturel et mettre le client en confiance.`,
           if (msg.type === "response.done") {
             responseInProgress = false;
             activeResponseId = null;
+            const commitAfterResponse = lastCommitAt > lastResponseCreatedAt;
+            if (commitAfterResponse && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+              setTimeout(() => {
+                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
+                console.log("🔄 response.done: commit en attente détecté, envoi response.create pour ne pas manquer la réplique client.");
+                requestResponseCreate("after_response_done_pending_commit");
+              }, 100);
+            }
           }
           if (msg.type === "session.created" || msg.type === "session.updated") {
             console.log("✅ Session OpenAI configurée");
