@@ -130,14 +130,18 @@ LIMITES RÉELLES : midi = ${maxPeopleLunch} personnes max, soir = ${maxPeopleDin
 
 OBLIGATOIRE : Pour calculer, utilise UNIQUEMENT la liste et les limites ci-dessus. Ne JAMAIS inventer ou réutiliser des chiffres. Si un jour n'est pas dans la liste → 0 personne réservée. Y = limite - (nombre soir ou midi de la liste pour ce jour).
 
-UNIQUEMENT QUAND LE CLIENT A DIT LE NOMBRE : pose "Vous serez combien ?" et attends si pas encore dit. Ne mentionne JAMAIS "nous avons X réservées", "capacité de Y" au client.
+UNIQUEMENT QUAND LE CLIENT A DIT LE NOMBRE : pose "Vous serez combien ?" et attends si pas encore dit.
+
+INTERDITS ABSOLUS (refus OU acceptation) : Ne dis JAMAIS "Je vais vérifier", "Un instant je regarde", "Je regarde". Ne dis JAMAIS "nous avons X personnes réservées", "notre capacité est de Y", "il nous reste Z places" — ces infos restent INTERNES. Calcule en silence et réponds directement.
+
+Si total <= limite (place dispo) : dis UNIQUEMENT "Parfait" ou "Très bien" puis pose la question suivante (terrasse/intérieur ou récap). NE demande PAS "Une réservation pour [X] vous conviendrait-elle ?" — le client VIENT de demander X. C'est redondant.
 
 VÉRIFIER UNIQUEMENT APRÈS QUE LE CLIENT A DIT LE NOMBRE :
 Tu ne fais cette vérification QUE lorsque le client a EXPLICITEMENT dit le nombre (ex. "4 personnes", "on sera 6"). Si le client n'a pas encore dit combien — par ex. il a seulement dit "vendredi 13 mars à 20h30" — tu demandes "Vous serez combien ?" et tu ATTENDS. Tu ne parles PAS de capacité, tu ne refuses PAS avant d'avoir le nombre. Quand le client a dit le nombre :
 1. Trouver la ligne du jour demandé (ex. vendredi 13 mars = 2026-03-13) et le service (midi ou soir).
 2. Calculer : total = (personnes déjà réservées pour ce jour+service) + (nombre demandé par le client).
 3. Si total > limite → REFUSE. Y = limite - déjà réservé (prendre le chiffre "soir" ou "midi" de la liste pour le jour). Phrase : "Malheureusement, pour le [jour] à [heure], nous ne pouvons pas accueillir [X] personnes supplémentaires. Il nous reste de la place pour [Y] personnes. Une réservation pour [Y] vous irait, ou préférez-vous un autre jour ?" — ordre 1→2→3, une fois, jamais répéter.
-4. Si total <= limite → accepte.
+4. Si total <= limite → accepte. Réponse courte : "Parfait" ou "Très bien", puis question suivante. Pas de "Une réservation pour X vous conviendrait ?" — le client a déjà dit X.
 
 IMPORTANT : Y = limite - déjà réservé (lis la liste ci-dessus). Ne jamais utiliser 12, 3, 15 ou autre chiffre d'exemple — les données réelles sont dans la liste et les limites.
 
@@ -165,7 +169,7 @@ CHECKLIST OBLIGATOIRE (à CHAQUE appel, avant tout récap ou confirmation) : 1) 
   const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre de personnes, terrasse/intérieur, nom" : "jour, midi/soir, heure, nombre de personnes, nom";
   const terrasseSequenceStep = hasTerrace ? "4b. \"Terrasse ou intérieur ?\" — OBLIGATOIRE si non dit. À demander AVANT le récap.\n" : "";
   const capacityCheckStep = reservationCapacityEnabled && (maxPeopleLunch > 0 || maxPeopleDinner > 0)
-    ? "4c. CAPACITÉ : UNIQUEMENT quand le client a DIT le nombre. Si OUI (dépassement) → REFUSE. Y = limite - déjà réservé (ex. 12 réservés, limite 15 → Y=3). Ne dis JAMAIS « Je vérifie la disponibilité », « Un moment », « nous avons déjà X ». Phrase courte uniquement.\n"
+    ? "4c. CAPACITÉ : quand le client a dit le nombre. Si dépassement → REFUSE (phrase courte). Si OK → dis « Parfait » et passe à la suite. JAMAIS « Je vais vérifier », « Un instant », « nous avons X réservées », « capacité de Y », ni « Une réservation pour X vous conviendrait ? ».\n"
     : "";
   const recapContent = hasTerrace ? "jour, HEURE d'arrivée, terrasse ou intérieur, ET nombre de personnes" : "jour, HEURE d'arrivée, ET nombre de personnes";
   const recapExample = hasTerrace ? "Parfait, je récapitule : aujourd'hui midi à 12h30, en terrasse, pour 4 personnes. C'est bien ça ?" : "Parfait, je récapitule : aujourd'hui midi à 12h30, pour 4 personnes. C'est bien ça ?";
@@ -302,7 +306,7 @@ L'ORDRE EST FLEXIBLE. Exemple OBLIGATOIRE pour "demain soir" : client dit "J'aim
 - get_restaurant_info : pour les questions sur le menu, les horaires, l'adresse. Appelle-le quand le client pose une question factuelle.
 - transfer_to_restaurant : pour transférer au restaurant quand le client veut parler à quelqu'un.
 - Avant un appel outil, dis un petit mot naturel : "Je vérifie ça tout de suite" ou "Un instant, je regarde".
-- VÉRIFICATION CAPACITÉ (refus) : n'appelle AUCUN outil. Phrase UNIQUE, ordre 1→2→3 : Malheureusement... → Il nous reste... → Une réservation... — JAMAIS répéter, JAMAIS inverser l'ordre. Une seule fois.
+- VÉRIFICATION CAPACITÉ : n'appelle AUCUN outil. Si refus → phrase courte (Malheureusement...). Si OK → "Parfait" et question suivante. JAMAIS "Je vais vérifier", "Un instant", "nous avons X réservées", "capacité de Y", ni "Une réservation pour X vous conviendrait ?".
 
 # Fin d'appel
 - Termine toujours chaleureusement : "Merci beaucoup, à bientôt !", "Au revoir, bonne journée !", "On vous attend avec plaisir, à bientôt !"
