@@ -3586,7 +3586,7 @@ ${compactPersona}`;
         const restaurantTools = [
           { type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires d'ouverture et informations du restaurant. À appeler pour questions sur le menu, les horaires, l'adresse.", parameters: { type: "object", properties: {} } },
           ...(effectiveSector === "restaurant" && reservationCapacityEnabled && reservationCapacityCalendar
-            ? [{ type: "function", name: "check_restaurant_capacity", description: "Vérifie si le restaurant peut accueillir un nombre de personnes donné pour une date et un service (midi ou soir). À appeler dès que le client dit le nombre de personnes pour le jour choisi, et avant de proposer une nouvelle date. Ne dis jamais « Je vérifie la disponibilité » ni « Un instant » — appelle cet outil puis dis uniquement ce que l'outil te renvoie.", parameters: { type: "object", properties: { date_iso: { type: "string", description: "Date au format YYYY-MM-DD (ex. 2026-03-13)" }, service: { type: "string", enum: ["lunch", "dinner"], description: "lunch = midi/déjeuner, dinner = soir/dîner" }, requested_people: { type: "number", description: "Nombre de personnes demandé par le client" } }, required: ["date_iso", "service", "requested_people"] } }]
+            ? [{ type: "function", name: "check_restaurant_capacity", description: "Vérifie si le restaurant peut accueillir un nombre de personnes pour une date et un service (midi ou soir). À appeler dès que le client dit le nombre, et avant de proposer une nouvelle date. L'outil renvoie can_accept et places_restantes — formule naturellement avec tes propres mots. Ne dis jamais « Je vérifie » ni « Un instant ».", parameters: { type: "object", properties: { date_iso: { type: "string", description: "Date au format YYYY-MM-DD (ex. 2026-03-13)" }, service: { type: "string", enum: ["lunch", "dinner"], description: "lunch = midi/déjeuner, dinner = soir/dîner" }, requested_people: { type: "number", description: "Nombre de personnes demandé par le client" } }, required: ["date_iso", "service", "requested_people"] } }]
             : []),
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : []),
         ];
@@ -5192,8 +5192,7 @@ But: être naturel et mettre le client en confiance.`,
                 if (canAccept) {
                   output = "can_accept=true. Tu peux enchaîner (Terrasse ou intérieur ? si pas encore dit, puis récap).";
                 } else {
-                  const Y = placesRestantes;
-                  output = `can_accept=false, places_restantes=${Y}. Dis UNIQUEMENT au client : « Il nous reste de la place pour ${Y} personne${Y !== 1 ? "s" : ""} ce jour-là. Souhaitez-vous réserver pour ${Y} personne${Y !== 1 ? "s" : ""} ou pour un autre jour ? » Ne dis rien d'autre : pas de « nous avons déjà X réservées », pas de « maximum », pas de « Je vérifie la disponibilité », pas de « Un instant ».`;
+                  output = `can_accept=false, places_restantes=${placesRestantes}. Formule à ta façon : communique uniquement qu'il reste de la place pour ${placesRestantes} personne${placesRestantes !== 1 ? "s" : ""} ce jour-là, et propose de réserver pour ce nombre ou un autre jour. INTERDIT : « nous avons déjà X réservées », « sur un maximum de Y », « Je vérifie la disponibilité », « Un instant ».`;
                 }
               }
               else if (toolName === "transfer_to_restaurant") {
@@ -6379,7 +6378,8 @@ But: être naturel et mettre le client en confiance.`,
               const isUserSpeech = avg > TWILIO_SPEECH_THRESHOLD;
               if (isUserSpeech) twilioSpeechFrames += 1;
               else twilioSpeechFrames = Math.max(0, twilioSpeechFrames - 1);
-              if (BARGE_IN_ENABLED && responseInProgress && twilioSpeechFrames >= BARGE_IN_FRAMES) {
+              const bargeInActive = effectiveSector === "restaurant" || BARGE_IN_ENABLED;
+              if (bargeInActive && responseInProgress && twilioSpeechFrames >= BARGE_IN_FRAMES) {
                 cancelResponseForBargeIn();
                 twilioSpeechFrames = 0;
               }
