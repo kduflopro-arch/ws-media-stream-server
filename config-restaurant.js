@@ -122,20 +122,24 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
     ? `HEURES DE FIN DE RÉSERVATION (règle OBLIGATOIRE — vérifie AVANT de prendre une résa):\n${cutoffParts.map((p) => `- ${p}`).join("\n")}\n${arrivalCutoffLunch ? arrivalCutoffLunch + "\n" : ""}${arrivalCutoffDinner ? arrivalCutoffDinner + "\n" : ""}Si c'est DÉJÀ après ${dinnerEndDisplay} (maintenant) et le client demande "ce soir" : dis "Malheureusement on ne prend plus de réservations pour ce soir, c'est après ${dinnerEndDisplay}. Je peux vous proposer demain soir ?" — NE PRENDS JAMAIS la résa. (Ça, c'est uniquement quand l'heure actuelle est passée, pas quand le client demande une heure d'arrivée trop tardive pour un soir à venir.)`
     : "";
 
-  const capacityLine = reservationCapacityEnabled && reservationPeoplePerDayService && (maxPeopleLunch > 0 || maxPeopleDinner > 0)
-    ? `CAPACITÉ PAR SERVICE (nombre de personnes) — RÈGLE OBLIGATOIRE ET BLOQUANTE :
-⚠️ UNIQUEMENT QUAND LE CLIENT A DIT LE NOMBRE : Tu ne vérifies la capacité et tu ne parles de capacité QUE lorsque le client a EXPLICITEMENT dit le nombre de personnes (ex. "4 personnes", "on sera 6"). Si le client n'a pas encore donné le nombre, pose "Vous serez combien ?" et ATTENDS. Ne mentionne JAMAIS "nous avons déjà X personnes", "notre capacité est de Y", "12 personnes réservées", "capacité de 15" — ces infos restent internes. Ne devine JAMAIS le nombre : si le client ne l'a pas dit, demande et attends.
-La liste indique, pour chaque jour (format YYYY-MM-DD), le nombre de personnes DÉJÀ réservées au midi et au soir : ${reservationPeoplePerDayService}.
-Limites max : midi = ${maxPeopleLunch} personnes/jour, soir = ${maxPeopleDinner} personnes/jour.
+  const capacityLine = reservationCapacityEnabled && (maxPeopleLunch > 0 || maxPeopleDinner > 0)
+    ? `CAPACITÉ PAR SERVICE — DONNÉES RÉELLES (utilise UNIQUEMENT ces chiffres, jamais d'exemple) :
+LISTE RÉELLE des personnes déjà réservées par jour (YYYY-MM-DD) et service :
+${reservationPeoplePerDayService || "(aucune réservation enregistrée — considère 0 pour chaque jour)"}
+LIMITES RÉELLES : midi = ${maxPeopleLunch} personnes max, soir = ${maxPeopleDinner} personnes max.
 
-RÈGLE CRITIQUE — VÉRIFIER UNIQUEMENT APRÈS QUE LE CLIENT A DIT LE NOMBRE :
+OBLIGATOIRE : Pour calculer, utilise UNIQUEMENT la liste et les limites ci-dessus. Ne JAMAIS inventer ou réutiliser des chiffres. Si un jour n'est pas dans la liste → 0 personne réservée. Y = limite - (nombre soir ou midi de la liste pour ce jour).
+
+UNIQUEMENT QUAND LE CLIENT A DIT LE NOMBRE : pose "Vous serez combien ?" et attends si pas encore dit. Ne mentionne JAMAIS "nous avons X réservées", "capacité de Y" au client.
+
+VÉRIFIER UNIQUEMENT APRÈS QUE LE CLIENT A DIT LE NOMBRE :
 Tu ne fais cette vérification QUE lorsque le client a EXPLICITEMENT dit le nombre (ex. "4 personnes", "on sera 6"). Si le client n'a pas encore dit combien — par ex. il a seulement dit "vendredi 13 mars à 20h30" — tu demandes "Vous serez combien ?" et tu ATTENDS. Tu ne parles PAS de capacité, tu ne refuses PAS avant d'avoir le nombre. Quand le client a dit le nombre :
 1. Trouver la ligne du jour demandé (ex. vendredi 13 mars = 2026-03-13) et le service (midi ou soir).
 2. Calculer : total = (personnes déjà réservées pour ce jour+service) + (nombre demandé par le client).
-3. Si total > limite du service → REFUSE. ORDRE STRICT (1→2→3) : "Malheureusement, pour le [jour] à [heure], nous ne pouvons pas accueillir [X] personnes supplémentaires. Il nous reste de la place pour [Y] personnes. Une réservation pour [Y] vous irait, ou préférez-vous un autre jour ?" — UNE SEULE FOIS, jamais répéter, jamais inverser. Commence par "Malheureusement". Y = limite - déjà réservé.
-4. Si total <= limite → accepte et enchaîne ("Nous pouvons encore accepter [Y] personnes pour ce service ce jour-là, parfait.")
+3. Si total > limite → REFUSE. Y = limite - déjà réservé (prendre le chiffre "soir" ou "midi" de la liste pour le jour). Phrase : "Malheureusement, pour le [jour] à [heure], nous ne pouvons pas accueillir [X] personnes supplémentaires. Il nous reste de la place pour [Y] personnes. Une réservation pour [Y] vous irait, ou préférez-vous un autre jour ?" — ordre 1→2→3, une fois, jamais répéter.
+4. Si total <= limite → accepte.
 
-Exemple : 12 réservés, limite ${maxPeopleDinner}, client "4 personnes" → refus. Réponse EXACTE, une fois, ordre 1-2-3 : "Malheureusement, pour le vendredi 13 mars à vingt heures trente, nous ne pouvons pas accueillir quatre personnes supplémentaires. Il nous reste de la place pour trois personnes. Une réservation pour trois personnes vous irait, ou préférez-vous un autre jour ?" — Jamais inverser l'ordre, jamais répéter une partie.
+IMPORTANT : Y = limite - déjà réservé (lis la liste ci-dessus). Ne jamais utiliser 12, 3, 15 ou autre chiffre d'exemple — les données réelles sont dans la liste et les limites.
 
 INTERDICTION ABSOLUE : Ne fais JAMAIS le récap ni la confirmation si (total + demande) > limite. Vérifie AVANT le récap : avant de dire "Parfait, je récapitule...", recalcule. Si dépassement → STOP, refuse. Ne confirme jamais une réservation qui dépasse la limite.
 CHECKLIST OBLIGATOIRE (à CHAQUE appel, avant tout récap ou confirmation) : 1) Quel jour + quel service (midi/soir) ? 2) Combien de personnes le client demande ? 3) Total = déjà réservé + demande. 4) Total > limite ? → REFUSE. Ne saute JAMAIS cette étape.`
@@ -160,7 +164,7 @@ CHECKLIST OBLIGATOIRE (à CHAQUE appel, avant tout récap ou confirmation) : 1) 
     : "PAS DE TERRASSE — Le restaurant n'a pas de terrasse. Ne demande JAMAIS \"Terrasse ou intérieur ?\". Ne collecte pas cette info. Le récap et la confirmation n'incluent pas terrasse/intérieur.";
   const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre de personnes, terrasse/intérieur, nom" : "jour, midi/soir, heure, nombre de personnes, nom";
   const terrasseSequenceStep = hasTerrace ? "4b. \"Terrasse ou intérieur ?\" — OBLIGATOIRE si non dit. À demander AVANT le récap.\n" : "";
-  const capacityCheckStep = reservationCapacityEnabled && reservationPeoplePerDayService
+  const capacityCheckStep = reservationCapacityEnabled && (maxPeopleLunch > 0 || maxPeopleDinner > 0)
     ? "4c. CAPACITÉ : UNIQUEMENT quand le client a DIT le nombre. Si OUI (dépassement) → REFUSE. Y = limite - déjà réservé (ex. 12 réservés, limite 15 → Y=3). Ne dis JAMAIS « Je vérifie la disponibilité », « Un moment », « nous avons déjà X ». Phrase courte uniquement.\n"
     : "";
   const recapContent = hasTerrace ? "jour, HEURE d'arrivée, terrasse ou intérieur, ET nombre de personnes" : "jour, HEURE d'arrivée, ET nombre de personnes";
