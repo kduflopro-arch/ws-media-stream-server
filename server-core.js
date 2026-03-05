@@ -3596,8 +3596,11 @@ ${compactPersona}`;
         if (effectiveSector === "restaurant" && typeof fetch === "function") {
           const hasCeMidiDisambiguation = restaurantInstructions.includes("ET POUR CE MIDI") || restaurantInstructions.includes("et pour ce midi ?");
           const hasRecapPlaceholders = restaurantInstructions.includes("[heure") || restaurantInstructions.includes("[X]") || restaurantInstructions.includes("[nombre de personnes]");
+          const hasCapacityRule = restaurantInstructions.includes("VÉRIFICATION IMMÉDIATE") && restaurantInstructions.includes("réservé + nombre demandé");
+          const hasCapacityStepReminder = restaurantInstructions.includes("vérifie la CAPACITÉ pour ce jour");
           fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:buildRestaurantInstructions", message: "Restaurant prompt state", data: { hypothesisId: "H1", dinnerFullToday, lunchFullToday, instructionsIncludeCeMidiDisambiguation: hasCeMidiDisambiguation }, timestamp: Date.now() }) }).catch(() => {});
           fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:recapPlaceholders", message: "Recap placeholders in prompt", data: { hypothesisId: "H2", instructionsContainRecapPlaceholders: hasRecapPlaceholders }, timestamp: Date.now() }) }).catch(() => {});
+          fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:capacityCheck", message: "Capacity rule in prompt", data: { hypothesisId: "H3", reservationCapacityEnabled, reservationCapacityCalendarLength: (reservationCapacityCalendar || "").length, instructionsLength: restaurantInstructions.length, hasCapacityRule, hasCapacityStepReminder, wouldTruncate: restaurantInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS }, timestamp: Date.now() }) }).catch(() => {});
         }
         // #endregion
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
@@ -3665,10 +3668,18 @@ ${compactPersona}`;
               reservationPeoplePerDayService,
             });
             let instructionsToSend = updatedRestaurantInstructions;
+            let truncated = false;
             if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
               const truncNote = "\n\n[RÈGLES: réservation naturelle, une question à la fois, multilangue.]";
               instructionsToSend = instructionsToSend.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - truncNote.length - 400) + truncNote;
+              truncated = true;
             }
+            // #region agent log
+            if (typeof fetch === "function") {
+              const stillHasCapacity = instructionsToSend.includes("VÉRIFICATION IMMÉDIATE");
+              fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:updatePromptTruncation", message: "Update prompt capacity after truncation", data: { hypothesisId: "H4", truncated, instructionsLengthAfter: instructionsToSend.length, stillHasCapacityRule: stillHasCapacity }, timestamp: Date.now() }) }).catch(() => {});
+            }
+            // #endregion
             openaiWs.send(JSON.stringify({
               type: "session.update",
               session: {
