@@ -654,7 +654,7 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1"); // 0.5 à 2.0
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0"); // 0.0 à 1.0
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0"); // -12 à 12
-  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "calm"; // calm, happy, fluent (2.6+), etc. — "" = auto (voice_modify non dispo avec pcm)
+  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "happy"; // happy = plus d'énergie, calm, fluent (2.6+), etc. — "" = auto
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
