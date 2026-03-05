@@ -3904,13 +3904,23 @@ But: être naturel et mettre le client en confiance.`,
           /** Évite de jouer deux fois la même phrase si l'API renvoie un doublon (ex. récap répété). */
           function dedupeRepeatedPhrase(text) {
             if (!text || typeof text !== "string") return text;
-            const t = text.trim();
-            if (t.length < 24) return t;
+            const norm = (s) => String(s).replace(/\s+/g, " ").trim();
+            const t = norm(text);
+            if (t.length < 24) return text;
             const half = Math.floor(t.length / 2);
-            const first = t.slice(0, half).trim();
-            const second = t.slice(half).trim();
+            const first = norm(t.slice(0, half));
+            const second = norm(t.slice(half));
             if (first.length >= 12 && first === second) return first;
-            return t;
+            const prefixLen = Math.min(80, Math.floor(t.length / 3));
+            if (prefixLen >= 30) {
+              const prefix = norm(t.slice(0, prefixLen));
+              const rest = t.slice(prefixLen);
+              if (rest.startsWith(prefix) || rest.includes(prefix)) {
+                const idx = t.indexOf(prefix, 10);
+                if (idx > 0 && idx < t.length * 0.6) return norm(t.slice(0, idx));
+              }
+            }
+            return text;
           }
           function flushRealtimeElevenChunks(rid, final = false) {
             if (!REALTIME_USE_ELEVEN || !REALTIME_ELEVEN_CHUNKING_ENABLED) return;
