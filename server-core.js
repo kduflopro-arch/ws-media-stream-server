@@ -3590,6 +3590,14 @@ ${compactPersona}`;
           maxPeopleDinner,
           reservationPeoplePerDayService,
         }) : "";
+        // #region agent log
+        if (effectiveSector === "restaurant" && typeof fetch === "function") {
+          const hasCeMidiDisambiguation = restaurantInstructions.includes("ET POUR CE MIDI") || restaurantInstructions.includes("et pour ce midi ?");
+          const hasRecapPlaceholders = restaurantInstructions.includes("[heure") || restaurantInstructions.includes("[X]") || restaurantInstructions.includes("[nombre de personnes]");
+          fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:buildRestaurantInstructions", message: "Restaurant prompt state", data: { hypothesisId: "H1", dinnerFullToday, lunchFullToday, instructionsIncludeCeMidiDisambiguation: hasCeMidiDisambiguation }, timestamp: Date.now() }) }).catch(() => {});
+          fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:recapPlaceholders", message: "Recap placeholders in prompt", data: { hypothesisId: "H2", instructionsContainRecapPlaceholders: hasRecapPlaceholders }, timestamp: Date.now() }) }).catch(() => {});
+        }
+        // #endregion
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
         const sessionUpdate = {
