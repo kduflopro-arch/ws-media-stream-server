@@ -709,7 +709,6 @@ wss.on("connection", (ws, req) => {
   let transferFailed = false; // true si reconnexion après transfert raté (garage n'a pas répondu) — utilisé dans connectToOpenAI
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let lastUserMessageText = ""; // Dernier texte client (pour safeguard hangup : ne pas raccrocher si demande devis/RDV)
-  let lastCheckCapacityFallback = null; // { canAccept, placesRestantes } après check_restaurant_capacity — fallback si IA répond vide
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
   let userSpeakCount = 0; // Nombre de fois que le client a parlé (conversation.item.done user) → si < 1 au finalize = no_request
   let assistantTurnCount = 0; // Nombre de réponses IA (response.done avec texte) ; si >= 2 on considère que le client a parlé (secours si userSpeakCount reste 0)
@@ -782,11 +781,6 @@ wss.on("connection", (ws, req) => {
   let referenceTomorrowLine = "";
   let referenceWeekCalendar = "";
   let restaurantHasTerrace = true; // Si false, l'IA ne demande pas terrasse/intérieur
-  let reservationCapacityEnabled = false; // Limite personnes par service (restaurant)
-  let maxPeopleLunch = 0;
-  let maxPeopleDinner = 0;
-  let reservationCapacityCalendar = ""; // Calendrier 30j : par date, midi réservé/max, soir réservé/max
-  let reservationPeoplePerDayService = "";
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -3593,9 +3587,6 @@ ${compactPersona}`;
         ];
         const restaurantTools = [
           { type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires d'ouverture et informations du restaurant. À appeler pour questions sur le menu, les horaires, l'adresse.", parameters: { type: "object", properties: {} } },
-          ...(effectiveSector === "restaurant" && reservationCapacityEnabled && reservationCapacityCalendar
-            ? [{ type: "function", name: "check_restaurant_capacity", description: "Vérifie si le restaurant peut accueillir un nombre de personnes pour une date et un service (midi ou soir). À appeler dès que le client dit le nombre, et avant de proposer une nouvelle date. L'outil renvoie can_accept et places_restantes — formule naturellement avec tes propres mots. Ne dis jamais « Je vérifie » ni « Un instant ».", parameters: { type: "object", properties: { date_iso: { type: "string", description: "Date au format YYYY-MM-DD (ex. 2026-03-13)" }, service: { type: "string", enum: ["lunch", "dinner"], description: "lunch = midi/déjeuner, dinner = soir/dîner" }, requested_people: { type: "number", description: "Nombre de personnes demandé par le client" } }, required: ["date_iso", "service", "requested_people"] } }]
-            : []),
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : []),
         ];
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
@@ -3623,24 +3614,7 @@ ${compactPersona}`;
           clientInfo,
           garageTone,
           hasTerrace: restaurantHasTerrace,
-          reservationCapacityEnabled,
-          maxPeopleLunch,
-          maxPeopleDinner,
-          reservationCapacityCalendar,
-          reservationPeoplePerDayService,
         }) : "";
-        // #region agent log
-        if (effectiveSector === "restaurant" && typeof fetch === "function") {
-          const hasCeMidiDisambiguation = restaurantInstructions.includes("ET POUR CE MIDI") || restaurantInstructions.includes("et pour ce midi ?");
-          const hasRecapPlaceholders = restaurantInstructions.includes("[heure") || restaurantInstructions.includes("[X]") || restaurantInstructions.includes("[nombre de personnes]");
-          const hasCapacityRule = (restaurantInstructions.includes("RÈGLE BLOQUANTE") || restaurantInstructions.includes("CAPACITÉ PAR SERVICE")) && (restaurantInstructions.includes("réservé") || restaurantInstructions.includes("calendrier"));
-          const hasCapacityStepReminder = restaurantInstructions.includes("vérifie la CAPACITÉ pour ce jour") || restaurantInstructions.includes("CAPACITÉ pour ce jour");
-          const calendarSnippet = (reservationCapacityCalendar || "").substring(0, 400);
-          const calendarHasMarch13 = (reservationCapacityCalendar || "").includes("03-13") || (reservationCapacityCalendar || "").includes("13 mars");
-          fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:capacityCheck", message: "Capacity rule in prompt", data: { hypothesisId: "H_capacity", reservationCapacityEnabled, reservationCapacityCalendarLength: (reservationCapacityCalendar || "").length, hasCapacityRule, hasCapacityStepReminder, calendarHasMarch13, calendarSnippetLength: calendarSnippet.length, wouldTruncate: restaurantInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS }, timestamp: Date.now() }) }).catch(() => {});
-          console.log("[DEBUG-capacity]", JSON.stringify({ reservationCapacityEnabled, hasCapacityRule, hasCapacityStepReminder, calendarHasMarch13, calendarLength: (reservationCapacityCalendar || "").length }));
-        }
-        // #endregion
         // Log pour distinguer IA (VOIX LIBRE) vs protocole (phrases imposées)
         if (effectiveSector === "restaurant" && restaurantInstructions) {
           const hasVoixLibre = /VOIX LIBRE|VOIX_LIBRE/i.test(restaurantInstructions);
@@ -3705,11 +3679,6 @@ ${compactPersona}`;
               clientInfo,
               garageTone,
               hasTerrace: restaurantHasTerrace,
-              reservationCapacityEnabled,
-              maxPeopleLunch,
-              maxPeopleDinner,
-              reservationCapacityCalendar,
-              reservationPeoplePerDayService,
             });
             let instructionsToSend = updatedRestaurantInstructions;
             let truncated = false;
@@ -3718,12 +3687,6 @@ ${compactPersona}`;
               instructionsToSend = instructionsToSend.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - truncNote.length - 400) + truncNote;
               truncated = true;
             }
-            // #region agent log
-            if (typeof fetch === "function") {
-              const stillHasCapacity = instructionsToSend.includes("VÉRIFICATION IMMÉDIATE");
-              fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:updatePromptTruncation", message: "Update prompt capacity after truncation", data: { hypothesisId: "H4", truncated, instructionsLengthAfter: instructionsToSend.length, stillHasCapacityRule: stillHasCapacity }, timestamp: Date.now() }) }).catch(() => {});
-            }
-            // #endregion
             const hasVoixLibreUpd = /VOIX LIBRE|VOIX_LIBRE/i.test(instructionsToSend);
             const scriptedCountUpd = (instructionsToSend.match(/Dis UNIQUEMENT|Dis exactement|phrase UNIQUE|recopier|réciter|script/gi) || []).length;
             console.log("[RESTAURANT-PROMPT] session.update (client reçu): contrôle:", hasVoixLibreUpd ? "VOIX_LIBRE (IA)" : "protocole", "| indicateurs scriptés:", scriptedCountUpd);
@@ -5083,7 +5046,7 @@ But: être naturel et mettre le client en confiance.`,
               const toolName = msg.item.name;
               const previousItemId = msg.item.id;
               const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
-              const restaurantDataTools = ["get_restaurant_info"]; // check_restaurant_capacity exclu : pas de "Un instant" pour ne pas annoncer la vérification
+              const restaurantDataTools = ["get_restaurant_info"];
               const dataTools = effectiveSector === "restaurant" ? restaurantDataTools : garageDataTools;
               if (dataTools.includes(toolName)) {
                 const recentMs = 15000;
@@ -5175,59 +5138,6 @@ But: être naturel et mettre le client en confiance.`,
                 const menuText = String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")).trim();
                 const stateLine = garageClosed ? "État actuel: le restaurant est actuellement FERMÉ." : "État actuel: le restaurant est actuellement OUVERT.";
                 output = [menuText ? `MENU: ${menuText}` : "", garageHoursText ? `HORAIRES: ${garageHoursText}` : "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
-              }
-              else if (toolName === "check_restaurant_capacity") {
-                const userTextForCheck = String(lastUserMessageText || "").trim();
-                const hasHeadcount = /\b(deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze)\b(?!\s*heures?)/i.test(userTextForCheck)
-                  || /\b(une?)\s*(personne|place)\b/i.test(userTextForCheck)
-                  || /\b[2-9]\s*(personnes|convives)?\b/.test(userTextForCheck)
-                  || /\b(quatre|trois|deux|cinq)\s*(personnes|convives)?\b/i.test(userTextForCheck);
-                if (effectiveSector === "restaurant" && reservationCapacityEnabled && !hasHeadcount) {
-                  output = "ERREUR_PROTOCOLE: Le client n'a pas encore dit le nombre de personnes. Tu DOIS demander 'Vous serez combien ?' et attendre sa réponse AVANT d'appeler cet outil. N'appelle JAMAIS check_restaurant_capacity tant que le client n'a pas explicitement donné le nombre (ex. 'quatre', 'on sera trois', 'pour deux personnes'). Dis simplement 'Vous serez combien ?' et attendre.";
-                  console.log("[CAPACITY-BLOCK] check_restaurant_capacity refusé: client n'a pas dit le nombre. lastUserMessage:", userTextForCheck.slice(0, 120));
-                } else {
-                let dateIso = "";
-                let service = "";
-                let requestedPeople = 0;
-                try {
-                  const args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {};
-                  dateIso = String(args.date_iso || "").trim();
-                  service = String(args.service || "").toLowerCase();
-                  requestedPeople = typeof args.requested_people === "number" ? args.requested_people : parseInt(String(args.requested_people || "0"), 10) || 0;
-                } catch (_) { /* ignore */ }
-                const calendar = String(reservationCapacityCalendar || "").trim();
-                let canAccept = false;
-                let placesRestantes = 0;
-                if (dateIso && (service === "lunch" || service === "dinner") && calendar) {
-                  const line = calendar.split("\n").find((l) => l.startsWith(dateIso) || l.includes(`(${dateIso})`));
-                  if (line) {
-                    const isDinner = service === "dinner";
-                    const re = isDinner ? /soir\s+(\d+)\/(\d+)/i : /midi\s+(\d+)\/(\d+)/i;
-                    const match = line.match(re);
-                    if (match) {
-                      const reserved = parseInt(match[1], 10) || 0;
-                      const max = parseInt(match[2], 10) || 0;
-                      placesRestantes = Math.max(0, max - reserved);
-                      canAccept = requestedPeople > 0 && requestedPeople <= placesRestantes;
-                      console.log("[CAPACITY-Check]", { dateIso, service, requestedPeople, reserved, max, placesRestantes, canAccept });
-                    } else {
-                      console.log("[CAPACITY-Warn] Ligne trouvée mais format midi/soir invalide:", { dateIso, service, linePreview: line.slice(0, 80) });
-                    }
-                  } else {
-                    console.log("[CAPACITY-Warn] Date absente du calendrier:", { dateIso, service });
-                  }
-                } else if (!calendar) {
-                  console.log("[CAPACITY-Warn] Calendrier vide — can_accept=false par défaut.");
-                }
-                lastCheckCapacityFallback = { canAccept, placesRestantes };
-                if (canAccept) {
-                  output = "can_accept=true. Tu peux enchaîner (Terrasse ou intérieur ? si pas encore dit, puis récap).";
-                } else if (placesRestantes === 0) {
-                  output = "can_accept=false, places_restantes=0. Ce créneau est complet. Dis qu'il n'y a plus de place pour ce jour et propose une autre date ou un autre créneau. INTERDIT de dire qu'il reste de la place.";
-                } else {
-                  output = `can_accept=false, places_restantes=${placesRestantes}. Formule à ta façon : communique uniquement qu'il reste de la place pour ${placesRestantes} personne${placesRestantes !== 1 ? "s" : ""} ce jour-là, et propose de réserver pour ce nombre ou un autre jour. INTERDIT : « nous avons déjà X réservées », « sur un maximum de Y », « Je vérifie la disponibilité », « Un instant ».`;
-                }
-                }
               }
               else if (toolName === "transfer_to_restaurant") {
                 try {
@@ -5760,22 +5670,8 @@ But: être naturel et mettre le client en confiance.`,
             if (effectiveSector === "restaurant" && (noTtsEnqueuedForThisResponse || responseTextEmpty) && userSpokeRecently) {
               setTimeout(() => {
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
-                let fallbackPhrase = "Un instant, s'il vous plaît.";
-                if (lastCheckCapacityFallback) {
-                  const { canAccept, placesRestantes } = lastCheckCapacityFallback;
-                  lastCheckCapacityFallback = null;
-                  if (canAccept) {
-                    fallbackPhrase = "Je peux vous proposer ce créneau. Préférez-vous la terrasse ou l'intérieur ?";
-                  } else if (placesRestantes === 0) {
-                    fallbackPhrase = "Pour ce créneau nous n'avons plus de place. Souhaitez-vous que je vous propose une autre date ?";
-                  } else {
-                    fallbackPhrase = `Pour ce créneau, nous n'avons de la place que pour ${placesRestantes} personne${placesRestantes !== 1 ? "s" : ""}. Souhaitez-vous réserver pour ${placesRestantes}, ou une autre date ?`;
-                  }
-                  console.log("🔄 response.done: réponse vide après check_restaurant_capacity — fallback synthétisé:", fallbackPhrase.slice(0, 60));
-                } else {
-                  console.log("🔄 response.done: réponse vide ou sans TTS — fallback + retry response.create", { doneRid });
-                }
-                enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_realtime_fallback", allowWithoutUser: true });
+                console.log("🔄 response.done: réponse vide ou sans TTS — fallback + retry response.create", { doneRid });
+                enqueuePremiumTts("Un instant, s'il vous plaît.", { interrupt: false, source: "empty_realtime_fallback", allowWithoutUser: true });
                 requestResponseCreate("empty_realtime_fallback");
               }, 150);
             }
@@ -5894,11 +5790,6 @@ But: être naturel et mettre le client en confiance.`,
         const finalReferenceTomorrowLine = startParams.referenceTomorrowLine || "";
         const finalReferenceWeekCalendar = startParams.referenceWeekCalendar || "";
         const finalRestaurantHasTerrace = startParams.restaurantHasTerrace || "";
-        const finalReservationCapacityEnabled = startParams.reservationCapacityEnabled || "";
-        const finalMaxPeopleLunch = startParams.maxPeopleLunch || "";
-        const finalMaxPeopleDinner = startParams.maxPeopleDinner || "";
-        const finalReservationCapacityCalendar = startParams.reservationCapacityCalendar || "";
-        const finalReservationPeoplePerDayService = startParams.reservationPeoplePerDayService || "";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
         if (finalGarageType === "restaurant") effectiveSector = "restaurant";
         console.log("🏷️ Secteur effectif:", effectiveSector, "(garageType reçu:", finalGarageType || "non fourni", ")");
@@ -5950,11 +5841,6 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalReferenceTomorrowLine === "string" && finalReferenceTomorrowLine.trim()) referenceTomorrowLine = String(finalReferenceTomorrowLine).trim();
         if (typeof finalReferenceWeekCalendar === "string" && finalReferenceWeekCalendar.trim()) referenceWeekCalendar = String(finalReferenceWeekCalendar).trim();
         if (typeof finalRestaurantHasTerrace === "string") restaurantHasTerrace = finalRestaurantHasTerrace.trim().toLowerCase() !== "false";
-        if (typeof finalReservationCapacityEnabled === "string" && finalReservationCapacityEnabled.trim().toLowerCase() === "true") reservationCapacityEnabled = true;
-        if (typeof finalMaxPeopleLunch === "string" && finalMaxPeopleLunch.trim()) maxPeopleLunch = parseInt(finalMaxPeopleLunch.trim(), 10) || 0;
-        if (typeof finalMaxPeopleDinner === "string" && finalMaxPeopleDinner.trim()) maxPeopleDinner = parseInt(finalMaxPeopleDinner.trim(), 10) || 0;
-        if (typeof finalReservationCapacityCalendar === "string" && finalReservationCapacityCalendar.trim()) reservationCapacityCalendar = String(finalReservationCapacityCalendar).trim();
-        if (typeof finalReservationPeoplePerDayService === "string" && finalReservationPeoplePerDayService.trim()) reservationPeoplePerDayService = String(finalReservationPeoplePerDayService).trim();
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";

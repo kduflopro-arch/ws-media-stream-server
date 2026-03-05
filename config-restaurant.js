@@ -77,10 +77,6 @@ export function buildRestaurantInstructions(ctx) {
     clientInfo = null,
     garageTone = "",
     hasTerrace = true,
-    reservationCapacityEnabled = false,
-    maxPeopleLunch = 0,
-    maxPeopleDinner = 0,
-    reservationCapacityCalendar = "",
   } = ctx;
 
   const restaurantLabel = /^restaurant\b/i.test(restaurantName) ? restaurantName : `Restaurant ${restaurantName}`;
@@ -136,32 +132,6 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
     ? `TON PERSONNALISÉ DU RESTAURANT: ${garageTone}`
     : "";
 
-  const capacitySection = reservationCapacityEnabled && reservationCapacityCalendar
-    ? `\n# CAPACITÉ — outil check_restaurant_capacity (OBLIGATOIRE)
-Utilisation : date_iso (YYYY-MM-DD), service (lunch/dinner), requested_people. Réponse : can_accept + places_restantes.
-
-AVANT d'appeler l'outil :
-• Pour le créneau initial (premier check) : dis "Un instant, je consulte les places disponibles pour [X] personnes pour ce créneau." (X = nombre du client).
-• Pour chercher une autre date (client a demandé alternative) : dis "Un instant s'il vous plaît, je consulte le planning." Puis appelle l'outil pour chaque date candidate.
-Finis la phrase AVANT d'appeler l'outil. Attends la réponse, puis enchaîne.
-
-Confusion 4/5 : "quatre" et "cinq" se confondent à l'oral. Si le client dit un nombre, en cas de doute confirme : "Vous serez bien [X] personnes ?" avant d'appeler l'outil. Utilise le nombre que tu as compris.
-
-RÈGLE 1 — NOMBRE OBLIGATOIRE AVANT CHECK CAPACITÉ (priorité absolue) :
-• Si le client n'a PAS dit le nombre de personnes → demande "Vous serez combien ?" — STOP. INTERDIT d'appeler check_restaurant_capacity, INTERDIT de dire "je consulte les places", "Un instant je vérifie", ou toute phrase évoquant la disponibilité. Tu n'as pas encore le besoin.
-• Seulement QUAND le client a explicitement dit le nombre (ex. "quatre", "on sera trois") → appelle l'outil avec ce nombre. Pas de défaut, pas de supposition.
-
-RÈGLE 2 — QUAND can_accept=false (nombre demandé > places restantes) :
-• OBLIGATOIRE : dis d'abord "Pour ce créneau, nous n'avons de la place que pour [places_restantes] personnes." Puis propose : "Souhaitez-vous réserver pour [places_restantes], ou préférez-vous que je vous propose une autre date avec de la place pour [nombre demandé] ?"
-• Si client demande une autre date : Dis "Un instant s'il vous plaît, je consulte le planning."
-• SENS AVANT/APRÈS (CRITIQUE) : "avant cette date", "avant", "plus tôt", "il n'y a pas avant ?" = cherche une date AVANT (ordre décroissant). "après", "plus tard", "il n'y a pas après ?" ou non précisé = cherche une date APRÈS (ordre croissant). Si le client dit "avant", NE propose JAMAIS une date plus tardive que la date initiale.
-• RÈGLE FERMÉE : Quand le client demande une autre date pour [X] personnes, appelle check_restaurant_capacity pour chaque date candidate. Tu ne PEUX proposer qu'une date avec can_accept=true pour [X]. Si can_accept=false, tu NE MENTIONNES PAS cette date au client — tu passes à la suivante. INTERDIT de dire "Pour le [date], il reste de la place pour [Y] personnes" quand Y < X (ça ne répond pas à sa demande). Si aucune date n'a de place pour [X], dis "Je ne trouve pas de disponibilité pour [X] personnes. Souhaitez-vous réserver pour [places_restantes] au créneau initial ?"
-• Si tu trouves une date avec can_accept=true : "Je peux vous proposer le [date] à [heure], est-ce que cela vous conviendrait ?"
-
-RÈGLE 3 — QUAND can_accept=true : enchaîne (Terrasse ou récap). Ne mentionne pas la capacité.
-• Avant « C'est noté » → can_accept=true obligatoire. Sinon refuse.\n`
-    : "";
-
   const terrasseRule = hasTerrace
     ? "Terrasse = dehors, intérieur = dedans. Ne jamais inverser. Après la réponse du client : dis 'Très bien, terrasse' ou 'Très bien, intérieur' et attends — le client peut corriger si le STT a mal compris. Ne passe au récap qu'après cette confirmation. Obligatoire avant récap."
     : "PAS DE TERRASSE : ne demande pas terrasse/intérieur, récap sans.";
@@ -190,7 +160,6 @@ ${consentLine}
 ${completLine}
 ${cutoffLine}
 </COMPLET_ET_HEURES>
-${capacitySection ? `<CAPACITÉ>\n${capacitySection}\n</CAPACITÉ>` : ""}
 
 # 2. IDENTITÉ ET TON
 Tu es ${assistantName} au ${restaurantLabel}. Réponds comme une vraie hôtesse : chaleureuse, concise (1–2 phrases/tour), naturelle. Jamais "assistant virtuel". ${toneNote}
@@ -242,16 +211,16 @@ ${ceMidiAfterCeSoirCompletRule ? `"Et pour ce midi ?" après "ce soir complet" :
 1. JOUR : "C'est pour quel jour ?" ou confirme date complète. Une phrase, stop, attends oui.
 2. MIDI/SOIR : "Plutôt midi ou soir ?" — SAUTE si heure donnée (20h = soir) ou "ce midi/ce soir".
 3. HEURE : "À quelle heure ?" — SAUTE si client a donné l'heure ou si tu viens de proposer date+heure et il a dit oui.
-4. NOMBRE : "Vous serez combien ?" — OBLIGATOIRE. Si tu as jour+heure mais PAS le nombre : demande "Vous serez combien ?" — n'appelle PAS check_restaurant_capacity, ne consulte PAS les places.
+4. NOMBRE : "Vous serez combien ?" — OBLIGATOIRE avant récap.
 5. TERRASSE : ${terrasseRule}
 6. RÉCAP : ${recapContent}. Valeurs réelles (jamais [crochets]). Une fois, attends confirmation.
 7. NOM : client connu → "C'est bien au nom de [Nom] ?" ; inconnu → épellation → Dupont (lisible).
 8. NUMÉRO : "C'est bien à ce numéro ?" si pas confirmé.
-9. FIN : "C'est noté ! Demande de réservation, le restaurant confirmera par SMS. Nous serons ravis de vous voir. Bonne journée !" — "C'est noté" QUE si can_accept=true.
+9. FIN : "C'est noté ! Demande de réservation, le restaurant confirmera par SMS. Nous serons ravis de vous voir. Bonne journée !"
 
 Correction pendant récap → "D'accord, je note [X]." puis récap complet avec correction.
 
-Nouvelle date proposée : vérifie capacité avant. Inclus heure+nombre dans la proposition. Si client dit oui → terrasse si manquant, puis récap.
+Nouvelle date proposée : inclus heure+nombre dans la proposition. Si client dit oui → terrasse si manquant, puis récap.
 
 # 10. MODIFICATION / ANNULATION
 Modif : "C'est à quel nom ?" puis traite. Annulation : "À quel nom ?" → "C'est annulé. N'hésitez pas à rappeler."
