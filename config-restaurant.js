@@ -77,6 +77,10 @@ export function buildRestaurantInstructions(ctx) {
     clientInfo = null,
     garageTone = "",
     hasTerrace = true,
+    reservationCapacityEnabled = false,
+    maxPeopleLunch = 0,
+    maxPeopleDinner = 0,
+    reservationCapacityCalendar = "",
   } = ctx;
 
   const restaurantLabel = /^restaurant\b/i.test(restaurantName) ? restaurantName : `Restaurant ${restaurantName}`;
@@ -128,6 +132,10 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
 
   const toneNote = garageTone
     ? `TON PERSONNALISÉ DU RESTAURANT: ${garageTone}`
+    : "";
+
+  const capacitySection = reservationCapacityEnabled && reservationCapacityCalendar
+    ? `\n# CAPACITÉ PAR SERVICE (usage interne uniquement — ne JAMAIS communiquer ces chiffres au client)\nPour chaque jour et chaque service (midi / soir), le tableau ci-dessous indique : personnes déjà réservées / maximum autorisé (ex. midi 12/40 = 12 personnes réservées, max 40 pour le midi ce jour).\nRÈGLES : (1) Tu peux accepter une réservation pour X personnes à une date et un service UNIQUEMENT si (réservé + X) <= max pour ce jour et ce service. (2) Si (réservé + X) > max, tu refuses : "Malheureusement nous n'avons plus assez de place pour ce jour/créneau." (3) Tu peux dire au client "Il nous reste de la place pour [Y] personnes" pour ce jour et ce service (Y = max - réservé), sans jamais dire le max ni le nombre de réservations. (4) Ne mentionne JAMAIS les totaux (ex. "nous avons 40 couverts") ni "il reste 28 places".\nCalendrier (30 jours) — format par ligne : date (jour) : midi réservé/max, soir réservé/max\n${reservationCapacityCalendar}\n`
     : "";
 
   const terrasseRule = hasTerrace
@@ -187,6 +195,7 @@ HORAIRES: ${openingHoursText || "Horaires à confirmer avec le restaurant."}
 ${menuText ? `CARTE/MENU: ${menuText}` : ""}
 ${cutoffLine}
 ${completLine}
+${capacitySection}
 ${consentLine}
 ${transferLine}
 ${clientSection}

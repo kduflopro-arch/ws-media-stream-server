@@ -781,6 +781,7 @@ wss.on("connection", (ws, req) => {
   let reservationCapacityEnabled = false; // Limite personnes par service (restaurant)
   let maxPeopleLunch = 0;
   let maxPeopleDinner = 0;
+  let reservationCapacityCalendar = ""; // Calendrier 30j : par date, midi réservé/max, soir réservé/max
   let reservationPeoplePerDayService = "";
   let callStartIso = "";
   let garageHoursText = "";
@@ -3588,6 +3589,7 @@ ${compactPersona}`;
           reservationCapacityEnabled,
           maxPeopleLunch,
           maxPeopleDinner,
+          reservationCapacityCalendar,
           reservationPeoplePerDayService,
         }) : "";
         // #region agent log
@@ -3659,6 +3661,7 @@ ${compactPersona}`;
               reservationCapacityEnabled,
               maxPeopleLunch,
               maxPeopleDinner,
+              reservationCapacityCalendar,
               reservationPeoplePerDayService,
             });
             let instructionsToSend = updatedRestaurantInstructions;
@@ -5708,6 +5711,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalReservationCapacityEnabled = startParams.reservationCapacityEnabled || "";
         const finalMaxPeopleLunch = startParams.maxPeopleLunch || "";
         const finalMaxPeopleDinner = startParams.maxPeopleDinner || "";
+        const finalReservationCapacityCalendar = startParams.reservationCapacityCalendar || "";
         const finalReservationPeoplePerDayService = startParams.reservationPeoplePerDayService || "";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
         if (finalGarageType === "restaurant") effectiveSector = "restaurant";
@@ -5763,6 +5767,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalReservationCapacityEnabled === "string" && finalReservationCapacityEnabled.trim().toLowerCase() === "true") reservationCapacityEnabled = true;
         if (typeof finalMaxPeopleLunch === "string" && finalMaxPeopleLunch.trim()) maxPeopleLunch = parseInt(finalMaxPeopleLunch.trim(), 10) || 0;
         if (typeof finalMaxPeopleDinner === "string" && finalMaxPeopleDinner.trim()) maxPeopleDinner = parseInt(finalMaxPeopleDinner.trim(), 10) || 0;
+        if (typeof finalReservationCapacityCalendar === "string" && finalReservationCapacityCalendar.trim()) reservationCapacityCalendar = String(finalReservationCapacityCalendar).trim();
         if (typeof finalReservationPeoplePerDayService === "string" && finalReservationPeoplePerDayService.trim()) reservationPeoplePerDayService = String(finalReservationPeoplePerDayService).trim();
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
