@@ -4066,8 +4066,10 @@ But: être naturel et mettre le client en confiance.`,
                   const rawOutput = msg.response.output;
                   const outputOnlyFunctionCalls = Array.isArray(rawOutput) && rawOutput.length > 0 && rawOutput.every((item) => item && item.type === "function_call");
                   const outputEmpty = Array.isArray(rawOutput) && rawOutput.length === 0;
-                    if (outputOnlyFunctionCalls || outputEmpty) {
-                    if (LOG_VERBOSE) console.log("📋 response.done:", outputEmpty ? "output vide (normal après tool call ou court)" : "uniquement appels d'outils (normal), pas de texte à extraire.");
+                  if (outputOnlyFunctionCalls) {
+                    if (LOG_VERBOSE) console.log("📋 response.done: uniquement appels d'outils, pas de texte (la réponse suit après exécution outil)");
+                  } else if (outputEmpty) {
+                    if (LOG_VERBOSE) console.log("📋 response.done: output vide");
                     const now = nowMs();
                     if (pendingGaragePricingResponseAt > 0 && (now - pendingGaragePricingResponseAt) < 20000 && !pendingGaragePricingRetryDone) {
                       pendingGaragePricingRetryDone = true;
@@ -4091,6 +4093,10 @@ But: être naturel et mettre le client en confiance.`,
                           requestResponseCreate("empty_response_retry");
                         }
                       }, 350);
+                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
+                      const fallbackPhrase = effectiveSector === "restaurant" ? "Un instant, s'il vous plaît." : "D'accord, je vous écoute.";
+                      console.log("🔄 Réponse vide après retry — fallback TTS pour éviter silence:", fallbackPhrase);
+                      enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_response_fallback", allowWithoutUser: true });
                     }
                   } else {
                     console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
@@ -4111,6 +4117,10 @@ But: être naturel et mettre le client en confiance.`,
                           requestResponseCreate("empty_response_retry");
                         }
                       }, 350);
+                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
+                      const fallbackPhrase = effectiveSector === "restaurant" ? "Un instant, s'il vous plaît." : "D'accord, je vous écoute.";
+                      console.log("🔄 Pas de texte extrait après retry — fallback TTS:", fallbackPhrase);
+                      enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_response_fallback", allowWithoutUser: true });
                     }
                   }
                   const respStatus = msg.response?.status;
