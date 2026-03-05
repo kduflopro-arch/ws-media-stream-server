@@ -96,7 +96,7 @@ export function buildRestaurantInstructions(ctx) {
 
   const consentLine = consentRequired && !consentGiven
     ? `CONSENTEMENT — OBLIGATOIRE AVANT TOUT:
-- Dès le début, dis D'ABORD ton accueil complet : "Bonjour. ${assistantName} du ${restaurantLabel}. Cet appel est enregistré pour préparer votre réservation. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez."
+- Dès le début, dis D'ABORD ton accueil complet : "Bonjour. ${assistantName} du ${restaurantLabel}. Cet appel est enregistré pour préparer votre réservation. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez."
 - ATTENDS la réponse. Ne traite AUCUNE demande avant.
 - Si le client dit "oui", "d'accord" ou "ok": dis EXACTEMENT cette salutation : "${postConsentPhrase}" — Le client n'a PAS encore dit ce qu'il veut. Attends qu'il précise (résa, info, modification, annulation). INTERDIT de demander "Pour quelle date ?" ou "C'est pour quel jour ?" tant qu'il n'a pas dit vouloir réserver.
 - Si le client refuse: dis "Je comprends, bonne journée. Au revoir !" et raccroche.
@@ -145,9 +145,14 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
 
   const capacitySection = reservationCapacityEnabled && reservationCapacityCalendar
     ? `\n# CAPACITÉ — outil check_restaurant_capacity (OBLIGATOIRE)
-Utilisation : date_iso (YYYY-MM-DD), service (lunch/dinner), requested_people. Réponse : can_accept + places_restantes. Dis UNIQUEMENT la phrase de l'outil. INTERDIT : « Je vérifie », « Un instant », « nous avons X réservées », « maximum Y ».
-• Quand le client dit le nombre → appelle l'outil → si can_accept=true, enchaîne (Terrasse ou récap) ; sinon refuse avec la phrase de l'outil.
-• Nouvelle date proposée → appelle l'outil AVANT de proposer. Ne propose QUE si can_accept=true.
+Utilisation : date_iso (YYYY-MM-DD), service (lunch/dinner), requested_people. Réponse : can_accept + places_restantes. INTERDIT : « Je vérifie », « Un instant ».
+
+RÈGLE CRITIQUE — NE JAMAIS MENTIONNER LA CAPACITÉ AVANT LE NOMBRE DU CLIENT :
+• Le client donne date+heure mais PAS le nombre → demande "Vous serez combien ?" — INTERDIT d'appeler l'outil ou de mentionner "nous avons de la place pour X personnes", "il reste X places", etc. Tu ne connais pas encore le besoin.
+• Seulement QUAND le client a dit le nombre → appelle l'outil avec ce nombre.
+• Si can_accept=true → enchaîne (Terrasse ou récap). Ne dis JAMAIS "nous avons de la place pour X" — inutile, passe à la suite.
+• Si can_accept=false (le nombre demandé dépasse la limite) → dis : "Pour ce créneau, nous n'avons de la place que pour [places_restantes] personnes. Souhaitez-vous réserver pour [places_restantes], ou préférez-vous que je vous propose une autre date avec de la place pour [nombre demandé] ?" Puis : si oui pour places_restantes → enchaîne ; sinon → propose une date du calendrier où can_accept=true pour le nombre demandé.
+• Nouvelle date proposée → appelle l'outil AVANT de proposer. Ne propose QUE si can_accept=true pour le nombre demandé.
 • Avant « C'est noté » → can_accept=true obligatoire. Sinon refuse.\n`
     : "";
 
