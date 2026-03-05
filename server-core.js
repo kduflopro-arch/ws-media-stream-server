@@ -3618,11 +3618,12 @@ ${compactPersona}`;
         if (effectiveSector === "restaurant" && typeof fetch === "function") {
           const hasCeMidiDisambiguation = restaurantInstructions.includes("ET POUR CE MIDI") || restaurantInstructions.includes("et pour ce midi ?");
           const hasRecapPlaceholders = restaurantInstructions.includes("[heure") || restaurantInstructions.includes("[X]") || restaurantInstructions.includes("[nombre de personnes]");
-          const hasCapacityRule = restaurantInstructions.includes("VÉRIFICATION IMMÉDIATE") && restaurantInstructions.includes("réservé + nombre demandé");
-          const hasCapacityStepReminder = restaurantInstructions.includes("vérifie la CAPACITÉ pour ce jour");
-          fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:buildRestaurantInstructions", message: "Restaurant prompt state", data: { hypothesisId: "H1", dinnerFullToday, lunchFullToday, instructionsIncludeCeMidiDisambiguation: hasCeMidiDisambiguation }, timestamp: Date.now() }) }).catch(() => {});
-          fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:recapPlaceholders", message: "Recap placeholders in prompt", data: { hypothesisId: "H2", instructionsContainRecapPlaceholders: hasRecapPlaceholders }, timestamp: Date.now() }) }).catch(() => {});
-          fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:capacityCheck", message: "Capacity rule in prompt", data: { hypothesisId: "H3", reservationCapacityEnabled, reservationCapacityCalendarLength: (reservationCapacityCalendar || "").length, instructionsLength: restaurantInstructions.length, hasCapacityRule, hasCapacityStepReminder, wouldTruncate: restaurantInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS }, timestamp: Date.now() }) }).catch(() => {});
+          const hasCapacityRule = (restaurantInstructions.includes("RÈGLE BLOQUANTE") || restaurantInstructions.includes("CAPACITÉ PAR SERVICE")) && (restaurantInstructions.includes("réservé") || restaurantInstructions.includes("calendrier"));
+          const hasCapacityStepReminder = restaurantInstructions.includes("vérifie la CAPACITÉ pour ce jour") || restaurantInstructions.includes("CAPACITÉ pour ce jour");
+          const calendarSnippet = (reservationCapacityCalendar || "").substring(0, 400);
+          const calendarHasMarch13 = (reservationCapacityCalendar || "").includes("03-13") || (reservationCapacityCalendar || "").includes("13 mars");
+          fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:capacityCheck", message: "Capacity rule in prompt", data: { hypothesisId: "H_capacity", reservationCapacityEnabled, reservationCapacityCalendarLength: (reservationCapacityCalendar || "").length, hasCapacityRule, hasCapacityStepReminder, calendarHasMarch13, calendarSnippetLength: calendarSnippet.length, wouldTruncate: restaurantInstructions.length > REALTIME_INSTRUCTIONS_MAX_CHARS }, timestamp: Date.now() }) }).catch(() => {});
+          console.log("[DEBUG-capacity]", JSON.stringify({ reservationCapacityEnabled, hasCapacityRule, hasCapacityStepReminder, calendarHasMarch13, calendarLength: (reservationCapacityCalendar || "").length }));
         }
         // #endregion
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
@@ -4299,6 +4300,14 @@ But: être naturel et mettre le client en confiance.`,
                 if (LOG_VERBOSE) console.log("ℹ️ Validation devis (IA dit mise en relation pour validation devis).", { text: doneText.substring(0, 80) });
               }
               const low = String(doneText || "").toLowerCase();
+              // #region agent log
+              if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur")) && typeof fetch === "function") {
+                fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:terrasseIntérieur", message: "AI said terrasse/intérieur", data: { hypothesisId: "H_terrasse", lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }, timestamp: Date.now() }) }).catch(() => {});
+              }
+              if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur"))) {
+                console.log("[DEBUG-terrasse]", JSON.stringify({ lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }));
+              }
+              // #endregion
               const mentionsPlate = low.includes("plaque") || low.includes("immatric");
               const iaSaysWillSendSms = (low.includes("vais vous envoyer") || low.includes("va vous envoyer") || low.includes("vous envoie ") || low.includes("vous envoyer ") || low.includes("je vais vous envoyer") || low.includes("on va vous envoyer")) && (low.includes("message") || low.includes("sms") || low.includes("texte"));
               const offersToSend = iaSaysWillSendSms;
@@ -4801,6 +4810,14 @@ But: être naturel et mettre le client en confiance.`,
                 if (LOG_VERBOSE) console.log("ℹ️ Validation devis (IA dit mise en relation pour validation devis, output_text.done).", { text: doneText.substring(0, 80) });
               }
               const low = String(doneText || "").toLowerCase();
+              // #region agent log
+              if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur")) && typeof fetch === "function") {
+                fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:terrasseIntérieur_output_text", message: "AI said terrasse/intérieur (output_text)", data: { hypothesisId: "H_terrasse", lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }, timestamp: Date.now() }) }).catch(() => {});
+              }
+              if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur"))) {
+                console.log("[DEBUG-terrasse]", JSON.stringify({ lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }));
+              }
+              // #endregion
               if (effectiveSector !== "restaurant") {
                 const mentionsPlate = low.includes("plaque") || low.includes("immatric");
                 const iaSaysWillSendSms = (low.includes("vais vous envoyer") || low.includes("va vous envoyer") || low.includes("vous envoie ") || low.includes("vous envoyer ") || low.includes("je vais vous envoyer") || low.includes("on va vous envoyer")) && (low.includes("message") || low.includes("sms") || low.includes("texte"));
