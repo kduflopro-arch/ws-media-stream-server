@@ -87,7 +87,7 @@ export function buildRestaurantInstructions(ctx) {
 
   const consentLine = consentRequired && !consentGiven
     ? `CONSENTEMENT — OBLIGATOIRE AVANT TOUT (formule avec tes mots):
-- Dès le début (ou après le bonjour court déjà joué): une seule phrase courte pour l'enregistrement et la demande d'accord (ex. "L'appel est enregistré pour votre réservation — dites oui pour continuer, ou raccrochez si vous refusez."). Formule avec tes mots. Puis attends sa réponse. Ne traite aucune demande avant d'avoir le consentement.
+- Dès le début: c'est toi qui parles en premier. Dis ton accueil (Bonjour, [prénom] du [restaurant]) puis la demande de consentement en une ou deux phrases naturelles (ex. "L'appel est enregistré pour votre réservation — dites oui pour continuer, ou raccrochez si vous refusez."). Formule avec tes mots. Puis attends sa réponse. Ne traite aucune demande avant d'avoir le consentement.
 - S'il dit oui / d'accord / ok: ne dis rien de plus, la salutation est jouée après. Attends qu'il parle.
 - S'il refuse: prends congé brièvement et raccroche.
 - S'il parle d'autre chose sans accepter: redemande le consentement (avec tes mots), sans autre sujet.`
