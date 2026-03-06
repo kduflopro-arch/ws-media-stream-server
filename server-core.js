@@ -4105,9 +4105,21 @@ But: être naturel et mettre le client en confiance.`,
                       console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                       playConsentRefusalAndHangup();
                     } else {
-                      const textForTts = applyPricingHoursGuard(extractedText);
-                      console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
-                      enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
+                      const isWrong21hRefusal = effectiveSector === "restaurant" && /\b(ne prend plus|après).*(vingt-et-un|vingt et une|21)\s*heures?|\b(21|vingt-et-un|vingt et une)\s*heures?.*(ne prend plus|après)/i.test(extractedText) && /\bquelle\s*heure|à quelle heure|heure prévoyez/i.test(String(lastAssistantText || ""));
+                      const userJustSpoke = lastCommitAt > 0 && (nowMs() - lastCommitAt) < 12000;
+                      const alreadyCorrected = (ws.__last20h30CorrectionCommit || 0) === lastCommitAt;
+                      if (isWrong21hRefusal && userJustSpoke && !alreadyCorrected) {
+                        ws.__last20h30CorrectionCommit = lastCommitAt;
+                        console.log("🔧 Correction 20h30: l'IA a refusé « après 21h » alors que le client a peut-être dit 20h30 — injection correction");
+                        try {
+                          openaiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: "J'ai dit 20h30." }] } }));
+                          setTimeout(() => { if (openaiWs?.readyState === WebSocket.OPEN && !responseInProgress) requestResponseCreate("20h30_correction"); }, 200);
+                        } catch (e) { console.error("❌ Erreur injection correction 20h30:", e); enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true }); }
+                      } else {
+                        const textForTts = applyPricingHoursGuard(extractedText);
+                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
+                        enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
+                      }
                     }
                   } else if (REALTIME_USE_ELEVEN && !spokenSet.has(rid)) {
                     spokenSet.add(rid);
@@ -4117,9 +4129,21 @@ But: être naturel et mettre le client en confiance.`,
                       console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                       playConsentRefusalAndHangup();
                     } else {
-                      const textForTts = applyPricingHoursGuard(extractedText);
-                      console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
-                      enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
+                      const isWrong21hRefusal = effectiveSector === "restaurant" && /\b(ne prend plus|après).*(vingt-et-un|vingt et une|21)\s*heures?|\b(21|vingt-et-un|vingt et une)\s*heures?.*(ne prend plus|après)/i.test(extractedText) && /\bquelle\s*heure|à quelle heure|heure prévoyez/i.test(String(lastAssistantText || ""));
+                      const userJustSpoke = lastCommitAt > 0 && (nowMs() - lastCommitAt) < 12000;
+                      const alreadyCorrected = (ws.__last20h30CorrectionCommit || 0) === lastCommitAt;
+                      if (isWrong21hRefusal && userJustSpoke && !alreadyCorrected) {
+                        ws.__last20h30CorrectionCommit = lastCommitAt;
+                        console.log("🔧 Correction 20h30: l'IA a refusé « après 21h » alors que le client a peut-être dit 20h30 — injection correction");
+                        try {
+                          openaiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: "J'ai dit 20h30." }] } }));
+                          setTimeout(() => { if (openaiWs?.readyState === WebSocket.OPEN && !responseInProgress) requestResponseCreate("20h30_correction"); }, 200);
+                        } catch (e) { console.error("❌ Erreur injection correction 20h30:", e); enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true }); }
+                      } else {
+                        const textForTts = applyPricingHoursGuard(extractedText);
+                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
+                        enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
+                      }
                     }
                   } else if (spokenSet.has(rid)) {
                     if (LOG_TTS) console.log(`[TTS] SKIPPED response.done (déjà dans spokenSet):`, { rid, text: extractedText.substring(0, 100) });
