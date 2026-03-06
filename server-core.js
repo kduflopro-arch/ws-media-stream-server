@@ -214,8 +214,6 @@ async function handleRunAnalysis(callId, res) {
     const analysis = JSON.parse(content);
     const summaryText = analysis.summary ?? analysis.Summary ?? null;
     const conclusionText = analysis.aiConclusion ?? analysis.AIConclusion ?? null;
-    let restaurantClientName = "";
-    let restaurantFromNumber = (call.from_number ?? "").trim();
     if (summaryText == null || conclusionText == null) {
       console.warn("[run-analysis] Champs manquants:", { hasSummary: summaryText != null, hasConclusion: conclusionText != null, keys: Object.keys(analysis) });
     } else {
@@ -223,29 +221,7 @@ async function handleRunAnalysis(callId, res) {
     }
     let updatePayload;
     if (isRestaurant) {
-      let reservationDetails = analysis.reservationDetails && typeof analysis.reservationDetails === "object" ? analysis.reservationDetails : {};
-      let clientName = (reservationDetails.clientName ?? "").trim();
-      const fromNumber = (call.from_number ?? "").trim();
-      // Si l'analyse n'a pas extrait de nom mais que le client est enregistré, utiliser le nom du dossier client
-      if (!clientName && fromNumber && call.garage_id) {
-        const ingestUrl = process.env.AUTOGURU_INGEST_URL || "";
-        const baseUrlForClient = ingestUrl ? ingestUrl.replace(/\/api\/twilio\/realtime-(?:ingest|finalize)\/?$/i, "").replace(/\/+$/, "") : (process.env.AUTOGURU_API_BASE || "").replace(/\/+$/, "");
-        const ingestSecret = process.env.REALTIME_INGEST_SECRET || "";
-        if (baseUrlForClient && ingestSecret) {
-          try {
-            const clientInfoRes = await fetch(`${baseUrlForClient}/api/twilio/client-info?garageId=${encodeURIComponent(call.garage_id)}&phoneNumber=${encodeURIComponent(fromNumber)}&secret=${encodeURIComponent(ingestSecret)}`);
-            const clientInfoData = await clientInfoRes.json().catch(() => ({}));
-            if (clientInfoData?.client?.name && typeof clientInfoData.client.name === "string") {
-              clientName = clientInfoData.client.name.trim();
-              reservationDetails = { ...reservationDetails, clientName };
-              console.log("[run-analysis] Nom réservation pris du dossier client:", clientName);
-            }
-          } catch (e) {
-            // Ignorer les erreurs (réseau, API indisponible)
-          }
-        }
-      }
-      restaurantClientName = clientName;
+      const reservationDetails = analysis.reservationDetails && typeof analysis.reservationDetails === "object" ? analysis.reservationDetails : {};
       const existingInsights = (call.client_insights && typeof call.client_insights === "object") ? call.client_insights : {};
       const clientInsights = {
         ...existingInsights,
@@ -331,7 +307,10 @@ async function handleRunAnalysis(callId, res) {
     }
     // Restaurant : création automatique du dossier client pour les prochaines réservations
     if (isRestaurant) {
-      if (restaurantClientName && restaurantFromNumber && call.garage_id) {
+      const reservationDetails = analysis.reservationDetails && typeof analysis.reservationDetails === "object" ? analysis.reservationDetails : {};
+      const clientName = (reservationDetails.clientName ?? "").trim();
+      const fromNumber = (call.from_number ?? "").trim();
+      if (clientName && fromNumber && call.garage_id) {
         const ingestUrl = process.env.AUTOGURU_INGEST_URL || "";
         const baseUrl = ingestUrl ? ingestUrl.replace(/\/api\/twilio\/realtime-(?:ingest|finalize)\/?$/i, "").replace(/\/+$/, "") : (process.env.AUTOGURU_API_BASE || "").replace(/\/+$/, "");
         const secret = process.env.RUN_ANALYSIS_SECRET || "";
@@ -340,9 +319,9 @@ async function handleRunAnalysis(callId, res) {
           fetch(createClientUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` },
-            body: JSON.stringify({ garage_id: call.garage_id, phone_number: restaurantFromNumber, name: restaurantClientName }),
+            body: JSON.stringify({ garage_id: call.garage_id, phone_number: fromNumber, name: clientName }),
           }).then((r) => {
-            if (r.ok) console.log("[run-analysis] Dossier client restaurant créé/mis à jour:", restaurantClientName);
+            if (r.ok) console.log("[run-analysis] Dossier client restaurant créé/mis à jour:", clientName);
             else r.text().then((t) => console.warn("[run-analysis] create-restaurant-client échec:", r.status, t));
           }).catch((e) => console.warn("[run-analysis] create-restaurant-client erreur:", e.message));
         }
@@ -611,7 +590,6 @@ wss.on("connection", (ws, req) => {
   let outboundQueuedBytes = 0;
   let hasSentInitialGreeting = false;
   let initialAssistantGreetingText = "";
-  let pendingRestaurantConsentAiResponse = false; // après intro courte, l'IA doit dire le consentement avec ses mots
   let rdvNotificationFollowupPlayed = false; // une seule fois par appel pour ne pas rejouer "Je vois que vous avez un RDV..." en plein flux
   let loggedFirstAudioDelta = false;
   let outboundTimer = null;
@@ -671,11 +649,10 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_VOICE_ID_DEFAULT = process.env.MINIMAX_VOICE_ID ?? "";
   const MINIMAX_VOICE_ID_MALE = process.env.MINIMAX_VOICE_ID_MALE ?? "";
   const MINIMAX_VOICE_ID_FEMALE = process.env.MINIMAX_VOICE_ID_FEMALE ?? "";
-  const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-01"; // speech-01, speech-02, speech-2.6-hd, etc.
+  const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-01"; // speech-01, speech-02, etc.
   const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1"); // 0.5 à 2.0
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0"); // 0.0 à 1.0
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0"); // -12 à 12
-  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "fluent"; // fluent = naturel, calm = posé, happy = énergique — "" = auto
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
@@ -739,7 +716,6 @@ wss.on("connection", (ws, req) => {
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   function playPostConsentGreeting() {
     if (ws.__postConsentGreetingPlayed || !PREMIUM_TTS_ENABLED) return;
-    if (effectiveSector === "restaurant") return; // Restaurant: l'IA dit elle-même la salutation post-consent (évite doublon)
     const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
     const isResto = effectiveSector === "restaurant";
     let phrase;
@@ -1862,28 +1838,23 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const connectedMsg = await waitForMessage("connected_success");
       if (LOG_VERBOSE) console.log("🔊 Minimax: connected_success ok");
       if (LOG_MINIMAX_EVENTS) console.log("✅ Minimax WebSocket connecté:", connectedMsg);
-      const voiceSetting = {
-        voice_id: selectedVoiceId,
-        speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 0.85)),
-        vol: Math.max(0.0, Math.min(1.0, MINIMAX_VOLUME || 1.0)),
-        pitch: Math.max(-12, Math.min(12, MINIMAX_PITCH || 0)),
-        english_normalization: false,
-      };
-      if (MINIMAX_EMOTION && String(MINIMAX_EMOTION).trim()) {
-        voiceSetting.emotion = String(MINIMAX_EMOTION).trim(); // calm, happy, fluent, etc.
-      }
       const taskStartMsg = {
         event: "task_start",
-        model: MINIMAX_MODEL || "speech-2.6-hd",
-        voice_setting: voiceSetting,
+        model: MINIMAX_MODEL || "speech-2.6-hd", // Utiliser un modèle supporté pour WebSocket
+        voice_setting: {
+          voice_id: selectedVoiceId,
+          speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 0.85)),
+          vol: Math.max(0.0, Math.min(1.0, MINIMAX_VOLUME || 1.0)),
+          pitch: Math.max(-12, Math.min(12, MINIMAX_PITCH || 0)),
+          english_normalization: false,
+        },
         audio_setting: {
-          sample_rate: 32000,
-          bitrate: 128000,
-          format: "pcm",
+          sample_rate: 32000, // 32kHz (Minimax semble ignorer 8kHz, on fait le downsampling nous-mêmes)
+          bitrate: 128000, // Bitrate pour 32kHz
+          format: "pcm", // Format PCM (selon la doc: mp3, pcm, flac sont supportés)
           channel: 1,
         },
       };
-      // voice_modify non compatible avec format pcm (doc Minimax : mp3/wav/flac uniquement)
       if (LOG_MINIMAX_EVENTS) console.log("📤 Envoi task_start:", JSON.stringify(taskStartMsg, null, 2));
       minimaxWs.send(JSON.stringify(taskStartMsg));
       if (LOG_VERBOSE) console.log("🔊 Minimax: waiting task_started (5s)...");
@@ -2245,26 +2216,28 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     console.warn("🛡️ Correction serveur (tarif/horaires inventés):", { prestation, pricePart: pricePart.substring(0, 60) });
     return corrected;
   }
-  /** Supprime une phrase répétée en double (même logique que dedupeRepeatedPhrase dans le handler realtime). */
+  /** Supprime une phrase répétée en double (ex. "A. A." → "A." ou phrase entière en double) pour éviter envoi double à Minimax/TTS. */
   function dedupeRepeatedPhraseAtTts(text) {
     if (!text || typeof text !== "string") return text;
     const norm = (s) => String(s).replace(/\s+/g, " ").trim();
     const t = norm(text);
     if (t.length < 24) return text;
     const half = Math.floor(t.length / 2);
-    const first = t.slice(0, half);
-    const second = t.slice(half);
-    if (first.length >= 12 && norm(first) === norm(second)) return norm(first);
-    for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 5) {
+    const first = norm(t.slice(0, half));
+    const second = norm(t.slice(half));
+    if (first.length >= 12 && first === second) return first;
+    for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 10) {
       const block = t.slice(0, L);
-      const next = t.slice(L, L + block.length);
-      if (norm(block) === norm(next)) return norm(block);
+      if (block === t.slice(L, L + L)) return norm(block);
     }
-    const sep = t.indexOf(" ? ");
-    if (sep >= 40 && sep < t.length / 2) {
-      const block = t.slice(0, sep + 3);
-      const rest = t.slice(sep + 3);
-      if (rest.includes(block) || norm(rest.slice(0, block.length)) === norm(block)) return norm(block);
+    const prefixLen = Math.min(80, Math.floor(t.length / 3));
+    if (prefixLen >= 30) {
+      const prefix = norm(t.slice(0, prefixLen));
+      const rest = t.slice(prefixLen);
+      if (rest.startsWith(prefix) || rest.includes(prefix)) {
+        const idx = t.indexOf(prefix, 10);
+        if (idx > 0 && idx < t.length * 0.6) return norm(t.slice(0, idx));
+      }
     }
     return text;
   }
@@ -3106,10 +3079,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     return slice.trim() + "…";
   }
   const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "false").toLowerCase() === "true";
-  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "5000"); // 5000: sensible (restaurant); 15000 = très strict
-  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "18"); // ~360ms de parole pour déclencher (18 frames × 20ms)
+  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "15000"); // Seuil élevé pour éviter les faux positifs
+  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "35"); // ~700ms de parole continue nécessaire
   let twilioSpeechFrames = 0;
-  let lastBargeInLogAt = 0;
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
   const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible (recommandé si l'utilisateur doit répéter); 900–1200: plus strict
   const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "10"); // Augmenté de 6 à 10 (~200ms au lieu de 120ms)
@@ -3636,12 +3608,6 @@ ${compactPersona}`;
           garageTone,
           hasTerrace: restaurantHasTerrace,
         }) : "";
-        // Log pour distinguer IA (VOIX LIBRE) vs protocole (phrases imposées)
-        if (effectiveSector === "restaurant" && restaurantInstructions) {
-          const hasVoixLibre = /VOIX LIBRE|VOIX_LIBRE/i.test(restaurantInstructions);
-          const scriptedCount = (restaurantInstructions.match(/Dis UNIQUEMENT|Dis exactement|phrase UNIQUE|recopier|réciter|script/gi) || []).length;
-          console.log("[RESTAURANT-PROMPT] contrôle:", hasVoixLibre ? "VOIX_LIBRE (IA s'exprime)" : "protocole / phrases imposées", "| indicateurs scriptés:", scriptedCount, "| longueur:", restaurantInstructions.length);
-        }
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
         const sessionUpdate = {
@@ -3652,6 +3618,12 @@ ${compactPersona}`;
             output_modalities: ["text"],
           },
         };
+        if (REALTIME_INPUT_TRANSCRIPTION_ENABLED) {
+          sessionUpdate.session.input_audio_transcription = {
+            model: REALTIME_INPUT_TRANSCRIPTION_MODEL,
+            language: REALTIME_INPUT_TRANSCRIPTION_LANGUAGE,
+          };
+        }
         const updatePromptWithClientInfo = () => {
           console.log("🔄 updatePromptWithClientInfo appelée:", {
             sector: effectiveSector,
@@ -3696,15 +3668,10 @@ ${compactPersona}`;
               hasTerrace: restaurantHasTerrace,
             });
             let instructionsToSend = updatedRestaurantInstructions;
-            let truncated = false;
             if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
               const truncNote = "\n\n[RÈGLES: réservation naturelle, une question à la fois, multilangue.]";
               instructionsToSend = instructionsToSend.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - truncNote.length - 400) + truncNote;
-              truncated = true;
             }
-            const hasVoixLibreUpd = /VOIX LIBRE|VOIX_LIBRE/i.test(instructionsToSend);
-            const scriptedCountUpd = (instructionsToSend.match(/Dis UNIQUEMENT|Dis exactement|phrase UNIQUE|recopier|réciter|script/gi) || []).length;
-            console.log("[RESTAURANT-PROMPT] session.update (client reçu): contrôle:", hasVoixLibreUpd ? "VOIX_LIBRE (IA)" : "protocole", "| indicateurs scriptés:", scriptedCountUpd);
             openaiWs.send(JSON.stringify({
               type: "session.update",
               session: {
@@ -3948,34 +3915,37 @@ But: être naturel et mettre le client en confiance.`,
             walk(output, 0);
             return collected.trim();
           }
-          /** Évite de jouer deux fois la même phrase si l'API renvoie un doublon. */
+          /** Évite de jouer deux fois la même phrase si l'API renvoie un doublon (ex. récap répété). */
           function dedupeRepeatedPhrase(text) {
             if (!text || typeof text !== "string") return text;
             const norm = (s) => String(s).replace(/\s+/g, " ").trim();
             const t = norm(text);
             if (t.length < 24) return text;
             const half = Math.floor(t.length / 2);
-            const first = t.slice(0, half);
-            const second = t.slice(half);
-            if (first.length >= 12 && norm(first) === norm(second)) return norm(first);
-            for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 5) {
+            const first = norm(t.slice(0, half));
+            const second = norm(t.slice(half));
+            if (first.length >= 12 && first === second) return first;
+            // Détecte une phrase entière répétée (ex. "…Duflo ?D'accord, une table…" en double)
+            for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 10) {
               const block = t.slice(0, L);
-              const next = t.slice(L, L + block.length);
-              if (norm(block) === norm(next)) return norm(block);
+              const next = t.slice(L, L + L);
+              if (block === next) return norm(block);
             }
-            const sep = t.indexOf(" ? ");
-            if (sep >= 40 && sep < t.length / 2) {
-              const block = t.slice(0, sep + 3);
-              const rest = t.slice(sep + 3);
-              if (rest.includes(block) || norm(rest.slice(0, block.length)) === norm(block)) return norm(block);
+            const prefixLen = Math.min(80, Math.floor(t.length / 3));
+            if (prefixLen >= 30) {
+              const prefix = norm(t.slice(0, prefixLen));
+              const rest = t.slice(prefixLen);
+              if (rest.startsWith(prefix) || rest.includes(prefix)) {
+                const idx = t.indexOf(prefix, 10);
+                if (idx > 0 && idx < t.length * 0.6) return norm(t.slice(0, idx));
+              }
             }
             return text;
           }
           function flushRealtimeElevenChunks(rid, final = false) {
             if (!REALTIME_USE_ELEVEN || !REALTIME_ELEVEN_CHUNKING_ENABLED) return;
             if (!rid) return;
-            let full = String(transcriptMap.get(rid) || "");
-            full = dedupeRepeatedPhrase(full);
+            const full = String(transcriptMap.get(rid) || "");
             const st = elevenStateMap.get(rid) || { cursor: 0, started: false };
             if (!full || st.cursor >= full.length) {
               if (final) elevenStateMap.delete(rid);
@@ -4105,21 +4075,9 @@ But: être naturel et mettre le client en confiance.`,
                       console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                       playConsentRefusalAndHangup();
                     } else {
-                      const isWrong21hRefusal = effectiveSector === "restaurant" && /\b(ne prend plus|après).*(vingt-et-un|vingt et une|21)\s*heures?|\b(21|vingt-et-un|vingt et une)\s*heures?.*(ne prend plus|après)/i.test(extractedText) && /\bquelle\s*heure|à quelle heure|heure prévoyez/i.test(String(lastAssistantText || ""));
-                      const userJustSpoke = lastCommitAt > 0 && (nowMs() - lastCommitAt) < 12000;
-                      const alreadyCorrected = (ws.__last20h30CorrectionCommit || 0) === lastCommitAt;
-                      if (isWrong21hRefusal && userJustSpoke && !alreadyCorrected) {
-                        ws.__last20h30CorrectionCommit = lastCommitAt;
-                        console.log("🔧 Correction 20h30: l'IA a refusé « après 21h » alors que le client a peut-être dit 20h30 — injection correction");
-                        try {
-                          openaiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: "J'ai dit 20h30." }] } }));
-                          setTimeout(() => { if (openaiWs?.readyState === WebSocket.OPEN && !responseInProgress) requestResponseCreate("20h30_correction"); }, 200);
-                        } catch (e) { console.error("❌ Erreur injection correction 20h30:", e); enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true }); }
-                      } else {
-                        const textForTts = applyPricingHoursGuard(extractedText);
-                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
-                        enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
-                      }
+                      const textForTts = applyPricingHoursGuard(extractedText);
+                      console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
+                      enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
                     }
                   } else if (REALTIME_USE_ELEVEN && !spokenSet.has(rid)) {
                     spokenSet.add(rid);
@@ -4129,21 +4087,9 @@ But: être naturel et mettre le client en confiance.`,
                       console.log("🛑 Réponse IA (response.done) = refus enregistrement, remplacement par message fixe.");
                       playConsentRefusalAndHangup();
                     } else {
-                      const isWrong21hRefusal = effectiveSector === "restaurant" && /\b(ne prend plus|après).*(vingt-et-un|vingt et une|21)\s*heures?|\b(21|vingt-et-un|vingt et une)\s*heures?.*(ne prend plus|après)/i.test(extractedText) && /\bquelle\s*heure|à quelle heure|heure prévoyez/i.test(String(lastAssistantText || ""));
-                      const userJustSpoke = lastCommitAt > 0 && (nowMs() - lastCommitAt) < 12000;
-                      const alreadyCorrected = (ws.__last20h30CorrectionCommit || 0) === lastCommitAt;
-                      if (isWrong21hRefusal && userJustSpoke && !alreadyCorrected) {
-                        ws.__last20h30CorrectionCommit = lastCommitAt;
-                        console.log("🔧 Correction 20h30: l'IA a refusé « après 21h » alors que le client a peut-être dit 20h30 — injection correction");
-                        try {
-                          openaiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: "J'ai dit 20h30." }] } }));
-                          setTimeout(() => { if (openaiWs?.readyState === WebSocket.OPEN && !responseInProgress) requestResponseCreate("20h30_correction"); }, 200);
-                        } catch (e) { console.error("❌ Erreur injection correction 20h30:", e); enqueuePremiumTts(extractedText, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true }); }
-                      } else {
-                        const textForTts = applyPricingHoursGuard(extractedText);
-                        console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
-                        enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
-                      }
+                      const textForTts = applyPricingHoursGuard(extractedText);
+                      console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: textForTts.substring(0, 80) });
+                      enqueuePremiumTts(textForTts, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
                     }
                   } else if (spokenSet.has(rid)) {
                     if (LOG_TTS) console.log(`[TTS] SKIPPED response.done (déjà dans spokenSet):`, { rid, text: extractedText.substring(0, 100) });
@@ -4171,28 +4117,18 @@ But: être naturel et mettre le client en confiance.`,
                           }
                         }, 500);
                       }
-                    } else {
-                      const emptyRetryWindowMs = effectiveSector === "restaurant" ? 12000 : 8000; // 12 s en restaurant (ex. après heure d'arrivée)
-                      if (lastCommitAt > 0 && (now - lastCommitAt) < emptyRetryWindowMs && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                        lastEmptyResponseRetryCommitAt = lastCommitAt;
-                        console.log("🔄 Réponse vide alors que le client vient de parler — retry response.create", effectiveSector === "restaurant" ? "(restaurant)" : "");
-                        setTimeout(() => {
-                          if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
-                            requestResponseCreate("empty_response_retry");
-                          }
-                        }, 350);
-                      } else if (lastCommitAt > 0 && (now - lastCommitAt) < (effectiveSector === "restaurant" ? 12000 : 8000) && lastEmptyResponseRetryCommitAt === lastCommitAt) {
-                        const fallbackPhrase = effectiveSector === "restaurant" ? "Un instant, s'il vous plaît." : "D'accord, je vous écoute.";
-                        console.log("🔄 Réponse vide après retry — fallback TTS pour éviter silence:", fallbackPhrase);
-                        enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_response_fallback", allowWithoutUser: true });
-                        if (effectiveSector === "restaurant") {
-                          setTimeout(() => {
-                            if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
-                              requestResponseCreate("empty_response_fallback_restaurant");
-                            }
-                          }, 500);
+                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                      lastEmptyResponseRetryCommitAt = lastCommitAt;
+                      console.log("🔄 Réponse vide alors que le client vient de parler — retry response.create (évite de répéter plusieurs fois)");
+                      setTimeout(() => {
+                        if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                          requestResponseCreate("empty_response_retry");
                         }
-                      }
+                      }, 350);
+                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
+                      const fallbackPhrase = effectiveSector === "restaurant" ? "Un instant, s'il vous plaît." : "D'accord, je vous écoute.";
+                      console.log("🔄 Réponse vide après retry — fallback TTS pour éviter silence:", fallbackPhrase);
+                      enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_response_fallback", allowWithoutUser: true });
                     }
                   } else {
                     console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
@@ -4205,26 +4141,18 @@ But: être naturel et mettre le client en confiance.`,
                       console.error("❌ Impossible de sérialiser response.output pour debug:", jsonErr);
                     }
                     const now = nowMs();
-                    const noTextRetryWindowMs = effectiveSector === "restaurant" ? 12000 : 8000;
-                    if (lastCommitAt > 0 && (now - lastCommitAt) < noTextRetryWindowMs && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                    if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
                       lastEmptyResponseRetryCommitAt = lastCommitAt;
-                      console.log("🔄 Pas de texte extrait (structure?) alors que le client vient de parler — retry response.create", effectiveSector === "restaurant" ? "(restaurant)" : "");
+                      console.log("🔄 Pas de texte extrait (structure?) alors que le client vient de parler — retry response.create");
                       setTimeout(() => {
                         if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
                           requestResponseCreate("empty_response_retry");
                         }
                       }, 350);
-                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < noTextRetryWindowMs && lastEmptyResponseRetryCommitAt === lastCommitAt) {
+                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
                       const fallbackPhrase = effectiveSector === "restaurant" ? "Un instant, s'il vous plaît." : "D'accord, je vous écoute.";
                       console.log("🔄 Pas de texte extrait après retry — fallback TTS:", fallbackPhrase);
                       enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_response_fallback", allowWithoutUser: true });
-                      if (effectiveSector === "restaurant") {
-                        setTimeout(() => {
-                          if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
-                            requestResponseCreate("empty_response_fallback_restaurant");
-                          }
-                        }, 500);
-                      }
                     }
                   }
                   const respStatus = msg.response?.status;
@@ -4264,26 +4192,14 @@ But: être naturel et mettre le client en confiance.`,
                   } catch (_) { /* ignore */ }
                 }
                 const now = nowMs();
-                const extractErrRetryWindowMs = effectiveSector === "restaurant" ? 12000 : 8000;
-                if (lastCommitAt > 0 && (now - lastCommitAt) < extractErrRetryWindowMs && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
                   lastEmptyResponseRetryCommitAt = lastCommitAt;
-                  console.log("🔄 Erreur extraction alors que le client vient de parler — retry response.create", effectiveSector === "restaurant" ? "(restaurant)" : "");
+                  console.log("🔄 Erreur extraction alors que le client vient de parler — retry response.create");
                   setTimeout(() => {
                     if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
                       requestResponseCreate("empty_response_retry");
                     }
                   }, 350);
-                } else if (lastCommitAt > 0 && (now - lastCommitAt) < extractErrRetryWindowMs && lastEmptyResponseRetryCommitAt === lastCommitAt) {
-                  const fallbackPhrase = effectiveSector === "restaurant" ? "Un instant, s'il vous plaît." : "D'accord, je vous écoute.";
-                  console.log("🔄 Erreur extraction après retry — fallback TTS:", fallbackPhrase);
-                  enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_response_fallback", allowWithoutUser: true });
-                  if (effectiveSector === "restaurant") {
-                    setTimeout(() => {
-                      if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
-                        requestResponseCreate("empty_response_fallback_restaurant");
-                      }
-                    }, 500);
-                  }
                 }
               }
             } else if (REALTIME_USE_ELEVEN && rid && (!msg.response?.output || (Array.isArray(msg.response.output) && msg.response.output.length === 0))) {
@@ -4296,29 +4212,6 @@ But: être naturel et mettre le client en confiance.`,
                     requestResponseCreate("empty_response_retry");
                   }
                 }, 350);
-              }
-            } else if (!REALTIME_USE_ELEVEN && rid && (!msg.response?.output || (Array.isArray(msg.response?.output) && msg.response.output.length === 0))) {
-              const now = nowMs();
-              const noOutputRetryWindowMs = effectiveSector === "restaurant" ? 12000 : 8000;
-              if (lastCommitAt > 0 && (now - lastCommitAt) < noOutputRetryWindowMs && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                lastEmptyResponseRetryCommitAt = lastCommitAt;
-                console.log("🔄 response.done sans output (texte seul) alors que le client vient de parler — retry response.create", effectiveSector === "restaurant" ? "(restaurant)" : "");
-                setTimeout(() => {
-                  if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
-                    requestResponseCreate("empty_response_retry");
-                  }
-                }, 350);
-              } else if (lastCommitAt > 0 && (now - lastCommitAt) < noOutputRetryWindowMs && lastEmptyResponseRetryCommitAt === lastCommitAt) {
-                const fallbackPhrase = effectiveSector === "restaurant" ? "Un instant, s'il vous plaît." : "D'accord, je vous écoute.";
-                console.log("🔄 response.done sans output après retry — fallback TTS:", fallbackPhrase);
-                enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_response_fallback", allowWithoutUser: true });
-                if (effectiveSector === "restaurant") {
-                  setTimeout(() => {
-                    if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
-                      requestResponseCreate("empty_response_fallback_restaurant");
-                    }
-                  }, 500);
-                }
               }
             }
             if (REALTIME_USE_ELEVEN && rid && !spokenSet.has(rid)) {
@@ -4748,7 +4641,7 @@ But: être naturel et mettre le client en confiance.`,
                 }
               }
             } else {
-              if (initialAssistantGreetingText && initialAssistantGreetingText !== "[IA-restaurant-first]" && !userHasSpoken) {
+              if (initialAssistantGreetingText && !userHasSpoken) {
                 console.log("👂 Ignorer conversation.item.done pour le greeting (déjà joué via Minimax).");
               } else {
                 const rid = msg.response_id ?? null;
@@ -5658,16 +5551,9 @@ But: être naturel et mettre le client en confiance.`,
           }
           if (msg.type === "error") {
             const err = msg.error || {};
-            const errCode = String(msg?.error?.code ?? "");
-            // response_cancel_not_active = barge-in envoyé alors qu'OpenAI n'avait plus de réponse active (race condition, sans gravité)
-            if (errCode === "response_cancel_not_active") {
-              if (LOG_VERBOSE) console.log("ℹ️ OpenAI response.cancel ignoré (aucune réponse active — barge-in sans effet)");
-              responseInProgress = false;
-              activeResponseId = null;
-            } else {
-              console.error("❌ Erreur OpenAI:", err.code || "?", err.message || err, err.param ? `(param: ${err.param})` : "");
-            }
+            console.error("❌ Erreur OpenAI:", err.code || "?", err.message || err, err.param ? `(param: ${err.param})` : "");
             const errParam = String(msg?.error?.param ?? "");
+            const errCode = String(msg?.error?.code ?? "");
             if (errCode === "unknown_parameter" && errParam.startsWith("session.")) {
               if (!ws.__didSessionFallback) {
                 ws.__didSessionFallback = true;
@@ -5698,11 +5584,6 @@ But: être naturel et mettre le client en confiance.`,
             awaitingUserResponse = true;
             bytesSinceSpeechStart = 0;
             userHasSpoken = true;
-            // Barge-in restaurant : dès qu'OpenAI détecte la parole client alors que l'IA parle, interrompre
-            const bargeInActive = effectiveSector === "restaurant" || BARGE_IN_ENABLED;
-            if (bargeInActive && responseInProgress) {
-              cancelResponseForBargeIn();
-            }
           }
           if (msg.type === "input_audio_buffer.speech_stopped") {
             speechActive = false;
@@ -5762,7 +5643,7 @@ But: être naturel et mettre le client en confiance.`,
             if (effectiveSector === "restaurant" && (noTtsEnqueuedForThisResponse || responseTextEmpty) && userSpokeRecently) {
               setTimeout(() => {
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
-                console.log("🔄 response.done: réponse vide ou sans TTS — fallback + retry response.create", { doneRid });
+                console.log("🔄 response.done: réponse vide ou sans TTS pour ce tour — fallback + retry response.create", { doneRid });
                 enqueuePremiumTts("Un instant, s'il vous plaît.", { interrupt: false, source: "empty_realtime_fallback", allowWithoutUser: true });
                 requestResponseCreate("empty_realtime_fallback");
               }, 150);
@@ -5770,13 +5651,6 @@ But: être naturel et mettre le client en confiance.`,
           }
           if (msg.type === "session.created" || msg.type === "session.updated") {
             console.log("✅ Session OpenAI configurée");
-            if (pendingRestaurantConsentAiResponse && effectiveSector === "restaurant" && openaiWs?.readyState === WebSocket.OPEN && !responseInProgress) {
-              try {
-                pendingRestaurantConsentAiResponse = false;
-                requestResponseCreate("initial_consent_restaurant");
-                console.log("🎤 IA restaurant: première réplique (session prête, tout par l'IA).");
-              } catch (e) { console.error("❌ initial_consent_restaurant (session):", e); }
-            }
           }
         } catch (err) {
           console.error("❌ Erreur parsing OpenAI message:", err, data.toString().substring(0, 100));
@@ -6042,13 +5916,8 @@ But: être naturel et mettre le client en confiance.`,
                       const baseHello = isRestoCI
                         ? `Bonjour. ${assistantName} du ${placePart}.`
                         : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                      if (isRestoCI) {
-                        greeting = null;
-                        pendingRestaurantConsentAiResponse = true;
-                      } else {
-                        const consentText = "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN;
-                        greeting = [baseHello, consentText].filter(Boolean).join(" ");
-                      }
+                      const consentText = (isRestoCI ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
+                      greeting = [baseHello, consentText].filter(Boolean).join(" ");
                     } else if (isRestoCI) {
                       const rawN = String(garageName || "").trim();
                       const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
@@ -6071,29 +5940,12 @@ But: être naturel et mettre le client en confiance.`,
                         return `Bonjour ${salutation}. Ici ${assistantName} du ${placePart}. En quoi puis-je vous aider ?`;
                       })() : baseHello + " En quoi puis-je vous aider ?";
                     }
-                    if (greeting !== null) {
-                      initialAssistantGreetingText = greeting;
-                      hasSentInitialGreeting = true;
-                      enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
-                      const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
-                      console.log(`👋 Greeting ${consentRequired && !consentGiven ? "générique (consent)" : "post-consent avec nom"} joué via ${providerName}.`, { callSid, consentRequired });
-                    } else {
-                      initialAssistantGreetingText = "[IA-restaurant-first]";
-                      hasSentInitialGreeting = true;
-                      console.log("🎤 Restaurant: aucune TTS — l'IA parle en premier (bonjour + consentement).");
-                    }
+                    initialAssistantGreetingText = greeting;
+                    hasSentInitialGreeting = true;
+                    enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+                    const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+                    console.log(`👋 Greeting ${consentRequired && !consentGiven ? "générique (consent)" : "post-consent avec nom"} joué via ${providerName}.`, { callSid, consentRequired });
                     if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
-                    if (pendingRestaurantConsentAiResponse && effectiveSector === "restaurant") {
-                      setTimeout(() => {
-                        if (!pendingRestaurantConsentAiResponse) return;
-                        if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
-                        try {
-                          pendingRestaurantConsentAiResponse = false;
-                          requestResponseCreate("initial_consent_restaurant");
-                          console.log("🎤 IA restaurant: première réplique (tout par l'IA).");
-                        } catch (e) { console.error("❌ initial_consent_restaurant:", e); }
-                      }, 700);
-                    }
                   } else if (!transferFailed && !rdvNotificationFollowupPlayed && (initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
                     const appointments = clientInfo.appointments || [];
                     if (appointments.length > 0) {
@@ -6147,13 +5999,8 @@ But: être naturel et mettre le client en confiance.`,
                 const baseHello = isRestoFb
                   ? `Bonjour. ${assistantName} du ${placePart}.`
                   : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                if (isRestoFb) {
-                  greeting = null;
-                  pendingRestaurantConsentAiResponse = true;
-                } else {
-                  const consentText = "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN;
-                  greeting = [baseHello, consentText].filter(Boolean).join(" ");
-                }
+                const consentText = (isRestoFb ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
+                greeting = [baseHello, consentText].filter(Boolean).join(" ");
               } else if (isRestoFb) {
                 const rawN = String(garageName || "").trim();
                 const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
@@ -6163,30 +6010,13 @@ But: être naturel et mettre le client en confiance.`,
                 const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
                 greeting = [baseHello, question].filter(Boolean).join(" ");
               }
-              if (greeting !== null) {
-                initialAssistantGreetingText = greeting;
-                hasSentInitialGreeting = true;
-                enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
-                const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
-                console.log(`👋 Greeting générique (sans nom client) joué APRÈS délai fallback via ${providerName}.`, { callSid, consentRequired, fallbackDelayMs });
-              } else {
-                initialAssistantGreetingText = "[IA-restaurant-first]";
-                hasSentInitialGreeting = true;
-                console.log("🎤 Restaurant fallback: aucune TTS — l'IA parle en premier.");
-              }
+              initialAssistantGreetingText = greeting;
+              hasSentInitialGreeting = true;
+              enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+              const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+              console.log(`👋 Greeting générique (sans nom client) joué APRÈS délai fallback via ${providerName}.`, { callSid, consentRequired, fallbackDelayMs });
               if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
               ws.__greetingFallbackTimer = null;
-              if (pendingRestaurantConsentAiResponse && effectiveSector === "restaurant") {
-                setTimeout(() => {
-                  if (!pendingRestaurantConsentAiResponse) return;
-                  if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
-                  try {
-                    pendingRestaurantConsentAiResponse = false;
-                    requestResponseCreate("initial_consent_restaurant");
-                    console.log("🎤 IA restaurant: première réplique (tout par l'IA).");
-                  } catch (e) { console.error("❌ initial_consent_restaurant:", e); }
-                }, 700);
-              }
             }, fallbackDelayMs);
           }
         } catch (e) {
@@ -6467,17 +6297,9 @@ But: être naturel et mettre le client en confiance.`,
               const isUserSpeech = avg > TWILIO_SPEECH_THRESHOLD;
               if (isUserSpeech) twilioSpeechFrames += 1;
               else twilioSpeechFrames = Math.max(0, twilioSpeechFrames - 1);
-              const bargeInActive = effectiveSector === "restaurant" || BARGE_IN_ENABLED;
-              if (bargeInActive && responseInProgress && twilioSpeechFrames >= BARGE_IN_FRAMES) {
+              if (BARGE_IN_ENABLED && responseInProgress && twilioSpeechFrames >= BARGE_IN_FRAMES) {
                 cancelResponseForBargeIn();
                 twilioSpeechFrames = 0;
-              }
-              if (bargeInActive && responseInProgress && mediaCount % 50 === 1) {
-                const nowB = nowMs();
-                if (nowB - lastBargeInLogAt > 2000) {
-                  lastBargeInLogAt = nowB;
-                  console.log("[BARGE-IN] VAD Twilio:", { avg: Math.round(avg), seuil: TWILIO_SPEECH_THRESHOLD, frames: twilioSpeechFrames, needed: BARGE_IN_FRAMES });
-                }
               }
               const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
               const assistantIsReallyTalking =
