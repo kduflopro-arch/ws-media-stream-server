@@ -3598,7 +3598,6 @@ ${compactPersona}`;
         const REALTIME_INPUT_TRANSCRIPTION_ENABLED = (process.env.REALTIME_INPUT_TRANSCRIPTION_ENABLED ?? "false").toLowerCase() === "true";
         const REALTIME_INPUT_TRANSCRIPTION_MODEL = process.env.REALTIME_INPUT_TRANSCRIPTION_MODEL ?? "whisper-1";
         const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
-        const useTranscriptionForRestaurant = effectiveSector === "restaurant";
         const garageTools = [
           { type: "function", name: "get_garage_pricing", description: "Récupère tarif + horaires du garage. Pour RDV: passe prestation (plaquettes|freins|diagnostic|vidange|révision|disques) — renvoie tarif ET horaires en une fois. Une seule phrase à annoncer au client. Ne pas appeler get_opening_hours séparément. Ne pas appeler pour devis explicite.", parameters: { type: "object", properties: { prestation: { type: "string", description: "Prestation: plaquettes, freins, diagnostic, vidange, révision, disques" } } } },
           { type: "function", name: "get_garage_services", description: "Récupère la liste des services avec descriptions. À appeler pour questions sur les prestations (en quoi consiste, quels services).", parameters: { type: "object", properties: {} } },
@@ -3653,18 +3652,6 @@ ${compactPersona}`;
             output_modalities: ["text"],
           },
         };
-        if (REALTIME_INPUT_TRANSCRIPTION_ENABLED || useTranscriptionForRestaurant) {
-          sessionUpdate.session.input_audio_transcription = {
-            model: useTranscriptionForRestaurant ? (process.env.REALTIME_INPUT_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe") : REALTIME_INPUT_TRANSCRIPTION_MODEL,
-            language: REALTIME_INPUT_TRANSCRIPTION_LANGUAGE,
-            ...(useTranscriptionForRestaurant ? {
-              prompt: "Appel téléphone réservation restaurant. Heures en français : transcrire 20h30 comme \"vingt heures trente\" ou \"20h30\", 21h comme \"vingt et une heures\". Ne pas confondre vingt heures trente avec vingt et une heures. Nombres de personnes : transcrire en chiffres quand c'est clair (7, 4, 6, 8).",
-            } : {}),
-          };
-          if (useTranscriptionForRestaurant) {
-            console.log("🍽️ [Restaurant] Transcription dédiée activée (modèle + prompt heures/nombres)");
-          }
-        }
         const updatePromptWithClientInfo = () => {
           console.log("🔄 updatePromptWithClientInfo appelée:", {
             sector: effectiveSector,
