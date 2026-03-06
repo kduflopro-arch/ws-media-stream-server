@@ -722,19 +722,12 @@ wss.on("connection", (ws, req) => {
     if (isResto) {
       const rawName = String(garageName || "").trim();
       const label = /^restaurant\b/i.test(rawName) ? rawName : `restaurant ${rawName}`;
-      if (clientInfo?.name) {
-        const parts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
-        const ln = clientInfo.last_name?.trim() || parts[parts.length - 1] || clientInfo.name;
-        const tt = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
-        phrase = `Bonjour ${tt ? tt + " " + ln : ln}. ${assistantName} du ${label}, je vous écoute.`;
-      } else {
-        phrase = `${label}, ${assistantName} à l'appareil. Je vous écoute.`;
-      }
+      phrase = `Bienvenue au ${label}. Que puis-je faire pour vous aujourd'hui ?`;
       const apt = (clientInfo?.appointments || []).find(a => !a.en_attente_confirmation_garage);
       if (apt) {
         const d = new Date(apt.appointment_date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
         const t = (apt.appointment_time || "").slice(0, 5);
-        phrase = phrase.replace("Je vous écoute.", `Je vois que vous avez une réservation pour le ${d} à ${t}. Je vous écoute.`);
+        phrase = `Bienvenue au ${label}. Je vois que vous avez une réservation pour le ${d} à ${t}. Que puis-je faire pour vous aujourd'hui ?`;
       }
     } else {
       phrase = `Bonjour. Ici ${assistantName} du ${placePart}. En quoi puis-je vous aider ?`;
