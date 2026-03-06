@@ -649,10 +649,11 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_VOICE_ID_DEFAULT = process.env.MINIMAX_VOICE_ID ?? "";
   const MINIMAX_VOICE_ID_MALE = process.env.MINIMAX_VOICE_ID_MALE ?? "";
   const MINIMAX_VOICE_ID_FEMALE = process.env.MINIMAX_VOICE_ID_FEMALE ?? "";
-  const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-01"; // speech-01, speech-02, etc.
-  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1"); // 0.5 à 2.0
+  const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-2.6-hd"; // speech-2.8-hd, speech-2.6-hd (meilleure prosodie), speech-01, etc.
+  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1"); // 0.5 à 2.0 — 1.0 = naturel/fluide (doc)
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0"); // 0.0 à 1.0
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0"); // -12 à 12
+  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "calm"; // calm = pro/serveur, fluent = plus fluide (2.6 uniquement)
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
@@ -1833,18 +1834,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (LOG_MINIMAX_EVENTS) console.log("✅ Minimax WebSocket connecté:", connectedMsg);
       const taskStartMsg = {
         event: "task_start",
-        model: MINIMAX_MODEL || "speech-2.6-hd", // Utiliser un modèle supporté pour WebSocket
+        model: MINIMAX_MODEL || "speech-2.6-hd",
         voice_setting: {
           voice_id: selectedVoiceId,
-          speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 0.85)),
-          vol: Math.max(0.0, Math.min(1.0, MINIMAX_VOLUME || 1.0)),
+          speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 1)),
+          vol: Math.max(0.0, Math.min(10, MINIMAX_VOLUME || 1)),
           pitch: Math.max(-12, Math.min(12, MINIMAX_PITCH || 0)),
+          emotion: ["calm", "fluent", "happy", "sad", "angry", "fearful", "disgusted", "surprised", "whisper"].includes(String(MINIMAX_EMOTION || "").toLowerCase()) ? String(MINIMAX_EMOTION).toLowerCase() : "calm",
           english_normalization: false,
         },
         audio_setting: {
-          sample_rate: 32000, // 32kHz (Minimax semble ignorer 8kHz, on fait le downsampling nous-mêmes)
-          bitrate: 128000, // Bitrate pour 32kHz
-          format: "pcm", // Format PCM (selon la doc: mp3, pcm, flac sont supportés)
+          sample_rate: 32000,
+          bitrate: 128000,
+          format: "pcm",
           channel: 1,
         },
       };
