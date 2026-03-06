@@ -214,6 +214,8 @@ async function handleRunAnalysis(callId, res) {
     const analysis = JSON.parse(content);
     const summaryText = analysis.summary ?? analysis.Summary ?? null;
     const conclusionText = analysis.aiConclusion ?? analysis.AIConclusion ?? null;
+    let restaurantClientName = "";
+    let restaurantFromNumber = (call.from_number ?? "").trim();
     if (summaryText == null || conclusionText == null) {
       console.warn("[run-analysis] Champs manquants:", { hasSummary: summaryText != null, hasConclusion: conclusionText != null, keys: Object.keys(analysis) });
     } else {
@@ -221,7 +223,29 @@ async function handleRunAnalysis(callId, res) {
     }
     let updatePayload;
     if (isRestaurant) {
-      const reservationDetails = analysis.reservationDetails && typeof analysis.reservationDetails === "object" ? analysis.reservationDetails : {};
+      let reservationDetails = analysis.reservationDetails && typeof analysis.reservationDetails === "object" ? analysis.reservationDetails : {};
+      let clientName = (reservationDetails.clientName ?? "").trim();
+      const fromNumber = (call.from_number ?? "").trim();
+      // Si l'analyse n'a pas extrait de nom mais que le client est enregistré, utiliser le nom du dossier client
+      if (!clientName && fromNumber && call.garage_id) {
+        const ingestUrl = process.env.AUTOGURU_INGEST_URL || "";
+        const baseUrlForClient = ingestUrl ? ingestUrl.replace(/\/api\/twilio\/realtime-(?:ingest|finalize)\/?$/i, "").replace(/\/+$/, "") : (process.env.AUTOGURU_API_BASE || "").replace(/\/+$/, "");
+        const ingestSecret = process.env.REALTIME_INGEST_SECRET || "";
+        if (baseUrlForClient && ingestSecret) {
+          try {
+            const clientInfoRes = await fetch(`${baseUrlForClient}/api/twilio/client-info?garageId=${encodeURIComponent(call.garage_id)}&phoneNumber=${encodeURIComponent(fromNumber)}&secret=${encodeURIComponent(ingestSecret)}`);
+            const clientInfoData = await clientInfoRes.json().catch(() => ({}));
+            if (clientInfoData?.client?.name && typeof clientInfoData.client.name === "string") {
+              clientName = clientInfoData.client.name.trim();
+              reservationDetails = { ...reservationDetails, clientName };
+              console.log("[run-analysis] Nom réservation pris du dossier client:", clientName);
+            }
+          } catch (e) {
+            // Ignorer les erreurs (réseau, API indisponible)
+          }
+        }
+      }
+      restaurantClientName = clientName;
       const existingInsights = (call.client_insights && typeof call.client_insights === "object") ? call.client_insights : {};
       const clientInsights = {
         ...existingInsights,
@@ -307,10 +331,7 @@ async function handleRunAnalysis(callId, res) {
     }
     // Restaurant : création automatique du dossier client pour les prochaines réservations
     if (isRestaurant) {
-      const reservationDetails = analysis.reservationDetails && typeof analysis.reservationDetails === "object" ? analysis.reservationDetails : {};
-      const clientName = (reservationDetails.clientName ?? "").trim();
-      const fromNumber = (call.from_number ?? "").trim();
-      if (clientName && fromNumber && call.garage_id) {
+      if (restaurantClientName && restaurantFromNumber && call.garage_id) {
         const ingestUrl = process.env.AUTOGURU_INGEST_URL || "";
         const baseUrl = ingestUrl ? ingestUrl.replace(/\/api\/twilio\/realtime-(?:ingest|finalize)\/?$/i, "").replace(/\/+$/, "") : (process.env.AUTOGURU_API_BASE || "").replace(/\/+$/, "");
         const secret = process.env.RUN_ANALYSIS_SECRET || "";
@@ -319,9 +340,9 @@ async function handleRunAnalysis(callId, res) {
           fetch(createClientUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` },
-            body: JSON.stringify({ garage_id: call.garage_id, phone_number: fromNumber, name: clientName }),
+            body: JSON.stringify({ garage_id: call.garage_id, phone_number: restaurantFromNumber, name: restaurantClientName }),
           }).then((r) => {
-            if (r.ok) console.log("[run-analysis] Dossier client restaurant créé/mis à jour:", clientName);
+            if (r.ok) console.log("[run-analysis] Dossier client restaurant créé/mis à jour:", restaurantClientName);
             else r.text().then((t) => console.warn("[run-analysis] create-restaurant-client échec:", r.status, t));
           }).catch((e) => console.warn("[run-analysis] create-restaurant-client erreur:", e.message));
         }

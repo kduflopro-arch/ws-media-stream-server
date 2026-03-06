@@ -125,7 +125,11 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
     : "TRANSFERT: désactivé. Dis 'Personne n'est disponible pour le moment, mais je peux prendre un message et on vous rappelle.' Ne mentionne jamais que le transfert est désactivé.";
 
   const clientSection = clientInfo?.name
-    ? `CLIENT CONNU (déjà dans les dossiers) — NOM DU CLIENT: ${clientInfo.name}. Quand tu arrives à l'étape nom (après le récap), tu DOIS prononcer le nom du client : dis EXACTEMENT "La réservation est bien au nom de ${clientInfo.name} ?" ou "C'est bien au nom de ${clientInfo.name} ?". Ne dis JAMAIS "La réservation est bien au nom de ?" sans le nom — le nom (${clientInfo.name}) doit TOUJOURS être dit. Attends son oui. INTERDIT d'épellation : ne demande JAMAIS "épellez votre nom" ni "pouvez-vous m'épeler". Réservations à venir: ${JSON.stringify(clientInfo.appointments || [])}.`
+    ? `CLIENT CONNU (déjà enregistré) — NOM À UTILISER POUR LA RÉSERVATION: ${clientInfo.name}.
+- Pour la réservation, tu DOIS utiliser ce nom (${clientInfo.name}) et ne jamais demander "à quel nom ?" ni faire épeler le nom. Le client est déjà enregistré : la réservation est TOUJOURS au nom de ${clientInfo.name}.
+- À l'étape nom (après le récap), dis EXACTEMENT "La réservation est bien au nom de ${clientInfo.name} ?" ou "C'est bien au nom de ${clientInfo.name} ?". Attends son oui. INTERDIT d'épellation.
+- Lorsque tu enregistres ou transmets la réservation (outil, récap, données), le nom du client doit être "${clientInfo.name}" — n'utilise jamais un autre nom prononcé par le client.
+Réservations à venir: ${JSON.stringify(clientInfo.appointments || [])}.`
     : "";
 
   const toneNote = garageTone
