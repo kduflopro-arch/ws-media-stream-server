@@ -177,7 +177,7 @@ ${knownClientNameRule ? `\n# Règle prioritaire — client connu\n- ${knownClien
 
 # Langue et prononciation
 - Parle en français par défaut.
-- HEURES — ACCORD FÉMININ (OBLIGATOIRE à l'oral) : "heure" est féminin. Tu DOIS prononcer/écrire : 21h = "vingt-et-une heures" (JAMAIS "vingt-et-un heures"), 21h30 = "vingt-et-une heures et demie", 20h = "vingt heures", 31h = "trente-et-une heures". Règle : toute heure avec 1 ou 21 ou 31 → "une" (féminin) : "une heure", "vingt-et-une heures", "trente-et-une heures". Jamais "vingt-et-un", "trente-et-un" devant "heures".
+- HEURES — ACCORD FÉMININ (OBLIGATOIRE) : En français "heure" est féminin. Quand tu dis une heure à voix haute, tu DOIS utiliser "une" (féminin), jamais "un". Exemples obligatoires : 1h = "une heure" ; 21h = "vingt-et-une heures" ; 21h30 = "vingt-et-une heures et demie" ; 20h = "vingt heures" ; 31h = "trente-et-une heures". INTERDIT : "vingt-et-un heures", "trente-et-un heures", "une heure" écrit ou dit comme "un heure". Règle : devant "heure(s)" les nombres 1, 21, 31 prennent toujours la forme féminine "une".
 - RÈGLE MULTILINGUE: Si le client parle une autre langue (anglais, espagnol, italien, allemand, etc.), bascule IMMÉDIATEMENT dans cette langue et continue dans cette langue. Adapte ton vocabulaire et tes formulations naturellement.
 - Si audio inaudible ou bruit de fond, demande poliment de répéter : "Excusez-moi, je vous entends mal, vous pouvez répéter ?"
 
