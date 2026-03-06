@@ -649,11 +649,17 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_VOICE_ID_DEFAULT = process.env.MINIMAX_VOICE_ID ?? "";
   const MINIMAX_VOICE_ID_MALE = process.env.MINIMAX_VOICE_ID_MALE ?? "";
   const MINIMAX_VOICE_ID_FEMALE = process.env.MINIMAX_VOICE_ID_FEMALE ?? "";
-  const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-2.6-hd"; // speech-2.8-hd, speech-2.6-hd (meilleure prosodie), speech-01, etc.
-  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1"); // 0.5 à 2.0 — 1.0 = naturel/fluide (doc)
-  const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0"); // 0.0 à 1.0
-  const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0"); // -12 à 12
-  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "calm"; // calm = pro/serveur, fluent = plus fluide (2.6 uniquement)
+  const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-2.8-hd";
+  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1");
+  const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0");
+  const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0");
+  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "calm";
+  const MINIMAX_LANGUAGE_BOOST = process.env.MINIMAX_LANGUAGE_BOOST ?? "French";
+  const MINIMAX_TEXT_NORMALIZATION = (process.env.MINIMAX_TEXT_NORMALIZATION ?? "false").toLowerCase() === "true";
+  const MINIMAX_VOICE_MODIFY_PITCH = process.env.MINIMAX_VOICE_MODIFY_PITCH !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_PITCH) : 0;
+  const MINIMAX_VOICE_MODIFY_INTENSITY = process.env.MINIMAX_VOICE_MODIFY_INTENSITY !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_INTENSITY) : 0;
+  const MINIMAX_VOICE_MODIFY_TIMBRE = process.env.MINIMAX_VOICE_MODIFY_TIMBRE !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_TIMBRE) : 0;
+  const MINIMAX_SOUND_EFFECTS = process.env.MINIMAX_SOUND_EFFECTS ?? "";
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
@@ -1832,22 +1838,35 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const connectedMsg = await waitForMessage("connected_success");
       if (LOG_VERBOSE) console.log("🔊 Minimax: connected_success ok");
       if (LOG_MINIMAX_EVENTS) console.log("✅ Minimax WebSocket connecté:", connectedMsg);
+      const emotionVal = ["calm", "fluent", "happy", "sad", "angry", "fearful", "disgusted", "surprised", "whisper"].includes(String(MINIMAX_EMOTION || "").toLowerCase()) ? String(MINIMAX_EMOTION).toLowerCase() : "calm";
+      const voiceModifyPitch = Math.max(-100, Math.min(100, MINIMAX_VOICE_MODIFY_PITCH));
+      const voiceModifyIntensity = Math.max(-100, Math.min(100, MINIMAX_VOICE_MODIFY_INTENSITY));
+      const voiceModifyTimbre = Math.max(-100, Math.min(100, MINIMAX_VOICE_MODIFY_TIMBRE));
+      const soundEffectsOpt = ["spacious_echo", "auditorium_echo", "lofi_telephone", "robotic"].includes(String(MINIMAX_SOUND_EFFECTS || "").toLowerCase()) ? String(MINIMAX_SOUND_EFFECTS).toLowerCase() : null;
       const taskStartMsg = {
         event: "task_start",
-        model: MINIMAX_MODEL || "speech-2.6-hd",
+        model: MINIMAX_MODEL || "speech-2.8-hd",
         voice_setting: {
           voice_id: selectedVoiceId,
           speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 1)),
-          vol: Math.max(0.0, Math.min(10, MINIMAX_VOLUME || 1)),
+          vol: Math.max(0.01, Math.min(10, MINIMAX_VOLUME || 1)),
           pitch: Math.max(-12, Math.min(12, MINIMAX_PITCH || 0)),
-          emotion: ["calm", "fluent", "happy", "sad", "angry", "fearful", "disgusted", "surprised", "whisper"].includes(String(MINIMAX_EMOTION || "").toLowerCase()) ? String(MINIMAX_EMOTION).toLowerCase() : "calm",
+          emotion: emotionVal,
           english_normalization: false,
+          text_normalization: MINIMAX_TEXT_NORMALIZATION,
         },
         audio_setting: {
           sample_rate: 32000,
           bitrate: 128000,
           format: "pcm",
           channel: 1,
+        },
+        language_boost: MINIMAX_LANGUAGE_BOOST && String(MINIMAX_LANGUAGE_BOOST).trim() ? String(MINIMAX_LANGUAGE_BOOST).trim() : "French",
+        voice_modify: {
+          pitch: voiceModifyPitch,
+          intensity: voiceModifyIntensity,
+          timbre: voiceModifyTimbre,
+          ...(soundEffectsOpt ? { sound_effects: soundEffectsOpt } : {}),
         },
       };
       if (LOG_MINIMAX_EVENTS) console.log("📤 Envoi task_start:", JSON.stringify(taskStartMsg, null, 2));
@@ -2266,8 +2285,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       return;
     }
-    let clean = clipTtsText(normalized, MAX_TTS_CHARS);
-    if (clean.length < normalized.length) {
+    const { head, rest } = splitTtsText(normalized, MAX_TTS_CHARS);
+    let clean = head;
+    if (rest.trim()) {
+      if (LOG_TTS) console.log(`[TTS-ENQUEUE] TEXTE SPLIT (suite enchaînée): ${normalized.length} -> head ${clean.length} + rest ${rest.length} chars`);
+    } else if (clean.length < normalized.length) {
       if (LOG_TTS) console.log(`[TTS-ENQUEUE] TEXTE TRONQUÉ: ${normalized.length} -> ${clean.length} chars`);
     }
     clean = clean
@@ -2486,6 +2508,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
     }
     premiumTtsQueue.push({ text: textToSpeak, interrupt, onComplete: onComplete || null });
+    if (rest.trim()) {
+      const restHead = clipTtsText(rest, MAX_TTS_CHARS);
+      if (restHead.trim()) {
+        premiumTtsQueue.push({ text: restHead.trim(), interrupt: false, source, responseId: responseId ?? null, allowWithoutUser, onComplete: null });
+        if (LOG_TTS) console.log(`[TTS-ENQUEUE] Suite enchaînée ajoutée (${restHead.length} chars)`);
+      }
+    }
     premiumTtsLastText = textToSpeak;
     lastAssistantSpokenAt = now;
     lastAssistantSpokenResponseId = responseId ?? lastAssistantSpokenResponseId;
@@ -2699,6 +2728,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bcinquante\s+et\s+un\b/gi, "cinquante-et-un");
     t = t.replace(/\bsoixante\s+et\s+un\b/gi, "soixante-et-un");
     t = t.replace(/\bsoixante\s+et\s+onze\b/gi, "soixante-et-onze");
+    // Collages fréquents LLM (mots soudés sans espace) : après|proposer|avant|vers + vingt|trente|...
+    t = t.replace(/(après)(vingt)/gi, "$1 $2");
+    t = t.replace(/(proposer)(vingt)/gi, "$1 $2");
+    t = t.replace(/(avant)(vingt)/gi, "$1 $2");
+    t = t.replace(/(vers)(vingt)/gi, "$1 $2");
+    t = t.replace(/(pour)(vingt)/gi, "$1 $2");
+    t = t.replace(/(après)(trente)/gi, "$1 $2");
+    t = t.replace(/(proposer)(trente)/gi, "$1 $2");
+    t = t.replace(/(avant)(trente)/gi, "$1 $2");
+    t = t.replace(/(après)(vingt-et-un)/gi, "$1 $2");
+    t = t.replace(/(proposer)(vingt-et-un)/gi, "$1 $2");
+    t = t.replace(/(après)(vingt-et-une)/gi, "$1 $2");
+    t = t.replace(/(proposer)(vingt-et-une)/gi, "$1 $2");
     t = t.replace(/,([a-zàâæçéèêëîïôùûü0-9])/gi, ", $1");
     t = t.replace(/\bpour(\d{1,2})(?=\s|$|h|heures?)/gi, "pour $1");
     t = t.replace(/(^|[\s\.,;:!?])le(\d{1,2})(?=[\s\.,;:!?]|$|[a-zàâæçéèêëîïôùûü])/gi, (_, before, num) => (before || "") + "le " + num);
@@ -3053,12 +3095,23 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\ben\s+SMS\b/gi, "par message");
     t = t.replace(/\bl['']SMS\b/gi, "le message");
     t = t.replace(/\bSMS\b/gi, "un message");
+    // Heures au féminin : "heure(s)" exige "vingt-et-une", "trente-et-une", "une heure"
+    t = t.replace(/\bvingt-et-un\s+heures?\b/gi, "vingt-et-une heures");
+    t = t.replace(/\bvingt-et-un\s+heure\b/gi, "vingt-et-une heure");
+    t = t.replace(/\btrente-et-un\s+heures?\b/gi, "trente-et-une heures");
+    t = t.replace(/\btrente-et-un\s+heure\b/gi, "trente-et-une heure");
+    t = t.replace(/\bquarante-et-un\s+heures?\b/gi, "quarante-et-une heures");
+    t = t.replace(/\bcinquante-et-un\s+heures?\b/gi, "cinquante-et-une heures");
+    t = t.replace(/\bsoixante-et-un\s+heures?\b/gi, "soixante-et-une heures");
+    t = t.replace(/\bun\s+heure\b/gi, "une heure");
+    t = t.replace(/\bun\s+heures\b/gi, "une heure");
     return t.trim();
   }
-  function clipTtsText(input, maxChars) {
+  /** Coupe le texte à maxChars (à une frontière de phrase) et retourne la tête + le reste pour enchaîner. */
+  function splitTtsText(input, maxChars) {
     const t = String(input || "").trim();
-    if (!t) return "";
-    if (!maxChars || t.length <= maxChars) return t;
+    if (!t) return { head: "", rest: "" };
+    if (!maxChars || t.length <= maxChars) return { head: t, rest: "" };
     const slice = t.slice(0, maxChars);
     const lastPunct = Math.max(
       slice.lastIndexOf(". "),
@@ -3066,12 +3119,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       slice.lastIndexOf("? "),
       slice.lastIndexOf("… "),
     );
-    if (lastPunct > 40) {
-      return slice.slice(0, lastPunct + 1).trim();
+    let endIndex = maxChars;
+    if (lastPunct > 40) endIndex = lastPunct + 1;
+    else {
+      const lastSpace = slice.lastIndexOf(" ");
+      endIndex = lastSpace > 40 ? lastSpace : maxChars;
     }
-    const lastSpace = slice.lastIndexOf(" ");
-    if (lastSpace > 40) return slice.slice(0, lastSpace).trim() + "…";
-    return slice.trim() + "…";
+    const head = t.slice(0, endIndex).trim() + (endIndex < t.length ? "…" : "");
+    const rest = t.slice(endIndex).replace(/^\s*[.…]?\s*/, "").trim();
+    return { head, rest };
+  }
+  function clipTtsText(input, maxChars) {
+    const { head } = splitTtsText(input, maxChars);
+    return head;
   }
   const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "false").toLowerCase() === "true";
   const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "15000"); // Seuil élevé pour éviter les faux positifs
