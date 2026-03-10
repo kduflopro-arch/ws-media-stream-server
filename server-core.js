@@ -650,12 +650,12 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_VOICE_ID_MALE = process.env.MINIMAX_VOICE_ID_MALE ?? "";
   const MINIMAX_VOICE_ID_FEMALE = process.env.MINIMAX_VOICE_ID_FEMALE ?? "";
   const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-2.8-hd";
-  // speed 1.1 = légère accélération pour éviter parole syllabe par syllabe, plus fluide (doc Minimax: 0.5-2.0)
-  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1.1");
+  // speed 1 = rythme normal (doc Minimax: 0.5-2.0). 1.1 peut sonner artificiel sur certains textes.
+  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1");
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0");
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0");
-  // emotion: calm = posé, happy = chaleureux. Pour intonation naturelle, le modèle adapte aussi selon le texte.
-  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "calm";
+  // emotion: happy = chaleureux/naturel pour accueil, calm = posé
+  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "happy";
   const MINIMAX_LANGUAGE_BOOST = process.env.MINIMAX_LANGUAGE_BOOST ?? "French";
   const MINIMAX_TEXT_NORMALIZATION = (process.env.MINIMAX_TEXT_NORMALIZATION ?? "false").toLowerCase() === "true";
   // voice_modify (pitch, intensity, timbre) n'est pas compatible avec format PCM — uniquement MP3/WAV/FLAC (doc Minimax)

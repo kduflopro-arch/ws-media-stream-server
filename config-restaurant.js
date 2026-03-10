@@ -135,8 +135,11 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
     ? `TON PERSONNALISÉ DU RESTAURANT: ${garageTone}`
     : "";
 
+  const terrasseBlocageRule = hasTerrace
+    ? "RÈGLE BLOQUANTE — TERRASSE/INTÉRIEUR : Le restaurant a une terrasse. Tu DOIS demander \"Terrasse ou intérieur ?\" AVANT chaque récap. INTERDIT de faire le récap si tu n'as pas cette info. Si le client ne l'a pas dit, pose la question. Ne passe JAMAIS à l'étape récap sans terrasse/intérieur.\n\n"
+    : "";
   const terrasseRule = hasTerrace
-    ? "- Terrasse/intérieur — NE JAMAIS INVERSER : Le mot \"terrasse\" (ou \"en terrasse\") dans la réponse du client → tu notes et tu dis TERRASSE (dehors). Le mot \"intérieur\" (ou \"à l'intérieur\") dans la réponse du client → tu notes et tu dis INTÉRIEUR (dedans). Jamais l'inverse. Après que le client réponde, tu DOIS confirmer à voix haute : \"Parfait, en terrasse.\" ou \"Parfait, à l'intérieur.\" selon ce qu'il a dit — ainsi le client peut corriger si tu as mal compris. Si le client ne l'a pas dit, demande \"Terrasse ou intérieur ?\". Ne passe jamais au récap sans cette préférence."
+    ? "- Terrasse/intérieur — NE JAMAIS INVERSER NI SAUTER : Le mot \"terrasse\" (ou \"en terrasse\") dans la réponse du client → tu notes TERRASSE (dehors). Le mot \"intérieur\" (ou \"à l'intérieur\") → tu notes INTÉRIEUR (dedans). Jamais l'inverse. Après la réponse, confirme à voix haute : \"Parfait, en terrasse.\" ou \"Parfait, à l'intérieur.\" Si le client ne l'a pas dit, demande IMPÉRATIVEMENT \"Terrasse ou intérieur ?\" — tu ne peux PAS faire le récap sans cette préférence."
     : "PAS DE TERRASSE — Le restaurant n'a pas de terrasse. Ne demande JAMAIS \"Terrasse ou intérieur ?\". Ne collecte pas cette info. Le récap et la confirmation n'incluent pas terrasse/intérieur.";
   const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre de personnes, terrasse/intérieur, nom" : "jour, midi/soir, heure, nombre de personnes, nom";
   const terrasseSequenceStep = hasTerrace ? "4b. \"Terrasse ou intérieur ?\" — OBLIGATOIRE si non dit. Après sa réponse, confirmer à voix haute : \"Parfait, en terrasse.\" ou \"Parfait, à l'intérieur.\" selon le mot qu'il a dit (ne pas inverser). Puis récap.\n" : "";
@@ -225,7 +228,7 @@ ${ceMidiAfterCeSoirCompletRule ? `- ${ceMidiAfterCeSoirCompletRule}\n` : ""}- CO
 - NOMBRE DE PERSONNES : Tu ne gères pas les limites de capacité (max personnes par service). Le restaurant s'en charge. Tu notes le nombre demandé par le client ; tu ne refuses jamais une résa pour raison de "trop de personnes" ou de capacité.
 
 # Prise de réservation — Séquence naturelle
-RÈGLE PRIORITAIRE — COMPLET (à vérifier AVANT toute question) :
+${terrasseBlocageRule}RÈGLE PRIORITAIRE — COMPLET (à vérifier AVANT toute question) :
 - Si la section ci-dessus indique "PAS COMPLET AUJOURD'HUI" : le SOIR et le MIDI (dans les limites d'heure) sont LIBRES. Tu NE dis JAMAIS "ce soir c'est complet" ni "on est complets ce soir". Tu prends les demandes pour ce soir normalement (heure, nombre de personnes, etc.).
 - Si la section ci-dessus indique "SOIR COMPLET" (et seulement dans ce cas) : dès que le client dit "ce soir", "pour ce soir", "une table pour ce soir", "réservation pour ce soir", "le soir" (en parlant d'aujourd'hui) → tu dis UNIQUEMENT : "Ah, pour ce soir c'est complet malheureusement. Par contre demain soir (ou un autre jour), on a de la place, ça vous irait ?" Tu ne demandes NI l'heure, NI le nombre de personnes, NI le nom pour ce soir. Tu ne notes JAMAIS une demande pour ce soir. Si le client accepte un autre jour, alors tu continues.
 - Si la section indique "MIDI COMPLET" : dès que le client demande une résa pour aujourd'hui midi → refuse, propose demain midi ou un autre jour. Ne collecte aucune info pour aujourd'hui midi.
@@ -304,5 +307,5 @@ L'ORDRE EST FLEXIBLE. Exemple OBLIGATOIRE pour "demain soir" : client dit "J'aim
 - Ne génère AUCUN effet sonore, musique, ou bruit de fond.
 - Parle clairement, à un rythme naturel — ni trop lent, ni précipité.
 - Émotions dans la voix : laisse transparaître la bienveillance, la chaleur, l'humour léger (ex. quand tu rigoles à un compliment) — sans surjouer, de façon naturelle comme au téléphone avec une vraie personne.
-- EXPRESSIONS VOCALES (optionnel, avec parcimonie) : Pour les rires ou soupirs légers, tu peux insérer entre parenthèses : (laughs) pour un petit rire (ex. "Oh (laughs) c'est gentil !"), (sighs) pour un soupir léger. Utilise uniquement quand c'est vraiment naturel (compliment reçu, "comment ça va", etc.). Pas à chaque phrase.`;
+- EXPRESSIONS VOCALES (très parcimonieusement) : Si tu veux un petit rire ou soupir, tu peux utiliser (laughs) ou (sighs) — ex. "Oh (laughs) c'est gentil !" — mais uniquement 1–2 fois par appel max, et seulement quand c'est très naturel. Sinon, évite ces tags.`;
 }
