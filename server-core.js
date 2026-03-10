@@ -2207,7 +2207,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       },
     };
     try {
-      const resp = await fetch("https://api.cartesia.ai/tts/sse", {
+      const resp = await fetch("https://api.cartesia.ai/tts/bytes", {
         method: "POST",
         signal: premiumTtsAbort.signal,
         headers: {
@@ -2225,82 +2225,21 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         premiumTtsInFlight = false;
         return;
       }
-      if (LOG_CARTESIA_EVENTS) {
-        console.log("🎵 Cartesia TTS resp:", resp.status, "Content-Type:", resp.headers.get("Content-Type"));
-      }
-      const reader = resp.body?.getReader();
-      if (!reader) {
-        console.error("❌ Cartesia TTS: pas de body stream");
-        premiumTtsInFlight = false;
-        return;
-      }
-      const contentType = (resp.headers.get("Content-Type") || "").toLowerCase();
-      const isSSE = contentType.includes("text/event-stream");
-      const maxBacklogBytes = 160 * 500;
-      let totalBytes = 0;
-      if (!isSSE) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (!value || value.length === 0) continue;
-          const buf = Buffer.from(value);
-          totalBytes += buf.length;
-          for (let i = 0; i < buf.length; i += 160) {
-            const chunk = buf.subarray(i, Math.min(i + 160, buf.length));
-            if (chunk.length > 0) {
-              enqueueOutboundMulaw(chunk);
-              while (outboundQueuedBytes > maxBacklogBytes) await sleep(20);
-            }
-          }
-          if (LOG_CARTESIA_EVENTS) console.log("🎵 Cartesia raw chunk:", buf.length, "bytes");
-        }
-      } else {
-        const decoder = new TextDecoder();
-        let buffer = "";
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const data = line.slice(6).trim();
-            if (data === "[DONE]" || data === "null" || !data) continue;
-            try {
-              let audioBuf = null;
-              if (data.startsWith("{")) {
-                const obj = JSON.parse(data);
-                if (obj.audio) audioBuf = Buffer.from(obj.audio, "base64");
-                if (obj.done || obj.type === "done") break;
-                if (obj.error) throw new Error(obj.error.message || JSON.stringify(obj.error));
-              } else if (/^[A-Za-z0-9+/=]+$/.test(data) && data.length >= 100) {
-                try {
-                  audioBuf = Buffer.from(data, "base64");
-                } catch (_) {}
-              }
-              if (audioBuf && audioBuf.length > 0) {
-                totalBytes += audioBuf.length;
-                for (let i = 0; i < audioBuf.length; i += 160) {
-                  const chunk = audioBuf.subarray(i, Math.min(i + 160, audioBuf.length));
-                  if (chunk.length > 0) {
-                    enqueueOutboundMulaw(Buffer.from(chunk));
-                    while (outboundQueuedBytes > maxBacklogBytes) await sleep(20);
-                  }
-                }
-                if (LOG_CARTESIA_EVENTS) console.log("🎵 Cartesia SSE chunk:", audioBuf.length, "bytes");
-              }
-            } catch (e) {
-              if (e instanceof SyntaxError) continue;
-              throw e;
-            }
-          }
-        }
-      }
+      const arrayBuffer = await resp.arrayBuffer();
+      const buf = Buffer.from(arrayBuffer);
+      const totalBytes = buf.length;
       if (totalBytes === 0) {
-        console.warn("⚠️ Cartesia TTS: 0 octet audio reçu. Vérifier le format de réponse (Content-Type:", contentType, ").");
-      } else if (LOG_TTS) {
-        console.log(`[TTS-CARTESIA] Reçu ${totalBytes} octets audio.`);
+        console.warn("⚠️ Cartesia TTS: 0 octet audio reçu. Vérifier CARTESIA_API_KEY, voice ID, et format.");
+      } else {
+        const maxBacklogBytes = 160 * 500;
+        for (let i = 0; i < buf.length; i += 160) {
+          const chunk = buf.subarray(i, Math.min(i + 160, buf.length));
+          if (chunk.length > 0) {
+            enqueueOutboundMulaw(chunk);
+            while (outboundQueuedBytes > maxBacklogBytes) await sleep(20);
+          }
+        }
+        if (LOG_TTS) console.log(`[TTS-CARTESIA] Reçu ${totalBytes} octets audio.`);
       }
       if (LOG_TTS) console.log("🎙️ Cartesia TTS terminé.");
       if (premiumTtsBypassUntilMs > 0) {
