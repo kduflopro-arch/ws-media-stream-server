@@ -6277,12 +6277,19 @@ But: être naturel et mettre le client en confiance.`,
           connectToOpenAI();
         }
         if (!outboundTimer) {
+          const outboundIntervalMs = Number(process.env.OUTBOUND_INTERVAL_MS ?? "20");
+          const outboundFramesPerTick = Number(process.env.OUTBOUND_FRAMES_PER_TICK ?? "3");
           outboundTimer = setInterval(() => {
             try {
-              sendOutboundFrames(1);
+              const backlogFrames = Math.floor(outboundQueuedBytes / 160);
+              const n = Math.min(
+                Math.max(1, Math.floor(outboundFramesPerTick)),
+                Math.max(1, backlogFrames)
+              );
+              sendOutboundFrames(n);
             } catch {
             }
-          }, 20);
+          }, Math.max(10, outboundIntervalMs));
         }
       } else if (msg.event === "media") {
         mediaCount += 1;
