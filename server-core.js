@@ -650,14 +650,17 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_VOICE_ID_MALE = process.env.MINIMAX_VOICE_ID_MALE ?? "";
   const MINIMAX_VOICE_ID_FEMALE = process.env.MINIMAX_VOICE_ID_FEMALE ?? "";
   const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-2.8-hd";
-  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1");
+  // speed 1.1 = légère accélération pour éviter parole syllabe par syllabe, plus fluide (doc Minimax: 0.5-2.0)
+  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1.1");
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0");
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0");
+  // emotion: calm = posé, happy = chaleureux. Pour intonation naturelle, le modèle adapte aussi selon le texte.
   const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "calm";
   const MINIMAX_LANGUAGE_BOOST = process.env.MINIMAX_LANGUAGE_BOOST ?? "French";
   const MINIMAX_TEXT_NORMALIZATION = (process.env.MINIMAX_TEXT_NORMALIZATION ?? "false").toLowerCase() === "true";
   const MINIMAX_VOICE_MODIFY_PITCH = process.env.MINIMAX_VOICE_MODIFY_PITCH !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_PITCH) : 0;
-  const MINIMAX_VOICE_MODIFY_INTENSITY = process.env.MINIMAX_VOICE_MODIFY_INTENSITY !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_INTENSITY) : 0;
+  // intensity 15 = légèrement plus doux, plus naturel (doc: -100=fort, 100=doux)
+  const MINIMAX_VOICE_MODIFY_INTENSITY = process.env.MINIMAX_VOICE_MODIFY_INTENSITY !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_INTENSITY) : 15;
   const MINIMAX_VOICE_MODIFY_TIMBRE = process.env.MINIMAX_VOICE_MODIFY_TIMBRE !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_TIMBRE) : 0;
   const MINIMAX_SOUND_EFFECTS = process.env.MINIMAX_SOUND_EFFECTS ?? "";
   let premiumTtsAbort = null;
