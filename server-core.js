@@ -5172,7 +5172,10 @@ But: être naturel et mettre le client en confiance.`,
               else if (toolName === "get_restaurant_info") {
                 const menuText = String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")).trim();
                 const stateLine = garageClosed ? "État actuel: le restaurant est actuellement FERMÉ." : "État actuel: le restaurant est actuellement OUVERT.";
-                output = [menuText ? `MENU: ${menuText}` : "", garageHoursText ? `HORAIRES: ${garageHoursText}` : "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine].filter(Boolean).join("\n");
+                const parts = [menuText ? `MENU: ${menuText}` : "", garageHoursText ? `HORAIRES: ${garageHoursText}` : "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine];
+                output = parts.filter(Boolean).join("\n");
+                if (!output.trim()) output = "Aucune information disponible. Propose au client de rappeler ou de consulter le site.";
+                output += "\n\nRÈGLE: Tu DOIS TOUJOURS répondre au client avec ces informations (ou proposer une alternative si vide). Ne reste JAMAIS silencieux après un appel outil.";
               }
               else if (toolName === "transfer_to_restaurant") {
                 try {
@@ -5296,9 +5299,8 @@ But: être naturel et mettre le client en confiance.`,
               if (!transferOutputDeferred) {
                 try {
                   const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
-                  if (garageDataTools.includes(toolName)) {
-                    lastGarageToolOutputAt = nowMs();
-                  }
+                  const restaurantDataToolsDelay = ["get_restaurant_info"]; // Menu, horaires : laisser finir "Je vérifie ça tout de suite"
+                  if (garageDataTools.includes(toolName)) lastGarageToolOutputAt = nowMs();
                   openaiWs.send(JSON.stringify({
                     type: "conversation.item.create",
                     item: { type: "function_call_output", call_id: callId, output },
@@ -5306,7 +5308,7 @@ But: être naturel et mettre le client en confiance.`,
                   }));
                   let attempt = 0;
                   const maxAttempts = 5;
-                  const delayMs = garageDataTools.includes(toolName) ? 2500 : 150; // Laisser finir "Un instant" avant de demander la suite
+                  const delayMs = garageDataTools.includes(toolName) ? 2500 : (restaurantDataToolsDelay.includes(toolName) ? 2500 : 150); // Laisser finir "Je vérifie" / "Un instant" avant la suite
                   const scheduleResponseAfterTool = () => {
                     attempt += 1;
                     if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
