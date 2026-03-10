@@ -2257,11 +2257,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             totalBytes += buf.length;
             for (let i = 0; i < buf.length; i += chunkSize) {
               const chunk = buf.subarray(i, Math.min(i + chunkSize, buf.length));
-              if (chunk.length > 0) {
-                enqueueOutboundMulaw(chunk);
-                const currentBacklogFrames = Math.floor(outboundQueuedBytes / chunkSize);
-                if (currentBacklogFrames < 100 && i % (chunkSize * 10) === 0) await sleep(5);
-              }
+              if (chunk.length > 0) enqueueOutboundMulaw(chunk);
             }
           }
         }
@@ -3377,6 +3373,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
   function sendOutboundFrames(maxFrames = 1) {
     if (!twilioStreamSid) return;
+    const minBufferFrames = Number(process.env.OUTBOUND_MIN_BUFFER_FRAMES ?? "20");
+    const backlogFrames = Math.floor(outboundQueuedBytes / 160);
+    if (premiumTtsInFlight && backlogFrames < minBufferFrames && outboundQueue.length > 0) return;
     let framesSent = 0;
     while (framesSent < maxFrames && outboundQueue.length > 0) {
       const head = outboundQueue[0];
@@ -6278,15 +6277,10 @@ But: être naturel et mettre le client en confiance.`,
         }
         if (!outboundTimer) {
           const outboundIntervalMs = Number(process.env.OUTBOUND_INTERVAL_MS ?? "20");
-          const outboundFramesPerTick = Number(process.env.OUTBOUND_FRAMES_PER_TICK ?? "3");
+          const outboundFramesPerTick = Number(process.env.OUTBOUND_FRAMES_PER_TICK ?? "1");
           outboundTimer = setInterval(() => {
             try {
-              const backlogFrames = Math.floor(outboundQueuedBytes / 160);
-              const n = Math.min(
-                Math.max(1, Math.floor(outboundFramesPerTick)),
-                Math.max(1, backlogFrames)
-              );
-              sendOutboundFrames(n);
+              sendOutboundFrames(outboundFramesPerTick >= 1 ? outboundFramesPerTick : 1);
             } catch {
             }
           }, Math.max(10, outboundIntervalMs));
