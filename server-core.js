@@ -594,6 +594,7 @@ wss.on("connection", (ws, req) => {
   let loggedFirstAudioDelta = false;
   let outboundTimer = null;
   let lastResponseAt = 0;
+  let _dbgSkipCount = 0; let _dbgSendCount = 0;
   let awaitingUserResponse = false;
   let droppedOutboundBytes = 0;
   let rateLimitRetryCount = 0;
@@ -2259,6 +2260,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               const chunk = buf.subarray(i, Math.min(i + chunkSize, buf.length));
               if (chunk.length > 0) enqueueOutboundMulaw(chunk);
             }
+            // #region agent log
+            const _r={sessionId:'a5863f',location:'server-core.js:cartesiaChunk',message:'chunk',data:{hypothesisId:'B',chunkBytes:buf.length,totalBytes,backlogFrames:Math.floor(outboundQueuedBytes/160),done:!!msg.done},timestamp:Date.now()}; fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify(_r)}).catch(()=>{}); if(process.env.DEBUG_AUDIO_STUTTER==='true')console.log('[DBG]',JSON.stringify(_r));
+            // #endregion
           }
         }
         if (msg.type === "error") {
@@ -3375,7 +3379,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!twilioStreamSid) return;
     const minBufferFrames = Number(process.env.OUTBOUND_MIN_BUFFER_FRAMES ?? "20");
     const backlogFrames = Math.floor(outboundQueuedBytes / 160);
-    if (premiumTtsInFlight && backlogFrames < minBufferFrames && outboundQueue.length > 0) return;
+    const wouldSkip = premiumTtsInFlight && backlogFrames < minBufferFrames && outboundQueue.length > 0;
+    if (wouldSkip) {
+      // #region agent log
+      _dbgSkipCount++; const _p={sessionId:'a5863f',location:'server-core.js:sendOutboundFrames',message:'skip_min_buffer',data:{hypothesisId:'A',backlogFrames,inFlight:premiumTtsInFlight,skipCount:_dbgSkipCount},timestamp:Date.now()}; if(_dbgSkipCount<=50||_dbgSkipCount%100===0){fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify(_p)}).catch(()=>{}); if(process.env.DEBUG_AUDIO_STUTTER==='true')console.log('[DBG]',JSON.stringify(_p));}
+      // #endregion
+      return;
+    }
     let framesSent = 0;
     while (framesSent < maxFrames && outboundQueue.length > 0) {
       const head = outboundQueue[0];
@@ -3407,6 +3417,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         break;
       }
     }
+    // #region agent log
+    if (framesSent > 0) { _dbgSendCount++; const _q={sessionId:'a5863f',location:'server-core.js:sendOutboundFrames',message:'sent',data:{hypothesisId:'E',framesSent,backlogFrames:Math.floor(outboundQueuedBytes/160),sendCount:_dbgSendCount},timestamp:Date.now()}; if(_dbgSendCount<=20||_dbgSendCount%200===0){fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify(_q)}).catch(()=>{}); if(process.env.DEBUG_AUDIO_STUTTER==='true')console.log('[DBG]',JSON.stringify(_q));} }
+    // #endregion
     if (LOG_TWILIO_FRAMES && framesSent > 0 && Math.random() < 0.02) {
       console.log("📤 Frames audio envoyées à Twilio:", {
         streamSid: twilioStreamSid,
@@ -6278,8 +6291,11 @@ But: être naturel et mettre le client en confiance.`,
         if (!outboundTimer) {
           const outboundIntervalMs = Number(process.env.OUTBOUND_INTERVAL_MS ?? "20");
           const outboundFramesPerTick = Number(process.env.OUTBOUND_FRAMES_PER_TICK ?? "1");
+          let _tickCount = 0; let _prevTickMs = 0;
           outboundTimer = setInterval(() => {
             try {
+              _tickCount++; const now = Date.now(); const jitter = _prevTickMs ? now - _prevTickMs : 0; _prevTickMs = now;
+              if (_tickCount <= 30 || _tickCount % 250 === 0) { const _t={sessionId:'a5863f',location:'server-core.js:outboundTimer',message:'tick',data:{hypothesisId:'C',tickCount:_tickCount,jitterMs:jitter,expectedMs:outboundIntervalMs},timestamp:Date.now()}; fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify(_t)}).catch(()=>{}); if(process.env.DEBUG_AUDIO_STUTTER==='true')console.log('[DBG]',JSON.stringify(_t)); }
               sendOutboundFrames(outboundFramesPerTick >= 1 ? outboundFramesPerTick : 1);
             } catch {
             }
