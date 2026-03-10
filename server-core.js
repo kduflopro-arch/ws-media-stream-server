@@ -2231,12 +2231,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (totalBytes === 0) {
         console.warn("⚠️ Cartesia TTS: 0 octet audio reçu. Vérifier CARTESIA_API_KEY, voice ID, et format.");
       } else {
-        const maxBacklogBytes = 160 * 500;
-        for (let i = 0; i < buf.length; i += 160) {
-          const chunk = buf.subarray(i, Math.min(i + 160, buf.length));
+        const chunkSize = 160;
+        const maxBacklogBytes = Math.max(160 * 50, Math.floor(8000 * 3));
+        for (let i = 0; i < buf.length; i += chunkSize) {
+          const chunk = buf.subarray(i, Math.min(i + chunkSize, buf.length));
           if (chunk.length > 0) {
             enqueueOutboundMulaw(chunk);
             while (outboundQueuedBytes > maxBacklogBytes) await sleep(20);
+            const currentBacklogFrames = Math.floor(outboundQueuedBytes / 160);
+            if (currentBacklogFrames < 100 && i > 0 && (i / chunkSize) % 10 === 0) await sleep(5);
           }
         }
         if (LOG_TTS) console.log(`[TTS-CARTESIA] Reçu ${totalBytes} octets audio.`);
