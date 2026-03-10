@@ -654,8 +654,8 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1");
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0");
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0");
-  // emotion: happy = chaleureux/naturel pour accueil, calm = posé
-  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "happy";
+  // emotion: fluent = fluide/naturel, happy = chaleureux, calm = posé
+  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "fluent";
   const MINIMAX_LANGUAGE_BOOST = process.env.MINIMAX_LANGUAGE_BOOST ?? "French";
   const MINIMAX_TEXT_NORMALIZATION = (process.env.MINIMAX_TEXT_NORMALIZATION ?? "false").toLowerCase() === "true";
   // voice_modify (pitch, intensity, timbre) n'est pas compatible avec format PCM — uniquement MP3/WAV/FLAC (doc Minimax)
