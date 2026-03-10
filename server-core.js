@@ -663,6 +663,17 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_VOICE_MODIFY_INTENSITY = process.env.MINIMAX_VOICE_MODIFY_INTENSITY !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_INTENSITY) : 0;
   const MINIMAX_VOICE_MODIFY_TIMBRE = process.env.MINIMAX_VOICE_MODIFY_TIMBRE !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_TIMBRE) : 0;
   const MINIMAX_SOUND_EFFECTS = process.env.MINIMAX_SOUND_EFFECTS ?? "";
+  // Configuration Cartesia TTS
+  const CARTESIA_API_KEY = process.env.CARTESIA_API_KEY ?? "";
+  const CARTESIA_VOICE_ID_DEFAULT = process.env.CARTESIA_VOICE_ID ?? "";
+  const CARTESIA_VOICE_ID_MALE = process.env.CARTESIA_VOICE_ID_MALE ?? "";
+  const CARTESIA_VOICE_ID_FEMALE = process.env.CARTESIA_VOICE_ID_FEMALE ?? "";
+  const CARTESIA_MODEL_ID = process.env.CARTESIA_MODEL_ID ?? "sonic-3";
+  const CARTESIA_API_VERSION = process.env.CARTESIA_API_VERSION ?? "2025-04-16";
+  const CARTESIA_SPEED = Number(process.env.CARTESIA_SPEED ?? "1.0");
+  const CARTESIA_VOLUME = Number(process.env.CARTESIA_VOLUME ?? "1.0");
+  const CARTESIA_LANGUAGE = process.env.CARTESIA_LANGUAGE ?? "fr";
+  const LOG_CARTESIA_EVENTS = (process.env.LOG_CARTESIA_EVENTS ?? "false").toLowerCase() === "true";
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
@@ -679,7 +690,8 @@ wss.on("connection", (ws, req) => {
   let recentAssistantTexts = []; // Array<{ text: string, ts: number }>
   const minimaxBillingMode = MINIMAX_USE_BALANCE ? "solde (pay-as-you-go)" : (MINIMAX_GROUP_ID ? "abonnement (GroupId)" : "solde (défaut)");
   if (LOG_VERBOSE) {
-    console.log("🔧 PREMIUM TTS config:", { provider: PREMIUM_TTS_PROVIDER, hasMinimaxKey: !!MINIMAX_API_KEY, minimaxBilling: minimaxBillingMode });
+    const cartesiaOk = PREMIUM_TTS_PROVIDER === "cartesia" ? !!CARTESIA_API_KEY : null;
+    console.log("🔧 PREMIUM TTS config:", { provider: PREMIUM_TTS_PROVIDER, hasMinimaxKey: !!MINIMAX_API_KEY, minimaxBilling: minimaxBillingMode, hasCartesiaKey: cartesiaOk });
   }
   const MAX_TTS_CHARS = Number(process.env.MAX_TTS_CHARS ?? "520");
   const AUTOGURU_INGEST_URL_ENV = process.env.AUTOGURU_INGEST_URL ?? ""; // ex: https://<autoguru>/api/twilio/realtime-ingest
@@ -1713,8 +1725,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const rawTextBeforeNormalization = (text || "").trim();
     const clean = normalizeFrenchTtsText(rawTextBeforeNormalization);
     if (!clean) return;
-    let textToSend = sanitizeTextForMinimax(clean);
-    textToSend = injectMinimaxTags(textToSend);
+    const textToSend = sanitizeTextForMinimax(clean);
     if (!textToSend) return;
     const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
     if (premiumTtsLastText) {
@@ -1878,9 +1889,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (LOG_MINIMAX_EVENTS || LOG_TTS) {
         console.log("📤 Texte envoyé à Minimax TTS:", textToSend.substring(0, 200) + (textToSend.length > 200 ? "…" : ""));
         console.log("📤 Longueur:", textToSend.length, "caractères");
-      }
-      if (/\(laughs\)|\(chuckle\)|\(sighs\)|\(breath\)|\(exhale\)|\(emm\)|\(inhale\)|\(coughs\)|\(sneezes\)|\(clear-throat\)|\(lip-smacking\)/i.test(textToSend)) {
-        console.log("[TTS-MINIMAX] Tags présents dans le texte envoyé:", textToSend.match(/\([a-z-]+\)/g)?.join(" ") || "—");
       }
       minimaxWs.send(JSON.stringify(continueMsg));
       if (LOG_VERBOSE) console.log("🔊 Minimax: text sent, waiting audio (while loop, 30s timeout/msg)...");
@@ -2133,6 +2141,149 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.warn("↩️ FALLBACK ACTIVÉ: Exception ElevenLabs → utilisation audio OpenAI pendant 5 min.");
       console.warn("   Pour désactiver le fallback, redémarre le serveur ou attends 5 min.");
       console.warn("   Vérifie ELEVENLABS_API_KEY, crédits ElevenLabs, et voice ID.");
+    } finally {
+      premiumTtsInFlight = false;
+      const checkAndReenableInput = () => {
+        if (!(outboundQueuedBytes === 0 && outboundQueue.length === 0)) {
+          setTimeout(checkAndReenableInput, 100);
+        }
+      };
+      setTimeout(checkAndReenableInput, 200);
+    }
+  }
+  async function speakWithCartesiaNow(text, { interrupt = true } = {}) {
+    if (!PREMIUM_TTS_ENABLED) return;
+    if (PREMIUM_TTS_PROVIDER !== "cartesia") return;
+    if (nowMs() < premiumTtsBypassUntilMs) return;
+    const useMaleVoice = assistantVoice === "male" || assistantVoice === "minimax_male";
+    const selectedVoiceId = useMaleVoice
+      ? (CARTESIA_VOICE_ID_MALE || CARTESIA_VOICE_ID_DEFAULT)
+      : (CARTESIA_VOICE_ID_FEMALE || CARTESIA_VOICE_ID_DEFAULT);
+    if (!CARTESIA_API_KEY || !selectedVoiceId || !String(selectedVoiceId).trim()) {
+      console.error("❌ PREMIUM_TTS activé mais CARTESIA_API_KEY ou CARTESIA_VOICE_ID manquants.");
+      premiumTtsLastError = "Configuration Cartesia incomplète";
+      premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000;
+      return;
+    }
+    const rawTextBeforeNormalization = (text || "").trim();
+    const clean = normalizeFrenchTtsText(rawTextBeforeNormalization);
+    if (!clean) return;
+    const textToSend = sanitizeTextForMinimax(clean);
+    if (!textToSend) return;
+    if (premiumTtsLastText) {
+      const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/[.,!?;:]/g, "").trim();
+      const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
+      if (lastNormalized === normalizedForCompare && premiumTtsInFlight) return;
+    }
+    if (LOG_TTS) console.log(`[TTS-CARTESIA] APPELÉ:`, clean.substring(0, 120));
+    premiumTtsLastText = clean;
+    if (interrupt) {
+      try { premiumTtsAbort?.abort?.(); } catch { /* ignore */ }
+      premiumTtsAbort = new AbortController();
+      outboundQueue = [];
+      outboundQueuedBytes = 0;
+    } else if (!premiumTtsAbort) {
+      premiumTtsAbort = new AbortController();
+    }
+    premiumTtsInFlight = true;
+    premiumTtsLastError = null;
+    if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+      try {
+        openaiWs.send(JSON.stringify({ type: "input_audio_buffer.clear" }));
+      } catch (err) {
+        console.warn("⚠️ Erreur input_audio_buffer.clear:", err);
+      }
+    }
+    const apiKey = CARTESIA_API_KEY.startsWith("Bearer ") ? CARTESIA_API_KEY.substring(7) : CARTESIA_API_KEY;
+    const body = {
+      model_id: CARTESIA_MODEL_ID,
+      transcript: textToSend,
+      voice: { mode: "id", id: selectedVoiceId.trim() },
+      output_format: { container: "raw", encoding: "pcm_mulaw", sample_rate: 8000 },
+      language: CARTESIA_LANGUAGE,
+      generation_config: {
+        speed: Math.max(0.6, Math.min(1.5, CARTESIA_SPEED)),
+        volume: Math.max(0.5, Math.min(2.0, CARTESIA_VOLUME)),
+      },
+    };
+    try {
+      const resp = await fetch("https://api.cartesia.ai/tts/sse", {
+        method: "POST",
+        signal: premiumTtsAbort.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+          "Cartesia-Version": CARTESIA_API_VERSION,
+        },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => "");
+        premiumTtsLastError = { status: resp.status, body: errText.slice(0, 500) };
+        console.error("❌ Cartesia TTS error:", premiumTtsLastError);
+        premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000;
+        premiumTtsInFlight = false;
+        return;
+      }
+      const reader = resp.body?.getReader();
+      if (!reader) {
+        console.error("❌ Cartesia TTS: pas de body stream");
+        premiumTtsInFlight = false;
+        return;
+      }
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const maxBacklogBytes = 160 * 500;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]" || data === "null") break;
+          try {
+            const obj = JSON.parse(data);
+            if (obj.audio) {
+              const audioBuf = Buffer.from(obj.audio, "base64");
+              if (audioBuf.length > 0) {
+                for (let i = 0; i < audioBuf.length; i += 160) {
+                  const chunk = audioBuf.subarray(i, Math.min(i + 160, audioBuf.length));
+                  if (chunk.length > 0) {
+                    enqueueOutboundMulaw(Buffer.from(chunk));
+                    while (outboundQueuedBytes > maxBacklogBytes) await sleep(20);
+                  }
+                }
+                if (LOG_CARTESIA_EVENTS) console.log("🎵 Cartesia chunk:", audioBuf.length, "bytes");
+              }
+            }
+            if (obj.done || obj.type === "done") break;
+            if (obj.error) throw new Error(obj.error.message || JSON.stringify(obj.error));
+          } catch (e) {
+            if (e instanceof SyntaxError) continue;
+            throw e;
+          }
+        }
+      }
+      if (LOG_TTS) console.log("🎙️ Cartesia TTS terminé.");
+      if (premiumTtsBypassUntilMs > 0) {
+        premiumTtsBypassUntilMs = 0;
+        premiumTtsLastError = null;
+      }
+    } catch (err) {
+      if (String(err?.name) === "AbortError") {
+        if (LOG_TTS) console.log("🛑 Cartesia TTS annulé");
+        premiumTtsInFlight = false;
+        return;
+      }
+      console.error("❌ Cartesia TTS:", err?.message || err);
+      premiumTtsLastError = err?.message || String(err);
+      premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000;
+      if (premiumTtsLastError.includes("429")) {
+        premiumTtsBypassUntilMs = nowMs() + 60 * 1000;
+      }
     } finally {
       premiumTtsInFlight = false;
       const checkAndReenableInput = () => {
@@ -2568,6 +2719,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           if (useMinimax) {
             if (LOG_VERBOSE) console.log(`🔊 drain calling speakWithMinimaxNow: "${preview}"`);
             await speakWithMinimaxNow(job.text, { interrupt: false });
+          } else if (PREMIUM_TTS_PROVIDER === "cartesia") {
+            await speakWithCartesiaNow(job.text, { interrupt: false });
           } else if (PREMIUM_TTS_PROVIDER === "elevenlabs") {
             await speakWithElevenLabsNow(job.text, { interrupt: false });
           }
@@ -2693,34 +2846,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       s = lastSpace > 100 ? cut.slice(0, lastSpace) : cut;
       if (LOG_TTS) console.log("[TTS-MINIMAX] Texte tronqué pour Minimax:", text.length, "->", s.length, "caractères");
     }
-    return s;
-  }
-  /** Injecte des tags Minimax (laughs, sighs, breath, etc.) si le LLM ne les a pas mis, pour un rendu vocal plus naturel. */
-  function injectMinimaxTags(text) {
-    if (!text || typeof text !== "string") return text;
-    let s = text;
-    const hasTag = (tag) => s.includes(tag);
-    if (!hasTag("(laughs)") && !hasTag("(chuckle)")) {
-      if (/^(Oh|Ah)\s+/i.test(s) && /(gentil|plaisir|rare|adorable|demande ça|merci)/i.test(s)) s = s.replace(/^(Oh|Ah)\s+/i, "$1 (laughs) ");
-      else if (/^(Oh|Ah)\s+/i.test(s)) s = s.replace(/^(Oh|Ah)\s+/i, "$1 (chuckle) ");
-    }
-    if (!hasTag("(sighs)")) {
-      if (/\b(D'accord pas de problème|Pas de souci|Malheureusement)\b/i.test(s)) s = s.replace(/^(\s*)/, "$1(sighs) ");
-    }
-    if (!hasTag("(breath)")) {
-      if (/\b(Je vérifie ça tout de suite|Parfait, je récapitule|D'accord, pour le)\b/i.test(s)) s = s.replace(/^(\s*)/, "$1(breath) ");
-      else if (/^(Bien sûr|D'accord,)\s/i.test(s)) s = s.replace(/^(Bien sûr|D'accord,)\s/i, "(breath) $1 ");
-    }
-    if (!hasTag("(exhale)")) {
-      if (/\bC'est noté\s*!\b/i.test(s)) s = s.replace(/\b(C'est noté\s*!)/i, "(exhale) $1");
-    }
-    if (!hasTag("(emm)") && !hasTag("(clear-throat)")) {
-      if (/\b(Excusez-moi, vous pouvez répéter|Pardon, vous pouvez)\b/i.test(s)) s = s.replace(/^(\s*)/, "$1(emm) ");
-    }
-    if (!hasTag("(inhale)")) {
-      if (/\bÀ quelle heure prévoyez-vous\b/i.test(s) && !/^(Oh|Ah)\s/.test(s)) s = s.replace(/^(\s*)/, "$1(inhale) ");
-    }
-    if (s !== text && LOG_TTS) console.log("[TTS-MINIMAX] Tags injectés:", s.substring(0, 150));
     return s;
   }
   function normalizeFrenchTtsText(input) {
@@ -3185,7 +3310,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const REALTIME_USE_ELEVEN =
     PIPELINE_MODE === "realtime" &&
     PREMIUM_TTS_ENABLED &&
-    (PREMIUM_TTS_PROVIDER === "elevenlabs" || PREMIUM_TTS_PROVIDER === "minimax");
+    (PREMIUM_TTS_PROVIDER === "elevenlabs" || PREMIUM_TTS_PROVIDER === "minimax" || PREMIUM_TTS_PROVIDER === "cartesia");
   const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "false").toLowerCase() === "true";
   const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
   const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "240");
@@ -3365,17 +3490,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           LLM_MODEL,
           ELEVENLABS_VOICE_ID: ELEVENLABS_VOICE_ID_FEMALE || ELEVENLABS_VOICE_ID_MALE || ELEVENLABS_VOICE_ID_DEFAULT,
           MINIMAX_VOICE_ID: MINIMAX_VOICE_ID_FEMALE || MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT,
+          CARTESIA_VOICE_ID: CARTESIA_VOICE_ID_FEMALE || CARTESIA_VOICE_ID_MALE || CARTESIA_VOICE_ID_DEFAULT,
         });
         if (REALTIME_USE_ELEVEN) {
           if (nowMs() < premiumTtsBypassUntilMs) {
             const remainingMinutes = Math.ceil((premiumTtsBypassUntilMs - nowMs()) / 60000);
-            const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+            const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : PREMIUM_TTS_PROVIDER === "cartesia" ? "Cartesia" : "ElevenLabs";
             console.warn(`⚠️ FALLBACK ACTIF au démarrage: ${providerName} en erreur → audio OpenAI (~${remainingMinutes} min restantes)`);
             if (premiumTtsLastError) {
               console.error(`   Dernière erreur ${providerName}:`, premiumTtsLastError);
             }
           } else {
-            const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+            const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : PREMIUM_TTS_PROVIDER === "cartesia" ? "Cartesia" : "ElevenLabs";
             console.log(`✅ ${providerName} actif (pas de fallback)`);
           }
         }
@@ -3875,7 +4001,7 @@ ${compactPersona}`;
                 return;
               }
               if (initialAssistantGreetingText) {
-                const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+                const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : PREMIUM_TTS_PROVIDER === "cartesia" ? "Cartesia" : "ElevenLabs";
                 console.log(`👋 Greeting OpenAI ignoré (greeting déjà joué via ${providerName}).`, { callSid });
                 if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
                 return;
@@ -6027,7 +6153,7 @@ But: être naturel et mettre le client en confiance.`,
                     initialAssistantGreetingText = greeting;
                     hasSentInitialGreeting = true;
                     enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
-                    const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+                    const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : PREMIUM_TTS_PROVIDER === "cartesia" ? "Cartesia" : "ElevenLabs";
                     console.log(`👋 Greeting ${consentRequired && !consentGiven ? "générique (consent)" : "post-consent avec nom"} joué via ${providerName}.`, { callSid, consentRequired });
                     if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
                   } else if (!transferFailed && !rdvNotificationFollowupPlayed && (initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
@@ -6097,7 +6223,7 @@ But: être naturel et mettre le client en confiance.`,
               initialAssistantGreetingText = greeting;
               hasSentInitialGreeting = true;
               enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
-              const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : "ElevenLabs";
+              const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : PREMIUM_TTS_PROVIDER === "cartesia" ? "Cartesia" : "ElevenLabs";
               console.log(`👋 Greeting générique (sans nom client) joué APRÈS délai fallback via ${providerName}.`, { callSid, consentRequired, fallbackDelayMs });
               if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
               ws.__greetingFallbackTimer = null;
