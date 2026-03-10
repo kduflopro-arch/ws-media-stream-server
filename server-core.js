@@ -2195,61 +2195,94 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
     }
     const apiKey = CARTESIA_API_KEY.startsWith("Bearer ") ? CARTESIA_API_KEY.substring(7) : CARTESIA_API_KEY;
-    const body = {
+    const contextId = "cartesia-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+    let cartesiaWs = null;
+    const genRequest = {
       model_id: CARTESIA_MODEL_ID,
       transcript: textToSend,
       voice: { mode: "id", id: selectedVoiceId.trim() },
       output_format: { container: "raw", encoding: "pcm_mulaw", sample_rate: 8000 },
       language: CARTESIA_LANGUAGE,
+      context_id: contextId,
       generation_config: {
         speed: Math.max(0.6, Math.min(1.5, CARTESIA_SPEED)),
         volume: Math.max(0.5, Math.min(2.0, CARTESIA_VOLUME)),
       },
     };
     try {
-      const resp = await fetch("https://api.cartesia.ai/tts/bytes", {
-        method: "POST",
-        signal: premiumTtsAbort.signal,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-          "Cartesia-Version": CARTESIA_API_VERSION,
-        },
-        body: JSON.stringify(body),
+      const wsUrl = `wss://api.cartesia.ai/tts/websocket?api_key=${encodeURIComponent(apiKey)}&cartesia_version=${encodeURIComponent(CARTESIA_API_VERSION)}`;
+      if (LOG_CARTESIA_EVENTS) console.log("🔌 Connexion Cartesia WebSocket...");
+      cartesiaWs = new WebSocket(wsUrl);
+      const messageQueue = [];
+      let messageResolver = null;
+      cartesiaWs.on("message", (data) => {
+        try {
+          const msg = typeof data === "string" ? JSON.parse(data) : JSON.parse(data.toString());
+          if (LOG_CARTESIA_EVENTS) console.log("📨 Cartesia:", msg.type || "?", msg.done);
+          if (messageResolver) {
+            messageResolver(msg);
+            messageResolver = null;
+          } else {
+            messageQueue.push(msg);
+          }
+        } catch (e) {
+          console.error("❌ Cartesia parse:", e);
+        }
       });
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => "");
-        premiumTtsLastError = { status: resp.status, body: errText.slice(0, 500) };
-        console.error("❌ Cartesia TTS error:", premiumTtsLastError);
-        premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000;
-        premiumTtsInFlight = false;
-        return;
-      }
-      const arrayBuffer = await resp.arrayBuffer();
-      const buf = Buffer.from(arrayBuffer);
-      const totalBytes = buf.length;
-      if (totalBytes === 0) {
-        console.warn("⚠️ Cartesia TTS: 0 octet audio reçu. Vérifier CARTESIA_API_KEY, voice ID, et format.");
-      } else {
-        const chunkSize = 160;
-        const maxBacklogBytes = Math.max(160 * 50, Math.floor(8000 * 3));
-        for (let i = 0; i < buf.length; i += chunkSize) {
-          const chunk = buf.subarray(i, Math.min(i + chunkSize, buf.length));
-          if (chunk.length > 0) {
-            enqueueOutboundMulaw(chunk);
-            while (outboundQueuedBytes > maxBacklogBytes) await sleep(20);
-            const currentBacklogFrames = Math.floor(outboundQueuedBytes / 160);
-            if (currentBacklogFrames < 100 && i > 0 && (i / chunkSize) % 10 === 0) await sleep(5);
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error("Timeout connexion Cartesia (10s)")), 10000);
+        cartesiaWs.on("open", () => { clearTimeout(t); resolve(); });
+        cartesiaWs.on("error", (err) => { clearTimeout(t); reject(err); });
+      });
+      cartesiaWs.send(JSON.stringify(genRequest));
+      const maxBacklogBytes = Math.max(160 * 50, Math.floor(8000 * 3));
+      let totalBytes = 0;
+      let isDone = false;
+      while (!isDone && !premiumTtsAbort?.signal?.aborted) {
+        const msg = await new Promise((resolve, reject) => {
+          const t = setTimeout(() => reject(new Error("Timeout attente réponse Cartesia (30s)")), 30000);
+          const take = () => {
+            if (messageQueue.length > 0) {
+              clearTimeout(t);
+              resolve(messageQueue.shift());
+            } else {
+              messageResolver = (m) => { clearTimeout(t); resolve(m); };
+            }
+          };
+          take();
+        });
+        if (msg.type === "chunk" && msg.data) {
+          const buf = Buffer.from(msg.data, "base64");
+          if (buf.length > 0) {
+            totalBytes += buf.length;
+            for (let i = 0; i < buf.length; i += 160) {
+              const chunk = buf.subarray(i, Math.min(i + 160, buf.length));
+              if (chunk.length > 0) {
+                enqueueOutboundMulaw(chunk);
+                while (outboundQueuedBytes > maxBacklogBytes) await sleep(20);
+              }
+            }
+            const frames = Math.floor(outboundQueuedBytes / 160);
+            if (frames < 100) await sleep(5);
           }
         }
-        if (LOG_TTS) console.log(`[TTS-CARTESIA] Reçu ${totalBytes} octets audio.`);
+        if (msg.type === "error") {
+          throw new Error(msg.message || JSON.stringify(msg));
+        }
+        isDone = !!msg.done;
       }
+      if (LOG_TTS) console.log(`[TTS-CARTESIA] Reçu ${totalBytes} octets (streaming).`);
+      if (totalBytes === 0) {
+        console.warn("⚠️ Cartesia TTS: 0 octet audio. Vérifier CARTESIA_API_KEY et voice ID.");
+      }
+      if (cartesiaWs) { try { cartesiaWs.close(); } catch {} }
       if (LOG_TTS) console.log("🎙️ Cartesia TTS terminé.");
       if (premiumTtsBypassUntilMs > 0) {
         premiumTtsBypassUntilMs = 0;
         premiumTtsLastError = null;
       }
     } catch (err) {
+      if (cartesiaWs) { try { cartesiaWs.close(); } catch {} }
       if (String(err?.name) === "AbortError") {
         if (LOG_TTS) console.log("🛑 Cartesia TTS annulé");
         premiumTtsInFlight = false;
@@ -2258,7 +2291,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.error("❌ Cartesia TTS:", err?.message || err);
       premiumTtsLastError = err?.message || String(err);
       premiumTtsBypassUntilMs = nowMs() + 5 * 60 * 1000;
-      if (premiumTtsLastError.includes("429")) {
+      if (String(premiumTtsLastError).includes("429")) {
         premiumTtsBypassUntilMs = nowMs() + 60 * 1000;
       }
     } finally {
