@@ -658,9 +658,9 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "calm";
   const MINIMAX_LANGUAGE_BOOST = process.env.MINIMAX_LANGUAGE_BOOST ?? "French";
   const MINIMAX_TEXT_NORMALIZATION = (process.env.MINIMAX_TEXT_NORMALIZATION ?? "false").toLowerCase() === "true";
+  // voice_modify (pitch, intensity, timbre) n'est pas compatible avec format PCM — uniquement MP3/WAV/FLAC (doc Minimax)
   const MINIMAX_VOICE_MODIFY_PITCH = process.env.MINIMAX_VOICE_MODIFY_PITCH !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_PITCH) : 0;
-  // intensity 15 = légèrement plus doux, plus naturel (doc: -100=fort, 100=doux)
-  const MINIMAX_VOICE_MODIFY_INTENSITY = process.env.MINIMAX_VOICE_MODIFY_INTENSITY !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_INTENSITY) : 15;
+  const MINIMAX_VOICE_MODIFY_INTENSITY = process.env.MINIMAX_VOICE_MODIFY_INTENSITY !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_INTENSITY) : 0;
   const MINIMAX_VOICE_MODIFY_TIMBRE = process.env.MINIMAX_VOICE_MODIFY_TIMBRE !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_TIMBRE) : 0;
   const MINIMAX_SOUND_EFFECTS = process.env.MINIMAX_SOUND_EFFECTS ?? "";
   let premiumTtsAbort = null;
@@ -1842,10 +1842,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (LOG_VERBOSE) console.log("🔊 Minimax: connected_success ok");
       if (LOG_MINIMAX_EVENTS) console.log("✅ Minimax WebSocket connecté:", connectedMsg);
       const emotionVal = ["calm", "fluent", "happy", "sad", "angry", "fearful", "disgusted", "surprised", "whisper"].includes(String(MINIMAX_EMOTION || "").toLowerCase()) ? String(MINIMAX_EMOTION).toLowerCase() : "calm";
-      const voiceModifyPitch = Math.max(-100, Math.min(100, MINIMAX_VOICE_MODIFY_PITCH));
-      const voiceModifyIntensity = Math.max(-100, Math.min(100, MINIMAX_VOICE_MODIFY_INTENSITY));
-      const voiceModifyTimbre = Math.max(-100, Math.min(100, MINIMAX_VOICE_MODIFY_TIMBRE));
-      const soundEffectsOpt = ["spacious_echo", "auditorium_echo", "lofi_telephone", "robotic"].includes(String(MINIMAX_SOUND_EFFECTS || "").toLowerCase()) ? String(MINIMAX_SOUND_EFFECTS).toLowerCase() : null;
+      // voice_modify (pitch, intensity, timbre, sound_effects) n'est PAS compatible avec format PCM (doc Minimax: mp3/wav/flac uniquement)
+      // On utilise PCM pour le pipeline Twilio, donc on n'envoie jamais voice_modify
       const taskStartMsg = {
         event: "task_start",
         model: MINIMAX_MODEL || "speech-2.8-hd",
@@ -1865,12 +1863,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           channel: 1,
         },
         language_boost: MINIMAX_LANGUAGE_BOOST && String(MINIMAX_LANGUAGE_BOOST).trim() ? String(MINIMAX_LANGUAGE_BOOST).trim() : "French",
-        voice_modify: {
-          pitch: voiceModifyPitch,
-          intensity: voiceModifyIntensity,
-          timbre: voiceModifyTimbre,
-          ...(soundEffectsOpt ? { sound_effects: soundEffectsOpt } : {}),
-        },
       };
       if (LOG_MINIMAX_EVENTS) console.log("📤 Envoi task_start:", JSON.stringify(taskStartMsg, null, 2));
       minimaxWs.send(JSON.stringify(taskStartMsg));
