@@ -6279,15 +6279,7 @@ But: être naturel et mettre le client en confiance.`,
         if (!outboundTimer) {
           outboundTimer = setInterval(() => {
             try {
-              const backlogFrames = Math.floor(outboundQueuedBytes / 160);
-              const framesToSend =
-                backlogFrames > 1200 ? 10 :
-                backlogFrames > 800 ? 8 :
-                backlogFrames > 500 ? 6 :
-                backlogFrames > 300 ? 4 :
-                backlogFrames > 120 ? 3 :
-                1;
-              sendOutboundFrames(framesToSend);
+              sendOutboundFrames(1);
             } catch {
             }
           }, 20);
