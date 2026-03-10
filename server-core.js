@@ -1713,7 +1713,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const rawTextBeforeNormalization = (text || "").trim();
     const clean = normalizeFrenchTtsText(rawTextBeforeNormalization);
     if (!clean) return;
-    const textToSend = sanitizeTextForMinimax(clean);
+    let textToSend = sanitizeTextForMinimax(clean);
+    textToSend = injectMinimaxTags(textToSend);
     if (!textToSend) return;
     const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
     if (premiumTtsLastText) {
@@ -1877,6 +1878,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (LOG_MINIMAX_EVENTS || LOG_TTS) {
         console.log("📤 Texte envoyé à Minimax TTS:", textToSend.substring(0, 200) + (textToSend.length > 200 ? "…" : ""));
         console.log("📤 Longueur:", textToSend.length, "caractères");
+      }
+      if (/\(laughs\)|\(chuckle\)|\(sighs\)|\(breath\)|\(exhale\)|\(emm\)|\(inhale\)|\(coughs\)|\(sneezes\)|\(clear-throat\)|\(lip-smacking\)/i.test(textToSend)) {
+        console.log("[TTS-MINIMAX] Tags présents dans le texte envoyé:", textToSend.match(/\([a-z-]+\)/g)?.join(" ") || "—");
       }
       minimaxWs.send(JSON.stringify(continueMsg));
       if (LOG_VERBOSE) console.log("🔊 Minimax: text sent, waiting audio (while loop, 30s timeout/msg)...");
@@ -2689,6 +2693,34 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       s = lastSpace > 100 ? cut.slice(0, lastSpace) : cut;
       if (LOG_TTS) console.log("[TTS-MINIMAX] Texte tronqué pour Minimax:", text.length, "->", s.length, "caractères");
     }
+    return s;
+  }
+  /** Injecte des tags Minimax (laughs, sighs, breath, etc.) si le LLM ne les a pas mis, pour un rendu vocal plus naturel. */
+  function injectMinimaxTags(text) {
+    if (!text || typeof text !== "string") return text;
+    let s = text;
+    const hasTag = (tag) => s.includes(tag);
+    if (!hasTag("(laughs)") && !hasTag("(chuckle)")) {
+      if (/^(Oh|Ah)\s+/i.test(s) && /(gentil|plaisir|rare|adorable|demande ça|merci)/i.test(s)) s = s.replace(/^(Oh|Ah)\s+/i, "$1 (laughs) ");
+      else if (/^(Oh|Ah)\s+/i.test(s)) s = s.replace(/^(Oh|Ah)\s+/i, "$1 (chuckle) ");
+    }
+    if (!hasTag("(sighs)")) {
+      if (/\b(D'accord pas de problème|Pas de souci|Malheureusement)\b/i.test(s)) s = s.replace(/^(\s*)/, "$1(sighs) ");
+    }
+    if (!hasTag("(breath)")) {
+      if (/\b(Je vérifie ça tout de suite|Parfait, je récapitule|D'accord, pour le)\b/i.test(s)) s = s.replace(/^(\s*)/, "$1(breath) ");
+      else if (/^(Bien sûr|D'accord,)\s/i.test(s)) s = s.replace(/^(Bien sûr|D'accord,)\s/i, "(breath) $1 ");
+    }
+    if (!hasTag("(exhale)")) {
+      if (/\bC'est noté\s*!\b/i.test(s)) s = s.replace(/\b(C'est noté\s*!)/i, "(exhale) $1");
+    }
+    if (!hasTag("(emm)") && !hasTag("(clear-throat)")) {
+      if (/\b(Excusez-moi, vous pouvez répéter|Pardon, vous pouvez)\b/i.test(s)) s = s.replace(/^(\s*)/, "$1(emm) ");
+    }
+    if (!hasTag("(inhale)")) {
+      if (/\bÀ quelle heure prévoyez-vous\b/i.test(s) && !/^(Oh|Ah)\s/.test(s)) s = s.replace(/^(\s*)/, "$1(inhale) ");
+    }
+    if (s !== text && LOG_TTS) console.log("[TTS-MINIMAX] Tags injectés:", s.substring(0, 150));
     return s;
   }
   function normalizeFrenchTtsText(input) {
