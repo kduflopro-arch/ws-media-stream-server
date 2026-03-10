@@ -2235,7 +2235,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         cartesiaWs.on("error", (err) => { clearTimeout(t); reject(err); });
       });
       cartesiaWs.send(JSON.stringify(genRequest));
-      const maxBacklogBytes = Math.max(160 * 50, Math.floor(8000 * 3));
+      const chunkSize = 160;
       let totalBytes = 0;
       let isDone = false;
       while (!isDone && !premiumTtsAbort?.signal?.aborted) {
@@ -2255,15 +2255,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           const buf = Buffer.from(msg.data, "base64");
           if (buf.length > 0) {
             totalBytes += buf.length;
-            for (let i = 0; i < buf.length; i += 160) {
-              const chunk = buf.subarray(i, Math.min(i + 160, buf.length));
+            for (let i = 0; i < buf.length; i += chunkSize) {
+              const chunk = buf.subarray(i, Math.min(i + chunkSize, buf.length));
               if (chunk.length > 0) {
                 enqueueOutboundMulaw(chunk);
-                while (outboundQueuedBytes > maxBacklogBytes) await sleep(20);
+                const currentBacklogFrames = Math.floor(outboundQueuedBytes / chunkSize);
+                if (currentBacklogFrames < 100 && i % (chunkSize * 10) === 0) await sleep(5);
               }
             }
-            const frames = Math.floor(outboundQueuedBytes / 160);
-            if (frames < 100) await sleep(5);
           }
         }
         if (msg.type === "error") {
