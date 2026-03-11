@@ -2443,11 +2443,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const first = norm(t.slice(0, half));
     const second = norm(t.slice(half));
     if (first.length >= 12 && first === second) return first;
-    // Boucle plus fine (pas de 5) pour attraper phrases ~95, 97, 103 chars, etc.
+    // Boucle fine (pas 5) puis pas 1 pour longueurs courantes (éviter doublon OpenAI)
     for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 5) {
       const block = t.slice(0, L);
       if (block === t.slice(L, L + L)) return norm(block);
     }
+    for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 1) {
+      const block = t.slice(0, L);
+      if (block === t.slice(L, L + L)) return norm(block);
+    }
+    // Répétition avec espace entre les deux (ex. "Phrase. Phrase.")
+    const match = t.match(/^(.+?[.?!])\s*\1\s*$/);
+    if (match && match[1].length >= 20) return norm(match[1]);
     const prefixLen = Math.min(80, Math.floor(t.length / 3));
     if (prefixLen >= 30) {
       const prefix = norm(t.slice(0, prefixLen));
@@ -2602,7 +2609,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (normalizedForCompare.length < 30) return false;
       return t.text.includes(normalizedForCompare) || normalizedForCompare.includes(t.text);
     });
-    const foundInRecent = foundInRecentExact || foundInRecentSimilar || foundInRecentContains;
+    const hasNewInfoRestaurant = /\bau nom de\b/i.test(textToSpeak) && effectiveSector === "restaurant";
+    const similarWasWithoutName = hasNewInfoRestaurant && recentAssistantTexts.some((t) => {
+      const sim = calculateSimilarity(t.text, normalizedForCompare);
+      const th = normalizedForCompare.length >= 50 ? 0.55 : 0.7;
+      return sim > th && !/\bau nom de\b/i.test(t.text);
+    });
+    const foundInRecent = (foundInRecentExact || foundInRecentSimilar || foundInRecentContains) && !(hasNewInfoRestaurant && similarWasWithoutName);
     if (foundInRecent && !skipRepetitionForUnInstant) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment (exact=${foundInRecentExact}, similar=${foundInRecentSimilar}, contains=${foundInRecentContains})`, textToSpeak.substring(0, 120));
@@ -4252,12 +4265,18 @@ But: être naturel et mettre le client en confiance.`,
             const first = norm(t.slice(0, half));
             const second = norm(t.slice(half));
             if (first.length >= 12 && first === second) return first;
-            // Boucle fine (pas 5) pour attraper phrases ~95, 97, etc.
             for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 5) {
               const block = t.slice(0, L);
               const next = t.slice(L, L + L);
               if (block === next) return norm(block);
             }
+            for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 1) {
+              const block = t.slice(0, L);
+              const next = t.slice(L, L + L);
+              if (block === next) return norm(block);
+            }
+            const match = t.match(/^(.+?[.?!])\s*\1\s*$/);
+            if (match && match[1].length >= 20) return norm(match[1]);
             const prefixLen = Math.min(80, Math.floor(t.length / 3));
             if (prefixLen >= 30) {
               const prefix = norm(t.slice(0, prefixLen));
