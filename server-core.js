@@ -2437,24 +2437,30 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   function dedupeRepeatedPhraseAtTts(text) {
     if (!text || typeof text !== "string") return text;
     const norm = (s) => String(s).replace(/\s+/g, " ").trim();
+    const normApo = (s) => String(s).replace(/[\u2019\u2018\u0027]/g, "'");
     const t = norm(text);
     if (t.length < 24) return text;
     const half = Math.floor(t.length / 2);
-    const first = norm(t.slice(0, half));
-    const second = norm(t.slice(half));
-    if (first.length >= 12 && first === second) return first;
-    // Boucle fine (pas 5) puis pas 1 pour longueurs courantes (éviter doublon OpenAI)
+    let first = norm(t.slice(0, half));
+    let second = norm(t.slice(half));
+    if (first.length >= 12 && normApo(first) === normApo(second)) return first;
     for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 5) {
       const block = t.slice(0, L);
-      if (block === t.slice(L, L + L)) return norm(block);
+      if (normApo(block) === normApo(t.slice(L, L + L))) return norm(block);
     }
-    for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 1) {
+    for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 1) {
       const block = t.slice(0, L);
       if (block === t.slice(L, L + L)) return norm(block);
     }
-    // Répétition avec espace entre les deux (ex. "Phrase. Phrase.")
-    const match = t.match(/^(.+?[.?!])\s*\1\s*$/);
-    if (match && match[1].length >= 20) return norm(match[1]);
+    // Répétition : phrase = tout jusqu'au dernier [.?!] dans la première moitié, puis comparer avec la suite
+    const mid = Math.floor(t.length / 2);
+    const firstHalf = t.slice(0, mid);
+    const lastPunct = Math.max(firstHalf.lastIndexOf("?"), firstHalf.lastIndexOf("."), firstHalf.lastIndexOf("!"));
+    if (lastPunct >= 30) {
+      const phrase = norm(t.slice(0, lastPunct + 1));
+      const rest = norm(t.slice(lastPunct + 1));
+      if (rest === phrase || normApo(rest) === normApo(phrase)) return phrase;
+    }
     const prefixLen = Math.min(80, Math.floor(t.length / 3));
     if (prefixLen >= 30) {
       const prefix = norm(t.slice(0, prefixLen));
@@ -2609,11 +2615,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (normalizedForCompare.length < 30) return false;
       return t.text.includes(normalizedForCompare) || normalizedForCompare.includes(t.text);
     });
-    const hasNewInfoRestaurant = /\bau nom de\b/i.test(textToSpeak) && effectiveSector === "restaurant";
+    const hasNewInfoRestaurant = /\b(au nom de|au prénom de)\b/i.test(textToSpeak) && effectiveSector === "restaurant";
     const similarWasWithoutName = hasNewInfoRestaurant && recentAssistantTexts.some((t) => {
       const sim = calculateSimilarity(t.text, normalizedForCompare);
       const th = normalizedForCompare.length >= 50 ? 0.55 : 0.7;
-      return sim > th && !/\bau nom de\b/i.test(t.text);
+      return sim > th && !/\b(au nom de|au prénom de)\b/i.test(t.text);
     });
     const foundInRecent = (foundInRecentExact || foundInRecentSimilar || foundInRecentContains) && !(hasNewInfoRestaurant && similarWasWithoutName);
     if (foundInRecent && !skipRepetitionForUnInstant) {
@@ -4259,24 +4265,29 @@ But: être naturel et mettre le client en confiance.`,
           function dedupeRepeatedPhrase(text) {
             if (!text || typeof text !== "string") return text;
             const norm = (s) => String(s).replace(/\s+/g, " ").trim();
+            const normApo = (s) => String(s).replace(/[\u2019\u2018\u0027]/g, "'");
             const t = norm(text);
             if (t.length < 24) return text;
             const half = Math.floor(t.length / 2);
             const first = norm(t.slice(0, half));
             const second = norm(t.slice(half));
-            if (first.length >= 12 && first === second) return first;
+            if (first.length >= 12 && (first === second || normApo(first) === normApo(second))) return first;
             for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 5) {
               const block = t.slice(0, L);
-              const next = t.slice(L, L + L);
-              if (block === next) return norm(block);
+              if (normApo(block) === normApo(t.slice(L, L + L))) return norm(block);
             }
-            for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 1) {
+            for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 1) {
               const block = t.slice(0, L);
-              const next = t.slice(L, L + L);
-              if (block === next) return norm(block);
+              if (block === t.slice(L, L + L)) return norm(block);
             }
-            const match = t.match(/^(.+?[.?!])\s*\1\s*$/);
-            if (match && match[1].length >= 20) return norm(match[1]);
+            const mid = Math.floor(t.length / 2);
+            const firstHalf = t.slice(0, mid);
+            const lastPunct = Math.max(firstHalf.lastIndexOf("?"), firstHalf.lastIndexOf("."), firstHalf.lastIndexOf("!"));
+            if (lastPunct >= 30) {
+              const phrase = norm(t.slice(0, lastPunct + 1));
+              const rest = norm(t.slice(lastPunct + 1));
+              if (rest === phrase || normApo(rest) === normApo(phrase)) return phrase;
+            }
             const prefixLen = Math.min(80, Math.floor(t.length / 3));
             if (prefixLen >= 30) {
               const prefix = norm(t.slice(0, prefixLen));
