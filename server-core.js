@@ -1409,8 +1409,8 @@ wss.on("connection", (ws, req) => {
   let backchannelTimer = null;
   let lastBackchannelAt = 0;
   let llmInFlight = false;
-  const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "700");
-  const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "80"); // plus court = reprise plus rapide après que le client parle (évite de répéter 2x)
+  const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "500");
+  const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "50"); // plus court = réactivité (déclenche response.create plus vite après committed)
   let sttSpeechFrames = 0;
   let sttSilenceFrames = 0;
   let sttActive = false;
@@ -3893,7 +3893,7 @@ ${compactPersona}`;
               input: {
                 turn_detection: {
                   type: "semantic_vad",
-                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || "low"),
+                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || "medium"), // medium=4s max, low=8s (réactivité vs éviter interruption)
                 },
               },
             },
@@ -6640,7 +6640,7 @@ But: être naturel et mettre le client en confiance.`,
                 outboundQueuedBytes > 0 ||
                 outboundQueue.length > 0 ||
                 assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
-              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking;
+              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking && !speechActive;
               if (suppressInputNow) {
                 if (typeof ws.__suppressLogCount === "undefined") ws.__suppressLogCount = 0;
                 ws.__suppressLogCount = (ws.__suppressLogCount || 0) + 1;
