@@ -679,6 +679,7 @@ wss.on("connection", (ws, req) => {
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
+  let lastTtsEndAt = 0; // Fin du dernier TTS (pour éviter response.create sur écho juste après notre parole — restaurant)
   let premiumTtsLastError = null;
   let premiumTtsQueue = []; // Array<{ text: string, interrupt: boolean }>
   let premiumTtsDrainInFlight = false;
@@ -2811,6 +2812,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         if (typeof job.onComplete === "function") {
           try { job.onComplete(); } catch (e) { console.error("TTS onComplete error:", e); }
         }
+        lastTtsEndAt = Date.now();
       }
     } finally {
       premiumTtsDrainInFlight = false;
@@ -3389,11 +3391,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "false").toLowerCase() === "true";
   const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
   const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "240");
+  const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "1200");
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     const now = nowMs();
     if (responseInProgress) {
       try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:3374',message:'requestResponseCreate_skipped',data:{reason,why:'responseInProgress'},hypothesisId:'C',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
+      return;
+    }
+    const isCommitTrigger = reason === "watchdog_after_commit" || reason === "after_response_done_pending_commit";
+    if (isCommitTrigger && effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < RESTAURANT_POST_TTS_GUARD_MS) {
+      if (LOG_VERBOSE) console.log("🗣️ response.create ignoré (restaurant): trop tôt après TTS (anti-écho)", { reason, msSinceTtsEnd: now - lastTtsEndAt, guardMs: RESTAURANT_POST_TTS_GUARD_MS });
       return;
     }
     const skipDebounce = reason === "after_function_call_output";
