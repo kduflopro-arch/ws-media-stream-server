@@ -51,6 +51,9 @@ CARTESIA_API_VERSION=2025-04-16
 CARTESIA_SPEED=1.0        # 0.6 à 1.5
 CARTESIA_VOLUME=1.0       # 0.5 à 2.0
 CARTESIA_LANGUAGE=fr      # Langue du transcript
+
+# Mode Bytes (défaut) : audio complet puis enqueue fluide, évite saccades
+CARTESIA_USE_BYTES_MODE=true
 ```
 
 ---
@@ -59,12 +62,11 @@ CARTESIA_LANGUAGE=fr      # Langue du transcript
 
 L’API Cartesia expose 500+ voix. Quelques IDs recommandés pour les agents vocaux (voix stables) :
 
-| Usage  | Voix recommandée | ID                                  |
-|--------|------------------|-------------------------------------|
-| Femme  | Katie            | `f786b574-daa5-4673-aa0c-cbe3e8534c02` |
-| Homme  | Kiefer           | `228fca29-3a0a-435c-8728-5cb483251068` |
-| Femme  | Brooke           | Voir [cartesia.ai/voices](https://cartesia.ai/voices) |
-| Homme  | Ronald           | Voir [cartesia.ai/voices](https://cartesia.ai/voices) |
+| Usage  | Voix recommandée (stable) | ID                                  |
+|--------|---------------------------|-------------------------------------|
+| Femme  | Katie                     | `f786b574-daa5-4673-aa0c-cbe3e8534c02` |
+| Femme  | Jacqueline, Brooke        | [play.cartesia.ai](https://play.cartesia.ai/voices) (Featured ✓) |
+| Homme  | Ronald, Carson            | [play.cartesia.ai](https://play.cartesia.ai/voices) (Featured ✓) |
 
 Pour lister les voix par genre (GET `/voices?gender=masculine` ou `?gender=feminine`) :
 

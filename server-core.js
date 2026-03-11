@@ -2206,6 +2206,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       generation_config: {
         speed: Math.max(0.6, Math.min(1.5, CARTESIA_SPEED)),
         volume: Math.max(0.5, Math.min(2.0, CARTESIA_VOLUME)),
+        emotion: "neutral",
       },
     };
     try {
@@ -2224,7 +2225,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           const errText = await bytesResp.text().catch(() => "");
           throw new Error(`Cartesia /tts/bytes ${bytesResp.status}: ${errText.slice(0, 200)}`);
         }
-        const fullBuf = Buffer.from(await bytesResp.arrayBuffer());
+        let fullBuf = Buffer.from(await bytesResp.arrayBuffer());
+        if (fullBuf.length >= 44 && fullBuf[0] === 0x52 && fullBuf[1] === 0x49 && fullBuf[2] === 0x46 && fullBuf[3] === 0x46) {
+          fullBuf = fullBuf.subarray(44);
+        }
         const chunkSize = 160;
         for (let i = 0; i < fullBuf.length; i += chunkSize) {
           const chunk = fullBuf.subarray(i, Math.min(i + chunkSize, fullBuf.length));
