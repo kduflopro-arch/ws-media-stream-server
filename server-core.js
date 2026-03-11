@@ -3354,7 +3354,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   let bytesSinceInputStart = 0;
   let lastInputAudioLevel = 0; // Niveau audio moyen de la dernière frame pour filtrer les faux positifs OpenAI
   let lastInputCommitAt = 0;
-  const LOCAL_COMMIT_ENABLED = (process.env.LOCAL_COMMIT_ENABLED ?? "false").toLowerCase() === "true";
+  const LOCAL_COMMIT_ENABLED = (process.env.LOCAL_COMMIT_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
   const INPUT_SUPPRESS_WHILE_TALKING = (process.env.INPUT_SUPPRESS_WHILE_TALKING ?? "true").toLowerCase() === "true";
   const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "2"); // ~40ms d'audio sortant
   const INPUT_SUPPRESS_BYPASS_THRESHOLD = Number(process.env.INPUT_SUPPRESS_BYPASS_THRESHOLD ?? "400"); // seuil audio pour ne pas supprimer (plus sensible = moins répétitions)
@@ -3895,7 +3895,7 @@ ${compactPersona}`;
               input: {
                 turn_detection: {
                   type: "semantic_vad",
-                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || "medium"), // medium=4s max, low=8s (réactivité vs éviter interruption)
+                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || "high"), // high=2s max (réactivité), medium=4s, low=8s
                 },
               },
             },
