@@ -3883,6 +3883,14 @@ ${compactPersona}`;
             type: "realtime",
             instructions: initialInstructionsText,
             output_modalities: ["text"],
+            audio: {
+              input: {
+                turn_detection: {
+                  type: "semantic_vad",
+                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || "low"),
+                },
+              },
+            },
           },
         };
         if (REALTIME_INPUT_TRANSCRIPTION_ENABLED) {
