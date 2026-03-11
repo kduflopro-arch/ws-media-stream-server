@@ -674,6 +674,7 @@ wss.on("connection", (ws, req) => {
   const CARTESIA_SPEED = Number(process.env.CARTESIA_SPEED ?? "1.0");
   const CARTESIA_VOLUME = Number(process.env.CARTESIA_VOLUME ?? "1.0");
   const CARTESIA_LANGUAGE = process.env.CARTESIA_LANGUAGE ?? "fr";
+  const CARTESIA_USE_BYTES_MODE = (process.env.CARTESIA_USE_BYTES_MODE ?? "true").toLowerCase() === "true";
   const LOG_CARTESIA_EVENTS = (process.env.LOG_CARTESIA_EVENTS ?? "false").toLowerCase() === "true";
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
@@ -2196,21 +2197,50 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
     }
     const apiKey = CARTESIA_API_KEY.startsWith("Bearer ") ? CARTESIA_API_KEY.substring(7) : CARTESIA_API_KEY;
-    const contextId = "cartesia-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
-    let cartesiaWs = null;
     const genRequest = {
       model_id: CARTESIA_MODEL_ID,
       transcript: textToSend,
       voice: { mode: "id", id: selectedVoiceId.trim() },
       output_format: { container: "raw", encoding: "pcm_mulaw", sample_rate: 8000 },
       language: CARTESIA_LANGUAGE,
-      context_id: contextId,
       generation_config: {
         speed: Math.max(0.6, Math.min(1.5, CARTESIA_SPEED)),
         volume: Math.max(0.5, Math.min(2.0, CARTESIA_VOLUME)),
       },
     };
     try {
+      if (CARTESIA_USE_BYTES_MODE) {
+        const bytesResp = await fetch("https://api.cartesia.ai/tts/bytes", {
+          method: "POST",
+          signal: premiumTtsAbort?.signal,
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Cartesia-Version": CARTESIA_API_VERSION,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(genRequest),
+        });
+        if (!bytesResp.ok) {
+          const errText = await bytesResp.text().catch(() => "");
+          throw new Error(`Cartesia /tts/bytes ${bytesResp.status}: ${errText.slice(0, 200)}`);
+        }
+        const fullBuf = Buffer.from(await bytesResp.arrayBuffer());
+        const chunkSize = 160;
+        for (let i = 0; i < fullBuf.length; i += chunkSize) {
+          const chunk = fullBuf.subarray(i, Math.min(i + chunkSize, fullBuf.length));
+          if (chunk.length > 0) enqueueOutboundMulaw(chunk);
+        }
+        if (LOG_TTS) console.log(`[TTS-CARTESIA] Bytes: ${fullBuf.length} octets enqueue (mode fluide).`);
+        if (fullBuf.length === 0) console.warn("⚠️ Cartesia TTS: 0 octet. Vérifier CARTESIA_API_KEY et voice ID.");
+        if (premiumTtsBypassUntilMs > 0) {
+          premiumTtsBypassUntilMs = 0;
+          premiumTtsLastError = null;
+        }
+        return;
+      }
+      const contextId = "cartesia-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+      let cartesiaWs = null;
+      const wsRequest = { ...genRequest, context_id: contextId };
       const wsUrl = `wss://api.cartesia.ai/tts/websocket?api_key=${encodeURIComponent(apiKey)}&cartesia_version=${encodeURIComponent(CARTESIA_API_VERSION)}`;
       if (LOG_CARTESIA_EVENTS) console.log("🔌 Connexion Cartesia WebSocket...");
       cartesiaWs = new WebSocket(wsUrl);
@@ -2235,7 +2265,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         cartesiaWs.on("open", () => { clearTimeout(t); resolve(); });
         cartesiaWs.on("error", (err) => { clearTimeout(t); reject(err); });
       });
-      cartesiaWs.send(JSON.stringify(genRequest));
+      cartesiaWs.send(JSON.stringify(wsRequest));
       const chunkSize = 160;
       let totalBytes = 0;
       let isDone = false;
