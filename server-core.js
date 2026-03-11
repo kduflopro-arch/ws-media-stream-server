@@ -6692,7 +6692,8 @@ But: être naturel et mettre le client en confiance.`,
               }
               const pcm24kBase64 = pcm24kBuffer.toString("base64");
               appendedBytes += pcm24kBuffer.length;
-              const bypassGate = speechActive || userSpeakingNow;
+              const gateOffForRestaurant = effectiveSector === "restaurant";
+              const bypassGate = gateOffForRestaurant || speechActive || userSpeakingNow;
               if (!INPUT_GATE_ENABLED || bypassGate) {
                 openaiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcm24kBase64 }));
               }
