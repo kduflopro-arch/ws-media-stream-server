@@ -2443,7 +2443,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const first = norm(t.slice(0, half));
     const second = norm(t.slice(half));
     if (first.length >= 12 && first === second) return first;
-    for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 10) {
+    // Boucle plus fine (pas de 5) pour attraper phrases ~95, 97, 103 chars, etc.
+    for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 5) {
       const block = t.slice(0, L);
       if (block === t.slice(L, L + L)) return norm(block);
     }
@@ -4251,8 +4252,8 @@ But: être naturel et mettre le client en confiance.`,
             const first = norm(t.slice(0, half));
             const second = norm(t.slice(half));
             if (first.length >= 12 && first === second) return first;
-            // Détecte une phrase entière répétée (ex. "…Duflo ?D'accord, une table…" en double)
-            for (let L = Math.min(120, Math.floor(t.length / 2)); L >= 50; L -= 10) {
+            // Boucle fine (pas 5) pour attraper phrases ~95, 97, etc.
+            for (let L = Math.min(150, Math.floor(t.length / 2)); L >= 40; L -= 5) {
               const block = t.slice(0, L);
               const next = t.slice(L, L + L);
               if (block === next) return norm(block);
