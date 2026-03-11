@@ -673,7 +673,8 @@ wss.on("connection", (ws, req) => {
   const CARTESIA_SPEED = Number(process.env.CARTESIA_SPEED ?? "1.0");
   const CARTESIA_VOLUME = Number(process.env.CARTESIA_VOLUME ?? "1.0");
   const CARTESIA_LANGUAGE = process.env.CARTESIA_LANGUAGE ?? "fr";
-  const CARTESIA_USE_BYTES_MODE = (process.env.CARTESIA_USE_BYTES_MODE ?? "true").toLowerCase() === "true";
+  const CARTESIA_USE_BYTES_MODE = (process.env.CARTESIA_USE_BYTES_MODE ?? "false").toLowerCase() === "true";
+  const CARTESIA_USE_CONTINUATIONS = (process.env.CARTESIA_USE_CONTINUATIONS ?? "true").toLowerCase() === "true";
   const LOG_CARTESIA_EVENTS = (process.env.LOG_CARTESIA_EVENTS ?? "false").toLowerCase() === "true";
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
@@ -776,6 +777,9 @@ wss.on("connection", (ws, req) => {
           item: { type: "message", role: "assistant", content: [{ type: "output_text", text: phrase }] },
         }));
       } catch (e) { /* ignore */ }
+    }
+    if (typeof ws.__pushSessionUpdateForConsentGiven === "function") {
+      try { ws.__pushSessionUpdateForConsentGiven(); } catch (e) { console.warn("pushSessionUpdateForConsentGiven:", e); }
     }
     console.log("👋 Post-consent greeting joué.", { hasClientName: !!clientInfo?.name, sector: effectiveSector });
   }
@@ -2243,7 +2247,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       const contextId = "cartesia-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
       let cartesiaWs = null;
-      const wsRequest = { ...genRequest, context_id: contextId };
+      const sentences = CARTESIA_USE_CONTINUATIONS
+        ? String(textToSend).split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean)
+        : [textToSend];
+      const useContinuations = CARTESIA_USE_CONTINUATIONS && sentences.length > 1;
       const wsUrl = `wss://api.cartesia.ai/tts/websocket?api_key=${encodeURIComponent(apiKey)}&cartesia_version=${encodeURIComponent(CARTESIA_API_VERSION)}`;
       if (LOG_CARTESIA_EVENTS) console.log("🔌 Connexion Cartesia WebSocket...");
       cartesiaWs = new WebSocket(wsUrl);
@@ -2268,10 +2275,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         cartesiaWs.on("open", () => { clearTimeout(t); resolve(); });
         cartesiaWs.on("error", (err) => { clearTimeout(t); reject(err); });
       });
-      cartesiaWs.send(JSON.stringify(wsRequest));
       const chunkSize = 160;
       let totalBytes = 0;
-      let isDone = false;
+      for (let si = 0; si < sentences.length && !premiumTtsAbort?.signal?.aborted; si++) {
+        const seg = sentences[si];
+        const isFirst = si === 0;
+        const req = isFirst
+          ? { ...genRequest, transcript: seg, context_id: contextId }
+          : { ...genRequest, transcript: (seg.startsWith(" ") ? seg : " " + seg), context_id: contextId, continue: true };
+        cartesiaWs.send(JSON.stringify(req));
+        let isDone = false;
       while (!isDone && !premiumTtsAbort?.signal?.aborted) {
         const msg = await new Promise((resolve, reject) => {
           const t = setTimeout(() => reject(new Error("Timeout attente réponse Cartesia (30s)")), 30000);
@@ -2300,7 +2313,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
         isDone = !!msg.done;
       }
-      if (LOG_TTS) console.log(`[TTS-CARTESIA] Reçu ${totalBytes} octets (streaming).`);
+      }
+      if (LOG_TTS) console.log(`[TTS-CARTESIA] Reçu ${totalBytes} octets (streaming)${useContinuations ? `, ${sentences.length} continuations` : ""}.`);
       if (totalBytes === 0) {
         console.warn("⚠️ Cartesia TTS: 0 octet audio. Vérifier CARTESIA_API_KEY et voice ID.");
       }
@@ -3755,11 +3769,13 @@ Tu dois DÉTECTER automatiquement si le client mentionne "modifier", "changer", 
           ASSISTANT_PERSONA === "mecanicien"
             ? `Persona: mécanicien téléphonique humain, chaleureux, concis, proactif.`
             : neutralPersona;
-        function buildCompactInstructions(clientInfoSection) {
+        const consentLineGiven = "Consentement enregistrement: déjà donné par le client au début de l'appel. INTERDICTION ABSOLUE: Ne redemande JAMAIS le consentement. Réponds normalement aux demandes.";
+        function buildCompactInstructions(clientInfoSection, consentOverride) {
+          const cl = consentOverride ?? consentLine;
           return `PROTOCOLE OPÉRATIONNEL STRICT (à suivre à la lettre)
 Tu es ${assistantName}, assistant téléphonique du ${garageLabel}. Style naturel, concis, humain.
 ${modeLine}
-${consentLine}
+${cl}
 ${todayDateLine}
 ${hoursPolicyLine}
 ${closedInfoLine}
@@ -3985,6 +4001,49 @@ ${compactPersona}`;
         sessionUpdate.session.tool_choice = "auto";
         ws.__sessionInstructions = String(sessionUpdate.session.instructions || "");
         ws.__updatePromptWithClientInfo = updatePromptWithClientInfo;
+        ws.__pushSessionUpdateForConsentGiven = () => {
+          if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || !consentGiven) return;
+          if (effectiveSector === "restaurant") {
+            const todayDateLineRestUpd = referenceDateLine && referenceTimeLine
+              ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}${referenceWeekCalendar ? ` Calendrier des 30 prochains jours (UTILISE CES DATES EXACTES, ne calcule jamais) : ${referenceWeekCalendar}.` : ""}`
+              : (() => {
+                  const restNowUpd = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
+                  return `[Référence] Aujourd'hui: ${restNowUpd.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
+                })();
+            const instr = buildRestaurantInstructions({
+              restaurantName: garageName,
+              assistantName,
+              menuText: String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")),
+              openingHoursText: garageHoursText || "Horaires non renseignés.",
+              lunchFullToday,
+              dinnerFullToday,
+              lunchPassedForToday,
+              dinnerPassedForToday,
+              lunchReservationEnd,
+              dinnerReservationEnd,
+              todayDateLine: todayDateLineRestUpd,
+              allowTransfer,
+              consentRequired,
+              consentGiven: true,
+              clientInfo,
+              garageTone,
+              hasTerrace: restaurantHasTerrace,
+            });
+            const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS
+              ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES: réservation naturelle, une question à la fois.]"
+              : instr;
+            openaiWs.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: toSend, output_modalities: ["text"], tools: restaurantTools, tool_choice: "auto" } }));
+            ws.__sessionInstructions = String(toSend || "");
+            console.log("✅ Session mise à jour: consentement donné (restaurant)");
+            return;
+          }
+          const clientInfoSection = buildClientInfoLine();
+          const instr = buildCompactInstructions(clientInfoSection || "", consentLineGiven);
+          const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES CRITIQUES: get_garage_pricing avant tarif, RDV jour puis matin/après-midi.]" : instr;
+          openaiWs.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: toSend, output_modalities: ["text"], tools: garageTools, tool_choice: "auto" } }));
+          ws.__sessionInstructions = String(toSend || "");
+          console.log("✅ Session mise à jour: consentement donné (garage)");
+        };
         const initialInstructions = sessionUpdate.session.instructions || "";
         const estTokensInitial = Math.round(initialInstructions.length / 2.7);
         openaiWs.send(JSON.stringify(sessionUpdate));

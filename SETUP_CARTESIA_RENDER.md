@@ -18,7 +18,7 @@ Ce document liste les variables d'environnement Render à ajouter pour préparer
 # Activer le TTS premium
 PREMIUM_TTS_ENABLED=true
 
-# Sélectionner Cartesia comme fournisseur
+# Sélectionner Cartesia comme fournisseur (par défaut sur Render si clé fournie)
 PREMIUM_TTS_PROVIDER=cartesia
 
 # Clé API Cartesia (Bearer token)
@@ -28,6 +28,11 @@ CARTESIA_API_KEY=votre_clé_api_cartesia
 CARTESIA_VOICE_ID=votre_voice_id_par_défaut
 CARTESIA_VOICE_ID_MALE=votre_voice_id_homme
 CARTESIA_VOICE_ID_FEMALE=votre_voice_id_femme
+
+# Continuations (WebSocket) : réduit les saccades en maintenant la prosodie entre les phrases (par défaut: true)
+CARTESIA_USE_CONTINUATIONS=true
+# Mode Bytes (HTTP) : désactivé par défaut si continuations activées
+CARTESIA_USE_BYTES_MODE=false
 ```
 
 **Logique de sélection de voix (comme Minimax / ElevenLabs) :**
