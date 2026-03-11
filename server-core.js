@@ -3356,6 +3356,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const LOCAL_COMMIT_ENABLED = (process.env.LOCAL_COMMIT_ENABLED ?? "false").toLowerCase() === "true";
   const INPUT_SUPPRESS_WHILE_TALKING = (process.env.INPUT_SUPPRESS_WHILE_TALKING ?? "true").toLowerCase() === "true";
   const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "2"); // ~40ms d'audio sortant
+  const INPUT_SUPPRESS_BYPASS_THRESHOLD = Number(process.env.INPUT_SUPPRESS_BYPASS_THRESHOLD ?? "400"); // seuil audio pour ne pas supprimer (plus sensible = moins répétitions)
   const INPUT_SUPPRESS_OVERRIDE_THRESHOLD = Number(
     process.env.INPUT_SUPPRESS_OVERRIDE_THRESHOLD ?? String(Math.max(2500, Math.floor(INPUT_SPEECH_THRESHOLD * 1.5))),
   );
@@ -6640,7 +6641,7 @@ But: être naturel et mettre le client en confiance.`,
                 outboundQueuedBytes > 0 ||
                 outboundQueue.length > 0 ||
                 assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
-              const userSpeakingNow = avg > INPUT_SPEECH_THRESHOLD;
+              const userSpeakingNow = avg > INPUT_SUPPRESS_BYPASS_THRESHOLD;
               const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking && !speechActive && !userSpeakingNow;
               if (suppressInputNow) {
                 if (typeof ws.__suppressLogCount === "undefined") ws.__suppressLogCount = 0;
