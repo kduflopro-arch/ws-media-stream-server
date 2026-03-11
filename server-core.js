@@ -3343,7 +3343,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "35"); // ~700ms de parole continue nécessaire
   let twilioSpeechFrames = 0;
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
-  const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible (recommandé si l'utilisateur doit répéter); 900–1200: plus strict
+  const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible; 900–1200: plus strict
+  const SPEECH_STARTED_IGNORE_THRESHOLD = Number(process.env.SPEECH_STARTED_IGNORE_THRESHOLD ?? "150"); // seuil bas: on ignore speech_started seulement si bruit évident (<150)
   const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "10"); // Augmenté de 6 à 10 (~200ms au lieu de 120ms)
   const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "450");
   const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? (PIPELINE_MODE === "realtime" ? "38" : "20")); // ~760ms en realtime: laisser finir la phrase
@@ -5900,9 +5901,9 @@ But: être naturel et mettre le client en confiance.`,
             }
           }
           if (msg.type === "input_audio_buffer.speech_started") {
-            const shouldIgnore = INPUT_GATE_ENABLED && lastInputAudioLevel < INPUT_SPEECH_THRESHOLD;
+            const shouldIgnore = INPUT_GATE_ENABLED && lastInputAudioLevel < SPEECH_STARTED_IGNORE_THRESHOLD;
             if (shouldIgnore) {
-              console.log("🔇 Ignoré speech_started OpenAI (faux positif, niveau audio trop faible:", lastInputAudioLevel, "<", INPUT_SPEECH_THRESHOLD + ")");
+              console.log("🔇 Ignoré speech_started OpenAI (bruit évident, niveau:", lastInputAudioLevel, "<", SPEECH_STARTED_IGNORE_THRESHOLD + ")");
               return;
             }
             console.log("🟢 Le client a parlé (détection début parole OpenAI - speech_started)", { niveau: lastInputAudioLevel, seuil: INPUT_SPEECH_THRESHOLD });
