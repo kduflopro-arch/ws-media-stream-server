@@ -3418,6 +3418,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
   }
   function cancelResponseForBargeIn() {
+    if (effectiveSector === "restaurant") return; // pas de barge-in pour le restaurant
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     if (!responseInProgress) return;
     try {
