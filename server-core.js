@@ -5941,9 +5941,14 @@ But: être naturel et mettre le client en confiance.`,
             }
           }
           if (msg.type === "input_audio_buffer.speech_started") {
-            const shouldIgnore = INPUT_GATE_ENABLED && lastInputAudioLevel < SPEECH_STARTED_IGNORE_THRESHOLD;
-            if (shouldIgnore) {
+            const shouldIgnoreLow = INPUT_GATE_ENABLED && lastInputAudioLevel < SPEECH_STARTED_IGNORE_THRESHOLD;
+            const shouldIgnoreRestaurantWeak = effectiveSector === "restaurant" && lastInputAudioLevel < INPUT_SPEECH_THRESHOLD;
+            if (shouldIgnoreLow) {
               console.log("🔇 Ignoré speech_started OpenAI (bruit évident, niveau:", lastInputAudioLevel, "<", SPEECH_STARTED_IGNORE_THRESHOLD + ")");
+              return;
+            }
+            if (shouldIgnoreRestaurantWeak) {
+              console.log("🔇 Ignoré speech_started OpenAI (restaurant: niveau trop bas, parole incertaine)", { niveau: lastInputAudioLevel, seuil: INPUT_SPEECH_THRESHOLD });
               return;
             }
             console.log("🟢 Le client a parlé (détection début parole OpenAI - speech_started)", { niveau: lastInputAudioLevel, seuil: INPUT_SPEECH_THRESHOLD });
@@ -5975,7 +5980,8 @@ But: être naturel et mettre le client en confiance.`,
               if (LOG_VERBOSE) console.log("⚠️ OpenAI buffer committed (sans speech_started récent, on envoie quand même response.create si délai ok):", { item_id: msg.item_id, timeSinceSpeech: nowMs() - lastSpeechTs });
             }
             const canRequest = (commitTs - lastResponseAt) > 300;
-            if (canRequest) {
+            const restaurantSkipCommitWithoutSpeech = effectiveSector === "restaurant" && !hasRealSpeech;
+            if (canRequest && !restaurantSkipCommitWithoutSpeech) {
               lastResponseAt = commitTs;
               awaitingUserResponse = false;
               setTimeout(() => {
