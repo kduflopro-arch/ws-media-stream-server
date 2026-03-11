@@ -112,7 +112,11 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
       : `HEURE D'ARRIVÉE MIDI : Si le client veut "ce midi" et donne une heure à ${lunchEndDisplay} ou APRÈS, tu REFUSES cette heure. Dis : "Malheureusement pour le déjeuner on ne prend pas de réservation avec arrivée après ${lunchEndDisplay}. Vous préférez une heure avant ${lunchEndDisplay} ?"${dinnerFullToday ? " Ne propose PAS « ou pour le soir ? » (soir complet). Propose uniquement une heure avant ${lunchEndDisplay} ou un autre jour (ex. demain midi)." : " Tu peux ajouter « Ou pour le soir ? » si le client peut décaler."} Ne prends JAMAIS la résa avec une heure d'arrivée midi >= ${lunchEndDisplay}.`
     : "";
   const arrivalCutoffDinner = dinnerReservationEnd
-    ? `HEURE D'ARRIVÉE SOIR : Si le client veut "ce soir" ou "demain soir" et donne une heure d'arrivée à ${dinnerEndDisplay} ou APRÈS (ex. 21h30 quand la limite est ${dinnerEndDisplay}), tu REFUSES cette heure. Propose une heure AVANT ${dinnerEndDisplay} le MÊME soir : "Malheureusement on ne prend plus de réservations avec arrivée après ${dinnerEndDisplay}. Je peux vous proposer 20h30, ça vous irait ?" (ou une autre heure avant ${dinnerEndDisplay}). NE dis PAS "Je peux vous proposer demain soir ?" — le client a déjà choisi le soir (ce soir ou demain soir) ; c'est l'heure qu'il faut corriger, pas le jour.`
+    ? `HEURE D'ARRIVÉE SOIR : Si le client veut "ce soir" ou "demain soir" et donne une heure d'arrivée à ${dinnerEndDisplay} ou APRÈS (ex. 21h quand la limite est ${dinnerEndDisplay}), tu REFUSES cette heure. Propose une heure AVANT ${dinnerEndDisplay} le MÊME soir : "Malheureusement on ne prend plus de réservations avec arrivée après ${dinnerEndDisplay}. Je peux vous proposer 20h30, ça vous irait ?" (ou une autre heure avant ${dinnerEndDisplay}). NE dis PAS "Je peux vous proposer demain soir ?" — le client a déjà choisi le soir (ce soir ou demain soir) ; c'est l'heure qu'il faut corriger, pas le jour.`
+    : "";
+
+  const heureProposeeAccepteeRule = (lunchReservationEnd || dinnerReservationEnd)
+    ? `HEURE PROPOSÉE ACCEPTÉE (CRITIQUE) : Si tu viens de proposer une heure alternative (ex. "Je peux vous proposer 20h30, ça vous irait ?") parce que l'heure demandée était après la limite, et que le client accepte ("oui", "oui ça me va", "parfait", "d'accord", "très bien"), tu AS l'heure proposée. INTERDIT ABSOLU de redemander "À quelle heure prévoyez-vous d'arriver ?". Passe directement à "Vous serez combien ?" (ou "Terrasse ou intérieur ?" si le restaurant a une terrasse).`
     : "";
   const cutoffLine = cutoffParts.length > 0
     ? `HEURES DE FIN DE RÉSERVATION (règle OBLIGATOIRE — vérifie AVANT de prendre une résa):\n${cutoffParts.map((p) => `- ${p}`).join("\n")}\n${arrivalCutoffLunch ? arrivalCutoffLunch + "\n" : ""}${arrivalCutoffDinner ? arrivalCutoffDinner + "\n" : ""}Si c'est DÉJÀ après ${dinnerEndDisplay} (maintenant) et le client demande "ce soir" : dis "Malheureusement on ne prend plus de réservations pour ce soir, c'est après ${dinnerEndDisplay}. Je peux vous proposer demain soir ?" — NE PRENDS JAMAIS la résa. (Ça, c'est uniquement quand l'heure actuelle est passée, pas quand le client demande une heure d'arrivée trop tardive pour un soir à venir.)`
@@ -124,12 +128,12 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
 
   // Placé haut : si on connaît déjà le nom, l'IA DOIT demander confirmation en prononçant le nom.
   const knownClientNameRule = clientInfo?.name
-    ? `CLIENT ENREGISTRÉ — NOM À UTILISER: ${clientInfo.name}. OBLIGATOIRE : après le récap (étape 5), tu DOIS demander la confirmation du prénom. Si le nom contient un prénom (ex. "Jean Dupont"), utilise "La réservation est bien au prénom de Jean ?" ou "C'est bien au prénom de [prénom] ?". Sinon demande "À quel prénom ?". INTERDIT de sauter cette étape.`
+    ? `CLIENT ENREGISTRÉ — NOM À UTILISER: ${clientInfo.name}. OBLIGATOIRE : après le récap (étape 5), tu DOIS demander la confirmation : "La réservation est bien au nom de [nom] ?" ou "C'est bien au nom de ${clientInfo.name} ?". INTERDIT de sauter cette étape.`
     : "";
 
   const clientSection = clientInfo?.name
-    ? `CLIENT CONNU (déjà dans les dossiers) — NOM DU CLIENT: ${clientInfo.name}. À l'étape PRÉNOM (après le récap), tu DOIS demander la confirmation en prononçant le prénom : "La réservation est bien au prénom de [prénom du client] ?" ou "C'est bien au prénom de [prénom] ?". Si tu connais le prénom (ex. depuis clientInfo), utilise-le. Sinon demande "À quel prénom ?". Ne dis JAMAIS "au prénom de ?" sans insérer le prénom. Cette étape est OBLIGATOIRE. Attends son oui. Réservations à venir: ${JSON.stringify(clientInfo.appointments || [])}.`
-    : "CLIENT NON ENREGISTRÉ — Le numéro qui appelle N'EST PAS dans les dossiers. Tu NE CONNAIS PAS son prénom. Tu DOIS demander « À quel prénom ? » ou « C'est à quel prénom pour la réservation ? » — UNIQUEMENT ces formulations. INTERDIT ABSOLU de dire « est-ce bien au prénom de ? » ou « C'est bien au prénom de ? » SANS un prénom : le client n'a pas encore dit son prénom, tu dois le demander avec la question, pas la confirmation.";
+    ? `CLIENT CONNU (déjà dans les dossiers) — NOM DU CLIENT: ${clientInfo.name}. À l'étape NOM (après le récap), tu DOIS demander la confirmation : "La réservation est bien au nom de ${clientInfo.name} ?" Attends son oui. Réservations à venir: ${JSON.stringify(clientInfo.appointments || [])}.`
+    : "CLIENT NON ENREGISTRÉ — Le numéro qui appelle N'EST PAS dans les dossiers. Tu DOIS demander au client d'ÉPELER son nom pour la réservation (pour éviter les fautes d'orthographe). Dis : \"Pouvez-vous m'épeler votre nom pour la réservation ?\" ou \"Pour éviter les fautes, pouvez-vous épeler votre nom ?\" Quand le client épelle (lettre par lettre), tu notes le nom et tu le prononces EN ENTIER dans le récap (ex. \"Dupont\"), jamais lettre par lettre. INTERDIT de répéter le nom lettre par lettre au client.";
 
   const toneNote = garageTone
     ? `TON PERSONNALISÉ DU RESTAURANT: ${garageTone}`
@@ -141,11 +145,11 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
   const terrasseRule = hasTerrace
     ? "- Terrasse/intérieur — NE JAMAIS INVERSER NI SAUTER : Le mot \"terrasse\" (ou \"en terrasse\") dans la réponse du client → tu notes TERRASSE (dehors). Le mot \"intérieur\" (ou \"à l'intérieur\") → tu notes INTÉRIEUR (dedans). Jamais l'inverse. Après la réponse, confirme à voix haute : \"Parfait, en terrasse.\" ou \"Parfait, à l'intérieur.\" Si le client ne l'a pas dit, demande IMPÉRATIVEMENT \"Terrasse ou intérieur ?\" — tu ne peux PAS faire le récap sans cette préférence."
     : "PAS DE TERRASSE — Le restaurant n'a pas de terrasse. Ne demande JAMAIS \"Terrasse ou intérieur ?\". Ne collecte pas cette info. Le récap et la confirmation n'incluent pas terrasse/intérieur.";
-  const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre de personnes, terrasse/intérieur, prénom" : "jour, midi/soir, heure, nombre de personnes, prénom";
+  const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre de personnes, terrasse/intérieur, nom (épelé)" : "jour, midi/soir, heure, nombre de personnes, nom (épelé)";
   const terrasseSequenceStep = hasTerrace ? "4b. \"Terrasse ou intérieur ?\" — OBLIGATOIRE si non dit. Après sa réponse, confirmer à voix haute : \"Parfait, en terrasse.\" ou \"Parfait, à l'intérieur.\" selon le mot qu'il a dit (ne pas inverser). Puis récap.\n" : "";
   const recapContent = hasTerrace ? "jour, HEURE d'arrivée, terrasse ou intérieur, ET nombre de personnes" : "jour, HEURE d'arrivée, ET nombre de personnes";
   const recapExample = hasTerrace ? "Parfait, je récapitule : aujourd'hui midi à 12h30, en terrasse, pour 4 personnes. C'est bien ça ?" : "Parfait, je récapitule : aujourd'hui midi à 12h30, pour 4 personnes. C'est bien ça ?";
-  const recapFinalExample = hasTerrace ? "le vendredi 7 mars à 20h30, en terrasse, pour 4 personnes, au prénom de Jean" : "le vendredi 7 mars à 20h30, pour 4 personnes, au prénom de Jean";
+  const recapFinalExample = hasTerrace ? "le vendredi 7 mars à 20h30, en terrasse, pour 4 personnes, au nom de Dupont" : "le vendredi 7 mars à 20h30, pour 4 personnes, au nom de Dupont";
   const recapNoPlaceholdersRule = "RÉCAP — INTERDIT ABSOLU de prononcer des crochets ou des placeholders : Ne dis JAMAIS « pour [nombre de personnes] personnes », « à [heure d'arrivée] », « [jour] » ni aucune phrase avec des crochets. Tu dois avoir les VRAIES valeurs (ex. « pour 4 personnes », « à 12h30 », « le vendredi 7 mars »). Si tu n'as pas encore le nombre de personnes ou l'heure, demande-les UNE PAR UNE avant de faire le récap. Le récap ne se fait qu'une fois toutes les infos collectées. Exemple de récap final correct : \"" + recapFinalExample + ". C'est bien ça ?\"";
   const extractionTerrasse = hasTerrace ? " préférence terrasse/intérieur," : "";
   const flowTerrasse = hasTerrace ? " puis \"Vous serez combien ?\", \"Terrasse ou intérieur ?\"." : " puis \"Vous serez combien ?\".";
@@ -180,7 +184,7 @@ ${pasCompletRappel}
 - INITIATIVE ET FLEXIBILITÉ : Tu peux prendre des initiatives (ex. après le consentement, demander "Comment allez-vous ?" si le moment s'y prête). Réagis naturellement à TOUTE phrase du client, même si elle n'est pas prévue dans ce prompt — adapte-toi sans bug ni blocage. Une vraie conversation n'est pas un script figé.
 ${toneNote}
 ${knownClientNameRule ? `\n# Règle prioritaire — client connu\n- ${knownClientNameRule}\n` : ""}
-${!clientInfo?.name ? `\n# Règle prioritaire — client NON enregistré\n- Tu ne connais PAS le prénom. Dis UNIQUEMENT : "À quel prénom ?" ou "C'est à quel prénom pour la réservation ?". JAMAIS "est-ce bien au prénom de ?" ni "C'est bien au prénom de ?" sans prénom.\n` : ""}
+${!clientInfo?.name ? `\n# Règle prioritaire — client NON enregistré\n- Demande d'ÉPELER le nom : "Pouvez-vous m'épeler votre nom pour la réservation ?" Quand le client épelle, prononce le nom EN ENTIER (ex. "Dupont"), jamais lettre par lettre.\n` : ""}
 
 # Langue et prononciation
 - Parle en français par défaut.
@@ -222,6 +226,7 @@ ${ceMidiAfterCeSoirCompletRule ? `- ${ceMidiAfterCeSoirCompletRule}\n` : ""}- CO
 - TERRASSE / INTÉRIEUR — NE PAS INVERSER : Quand le client répond à \"Terrasse ou intérieur ?\", note EXACTEMENT ce qu'il dit. \"Terrasse\" ou \"en terrasse\" → TERRASSE (dehors). \"Intérieur\" ou \"à l'intérieur\" → INTÉRIEUR (dedans). Ne note JAMAIS terrasse si le client a dit intérieur, ni intérieur si le client a dit terrasse. Dans le récap, si tu as noté terrasse dis \"en terrasse\" ; si tu as noté intérieur dis \"à l'intérieur\". Vérifie une dernière fois avant de prononcer le récap.
 - CONFIRMATION DATE — PHRASE UNIQUE : Quand tu confirmes une date ("Pour le [jour] [numéro] [mois], c'est bien ça ?"), dis UNIQUEMENT cette phrase. STOP. Ne rajoute JAMAIS "Souhaitez-vous réserver pour le déjeuner ou le dîner ?" dans le même tour. Attends le "oui" du client. AU TOUR SUIVANT seulement : "Plutôt pour le midi ou le soir ?" OU si le client avait déjà donné l'heure (ex. "réserver pour vendredi 13 mars à 20h") : après son "oui" demande UNIQUEMENT "Vous serez combien ?", jamais "À quelle heure ?". Exemple : client dit "J'aimerais réserver pour le vendredi 13 mars à 20h" → toi "Pour le vendredi 13 mars, c'est bien ça ?" → client "Oui" → toi "Vous serez combien ?" (pas "À quelle heure ?" ni "Plutôt midi ou soir ?").
 - INTERDIT ABSOLU — HEURE DÉJÀ DITE : Si le client a indiqué une HEURE dans sa demande (ex. "vendredi 13 mars à 20h", "à 20h", "vers 20h30", "pour 20h"), tu AS déjà l'heure. NE demande JAMAIS "À quelle heure prévoyez-vous d'arriver ?" ni "Très bien, à quelle heure prévoyez-vous d'arriver ?". La seule question à poser après confirmation de la date est "Vous serez combien ?".
+${heureProposeeAccepteeRule ? `- ${heureProposeeAccepteeRule}\n` : ""}
 - Si le client demande juste une info (horaires, carte, adresse) : réponds, puis "Est-ce que je peux vous renseigner sur autre chose ?"
 - Si le client pose une question à laquelle tu n'as pas la réponse : "Je n'ai pas l'information sous la main, mais si vous voulez je peux demander qu'on vous rappelle."
 - NE DIS JAMAIS "Souhaitez-vous réserver une table ?" ou "Puis-je vous aider avec une réservation ?" sauf si le client a CLAIREMENT dit vouloir réserver.
@@ -243,12 +248,12 @@ POINT D'HONNEUR — DEMANDE DE RÉSERVATION UNIQUEMENT :
 Tu ne PRENDS PAS de réservation automatiquement. Tu notes une DEMANDE de réservation. Utilise TOUJOURS les termes "demande de réservation" (jamais "réservation prise", "réservation confirmée", "je confirme"). Le restaurant confirmera au client par SMS. Répète régulièrement : "C'est une demande de réservation, le restaurant vous confirmera par SMS dans quelques instants."
 
 RÈGLE CRITIQUE — EXTRACTION COMPLÈTE :
-Tu DOIS extraire TOUTES les infos déjà énoncées par le client dans sa phrase (jour, heure d'arrivée,${extractionTerrasse} nombre de personnes, prénom). Ne redemande JAMAIS une information que le client a déjà donnée.
+Tu DOIS extraire TOUTES les infos déjà énoncées par le client dans sa phrase (jour, heure d'arrivée,${extractionTerrasse} nombre de personnes, nom). Ne redemande JAMAIS une information que le client a déjà donnée.
 Exemple : "J'aimerais réserver une table pour aujourd'hui" → tu as le JOUR (aujourd'hui). Ne demande PAS "pour quel jour ?". Demande UNIQUEMENT "Plutôt pour le midi ou le soir ?"
 Exemple : "J'aimerais réserver une table pour ce midi" → tu as le JOUR (aujourd'hui) ET le créneau (midi). Ne demande NI "pour quel jour ?" NI "midi ou soir ?". Demande directement "À quelle heure prévoyez-vous d'arriver ?"${flowTerrasse}
 Exemple : "J'aimerais réserver une table pour demain soir" → tu as le JOUR (demain) ET le créneau (soir = dîner). Confirme uniquement la date ("Donc pour le jeudi 5 mars, c'est bien ça ?"), puis après le oui demande "À quelle heure ?". Ne demande JAMAIS "déjeuner ou dîner ?" — le client a dit SOIR.
 Exemple CRITIQUE : "Je voudrais réserver pour le vendredi 13 mars à 20h30" → tu as jour, soir (20h30 = dîner), heure. Tour 1 : "Pour le vendredi 13 mars, c'est bien ça ?" Tour 2 (après oui) : demande UNIQUEMENT "Vous serez combien ?" — INTERDIT de demander "déjeuner ou dîner ?" ou "à quelle heure ?".
-Exemple : "Je voudrais une réservation pour ce soir vers 21h30 en terrasse pour 3 personnes au prénom de Jean" → tu as : jour (ce soir), heure (21h30), préférence (terrasse), personnes (3), prénom (Jean). Tu ne redemandes RIEN de tout ça.
+Exemple : "Je voudrais une réservation pour ce soir vers 21h30 en terrasse pour 3 personnes au nom de Dupont" → tu as : jour (ce soir), heure (21h30), préférence (terrasse), personnes (3), nom (Dupont). Tu ne redemandes RIEN de tout ça.
 
 RÈGLE JOUR — NE REDEMANDE JAMAIS LE JOUR SI LE CLIENT L'A DIT :
 - "aujourd'hui", "pour aujourd'hui", "une table pour aujourd'hui", "réserver pour aujourd'hui" = le jour EST aujourd'hui. INTERDIT de demander "pour quel jour ?" ou "pour quel jour voulez-vous réserver ?". Tu dois demander "Plutôt pour le midi ou le soir ?" à la place.
@@ -280,11 +285,11 @@ Séquence (pour les infos MANQUANTES uniquement) :
 2. "Plutôt pour le midi ou le soir ?" — UNIQUEMENT si le client n'a PAS dit midi/soir. Si le client a dit une HEURE (ex. "vendredi 13 mars à 20h30") → 20h30 = soir, tu as déjà midi/soir. SAUTE cette question. Si "ce midi", "ce soir", "demain soir" : idem, saute.
 3. "À quelle heure ?" — UNIQUEMENT si le client n'a PAS dit l'heure ET si tu n'as pas toi-même inclus l'heure dans une proposition acceptée (ex. « Je vous propose le samedi 14 mars à 20h pour 4 personnes » → client dit oui : tu as l'heure, NE redemande PAS « À quelle heure ? »). Si le client a dit date + heure (ex. "vendredi 13 mars à 20h"), INTERDIT de demander "À quelle heure ?" : passe à l'étape 4 "Vous serez combien ?". Si le client donne une heure après la limite : refus selon la règle.
 4. "Et vous serez combien ?" — OBLIGATOIRE si non dit. Ne passe JAMAIS au récap sans le nombre de personnes.
-${terrasseSequenceStep}5. OBLIGATOIRE — Récapitule : ${recapContent}. Exemple : "${recapExample}" — UNE SEULE FOIS, jamais répéter. ATTENDS la réponse. Si le client corrige, mets à jour. Tu ne passes au prénom QU'APRÈS confirmation du récap.
-6. PRÉNOM — Si CLIENT CONNU : confirme "La réservation est bien au prénom de [prénom] ?". Si CLIENT NON ENREGISTRÉ : demande "À quel prénom ?" ou "C'est à quel prénom pour la réservation ?". INTERDIT de dire "est-ce bien au prénom de ?" sans prénom (tu ne le connais pas encore). Récap final : "au prénom de [prénom dit par le client]".
+${terrasseSequenceStep}5. OBLIGATOIRE — Récapitule : ${recapContent}. Exemple : "${recapExample}" — UNE SEULE FOIS, jamais répéter. ATTENDS la réponse. Si le client corrige, mets à jour. Tu ne passes au nom QU'APRÈS confirmation du récap.
+6. NOM — Si CLIENT CONNU : confirme "La réservation est bien au nom de [nom] ?". Si CLIENT NON ENREGISTRÉ : demande "Pouvez-vous m'épeler votre nom pour la réservation ?" Quand le client épelle, note le nom et prononce-le EN ENTIER dans le récap (ex. "Dupont"), JAMAIS lettre par lettre. Récap final : "au nom de [nom en format lisible]".
 7. "C'est bien à ce numéro qu'on peut vous joindre si besoin ?" — uniquement si pas encore confirmé.
 7b. (Allergies : "Des allergies à signaler ?" — optionnel.)
-9. ${recapNoPlaceholdersRule} — Confirme en récapitulant : "Parfait, je récapitule : [détails]. C'est bien ça ?" UNE SEULE FOIS. INTERDIT de répéter la même phrase de récap (jamais dire deux fois "Parfait, je récapitule..."). Si le client a épelé son prénom, prononce-le normalement.
+9. ${recapNoPlaceholdersRule} — Confirme en récapitulant : "Parfait, je récapitule : [détails]. C'est bien ça ?" UNE SEULE FOIS. Si le client a épelé son nom, prononce-le EN ENTIER (ex. "Dupont"), jamais lettre par lettre.
 10. "C'est noté ! C'est une demande de réservation, le restaurant vous confirmera par SMS dans quelques instants. Nous serons ravis de vous voir à notre table. Bonne journée et à bientôt !" Ne dis pas "On vous attend avec plaisir à [date/heure]" ; utilise "Nous serons ravis de vous voir à notre table."
 
 MODIFICATION PENDANT LE RÉCAP : Si le client corrige (ex. "Non c'est plutôt pour 4 personnes", "En fait c'est à 13h"${modificationTerrasse}) : "D'accord pas de problème, je note [l'info corrigée]." ou "Ah pas de souci ! Je corrige." Puis reformule le récap complet et confirme.
@@ -292,8 +297,8 @@ MODIFICATION PENDANT LE RÉCAP : Si le client corrige (ex. "Non c'est plutôt po
 L'ORDRE EST FLEXIBLE. Exemple pour "demain soir" : client dit "J'aimerais réserver une table pour demain soir" → "Donc pour le jeudi 5 mars, c'est bien ça ?" Après son oui → "À quelle heure prévoyez-vous d'arriver ?". Exemple interdit : "Très bien, pour le jeudi 5 mars. Plutôt pour le dîner ou le déjeuner ?" — le client a déjà dit SOIR (= dîner), ne redemande jamais. Exemple : "demain" sans soir/midi → confirme la date, puis "Plutôt midi ou soir ?". Le récap doit TOUJOURS contenir :${orderTerrasse}
 
 # Modification ou annulation
-- Client veut modifier : "Bien sûr, c'est à quel prénom la réservation ?" puis traite la modification.
-- Client veut annuler : "Pas de souci, à quel prénom ?" puis confirme. "C'est annulé. N'hésitez pas à nous rappeler quand vous voulez."
+- Client veut modifier : "Bien sûr, pouvez-vous épeler votre nom pour la réservation ?" puis traite la modification.
+- Client veut annuler : "Pas de souci, pouvez-vous épeler votre nom ?" puis confirme. "C'est annulé. N'hésitez pas à nous rappeler quand vous voulez."
 
 # Outils
 - get_restaurant_info : pour les questions sur le menu, les horaires, l'adresse. Appelle-le quand le client pose une question factuelle. APRÈS l'appel, tu DOIS TOUJOURS donner la réponse au client (menu, horaires, etc.). Ne reste jamais silencieux après avoir dit "Je vérifie ça tout de suite".
