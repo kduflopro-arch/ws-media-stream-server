@@ -29,10 +29,10 @@ CARTESIA_VOICE_ID=votre_voice_id_par_défaut
 CARTESIA_VOICE_ID_MALE=votre_voice_id_homme
 CARTESIA_VOICE_ID_FEMALE=votre_voice_id_femme
 
-# Continuations (WebSocket) : réduit les saccades en maintenant la prosodie entre les phrases (par défaut: true)
-CARTESIA_USE_CONTINUATIONS=true
-# Mode Bytes (HTTP) : désactivé par défaut si continuations activées
-CARTESIA_USE_BYTES_MODE=false
+# Mode Bytes (HTTP) : texte complet → audio complet, moins de saccades (par défaut: true)
+CARTESIA_USE_BYTES_MODE=true
+# Continuations (WebSocket) : expérimental, peut augmenter les saccades si activé
+CARTESIA_USE_CONTINUATIONS=false
 ```
 
 **Logique de sélection de voix (comme Minimax / ElevenLabs) :**
