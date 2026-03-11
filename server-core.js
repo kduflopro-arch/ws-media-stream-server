@@ -6323,17 +6323,23 @@ But: être naturel et mettre le client en confiance.`,
           connectToOpenAI();
         }
         if (!outboundTimer) {
-          const outboundIntervalMs = Number(process.env.OUTBOUND_INTERVAL_MS ?? "20");
+          const outboundIntervalMs = Math.max(10, Number(process.env.OUTBOUND_INTERVAL_MS ?? "20"));
           const outboundFramesPerTick = Number(process.env.OUTBOUND_FRAMES_PER_TICK ?? "1");
+          let nextTickAt = Date.now() + outboundIntervalMs;
           let _tickCount = 0; let _prevTickMs = 0;
-          outboundTimer = setInterval(() => {
-            try {
-              _tickCount++; const now = Date.now(); const jitter = _prevTickMs ? now - _prevTickMs : 0; _prevTickMs = now;
-              if (_tickCount <= 30 || _tickCount % 250 === 0) { const _t={sessionId:'a5863f',location:'server-core.js:outboundTimer',message:'tick',data:{hypothesisId:'C',tickCount:_tickCount,jitterMs:jitter,expectedMs:outboundIntervalMs},timestamp:Date.now()}; fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify(_t)}).catch(()=>{}); if(process.env.DEBUG_AUDIO_STUTTER==='true')console.log('[DBG]',JSON.stringify(_t)); }
-              sendOutboundFrames(outboundFramesPerTick >= 1 ? outboundFramesPerTick : 1);
-            } catch {
-            }
-          }, Math.max(10, outboundIntervalMs));
+          const schedule = () => {
+            const delay = Math.max(1, nextTickAt - Date.now());
+            outboundTimer = setTimeout(() => {
+              try {
+                _tickCount++; const now = Date.now(); const jitter = _prevTickMs ? now - _prevTickMs : 0; _prevTickMs = now;
+                if (_tickCount <= 30 || _tickCount % 250 === 0) { const _t={sessionId:'a5863f',location:'server-core.js:outboundTimer',message:'tick',data:{hypothesisId:'C',tickCount:_tickCount,jitterMs:jitter,expectedMs:outboundIntervalMs},timestamp:Date.now()}; fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify(_t)}).catch(()=>{}); if(process.env.DEBUG_AUDIO_STUTTER==='true')console.log('[DBG]',JSON.stringify(_t)); }
+                sendOutboundFrames(outboundFramesPerTick >= 1 ? outboundFramesPerTick : 1);
+              } catch { }
+              nextTickAt += outboundIntervalMs;
+              schedule();
+            }, delay);
+          };
+          schedule();
         }
       } else if (msg.event === "media") {
         mediaCount += 1;
@@ -6743,7 +6749,7 @@ But: être naturel et mettre le client en confiance.`,
             }, DEFERRED_MS);
             deferredFinalizeTimersByCallSid.set(callSid, t);
           }
-          if (outboundTimer) { clearInterval(outboundTimer); outboundTimer = null; }
+          if (outboundTimer) { clearTimeout(outboundTimer); outboundTimer = null; }
           if (openaiWs) { try { openaiWs.close(); } catch (_) {} }
           return;
         }
@@ -6768,7 +6774,7 @@ But: être naturel et mettre le client en confiance.`,
           finalizeCallToAutoGuru("twilio_stop");
         }
         if (outboundTimer) {
-          clearInterval(outboundTimer);
+          clearTimeout(outboundTimer);
           outboundTimer = null;
         }
         if (openaiWs) {
@@ -6830,7 +6836,7 @@ But: être naturel et mettre le client en confiance.`,
         }, DEFERRED_RECONNECT_FINALIZE_MS);
         deferredFinalizeTimersByCallSid.set(callSid, t);
       }
-      if (outboundTimer) { clearInterval(outboundTimer); outboundTimer = null; }
+      if (outboundTimer) { clearTimeout(outboundTimer); outboundTimer = null; }
       if (openaiWs) { openaiWs.close(); }
       return;
     }
@@ -6845,7 +6851,7 @@ But: être naturel et mettre le client en confiance.`,
       finalizeCallToAutoGuru("ws_close");
     }
     if (outboundTimer) {
-      clearInterval(outboundTimer);
+      clearTimeout(outboundTimer);
       outboundTimer = null;
     }
     if (openaiWs) {
