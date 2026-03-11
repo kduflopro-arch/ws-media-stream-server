@@ -2441,6 +2441,20 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const normApo = (s) => String(s).replace(/[\u2019\u2018\u0027]/g, "'");
     const t = norm(text);
     if (t.length < 24) return text;
+    // Récap répété sans espace (ex. "C'est bien ça ?Parfait, je récapitule...")
+    const recapStart = /Parfait,\s*je\s+récapitule\s*:/i;
+    const m1 = t.match(recapStart);
+    if (m1) {
+      const idx1 = t.indexOf(m1[0]);
+      const idx2 = t.indexOf(m1[0], idx1 + 10);
+      if (idx2 > idx1 && idx2 < t.length * 0.85) {
+        const firstBlock = norm(t.slice(idx1, idx2));
+        const secondBlock = norm(t.slice(idx2));
+        if (firstBlock.length >= 40 && (firstBlock === secondBlock || normApo(firstBlock) === normApo(secondBlock))) {
+          return norm(t.slice(0, idx2));
+        }
+      }
+    }
     const half = Math.floor(t.length / 2);
     let first = norm(t.slice(0, half));
     let second = norm(t.slice(half));
@@ -4277,6 +4291,20 @@ But: être naturel et mettre le client en confiance.`,
             const normApo = (s) => String(s).replace(/[\u2019\u2018\u0027]/g, "'");
             const t = norm(text);
             if (t.length < 24) return text;
+            // Récap répété sans espace (ex. "C'est bien ça ?Parfait, je récapitule...") : prendre jusqu'à la 2e occurrence exclusive
+            const recapStart = /Parfait,\s*je\s+récapitule\s*:/i;
+            const m1 = t.match(recapStart);
+            if (m1) {
+              const idx1 = t.indexOf(m1[0]);
+              const idx2 = t.indexOf(m1[0], idx1 + 10);
+              if (idx2 > idx1 && idx2 < t.length * 0.85) {
+                const firstBlock = norm(t.slice(idx1, idx2));
+                const secondBlock = norm(t.slice(idx2));
+                if (firstBlock.length >= 40 && (firstBlock === secondBlock || normApo(firstBlock) === normApo(secondBlock))) {
+                  return norm(t.slice(0, idx2));
+                }
+              }
+            }
             const half = Math.floor(t.length / 2);
             const first = norm(t.slice(0, half));
             const second = norm(t.slice(half));
