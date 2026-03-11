@@ -6640,7 +6640,8 @@ But: être naturel et mettre le client en confiance.`,
                 outboundQueuedBytes > 0 ||
                 outboundQueue.length > 0 ||
                 assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
-              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking && !speechActive;
+              const userSpeakingNow = avg > INPUT_SPEECH_THRESHOLD;
+              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking && !speechActive && !userSpeakingNow;
               if (suppressInputNow) {
                 if (typeof ws.__suppressLogCount === "undefined") ws.__suppressLogCount = 0;
                 ws.__suppressLogCount = (ws.__suppressLogCount || 0) + 1;
