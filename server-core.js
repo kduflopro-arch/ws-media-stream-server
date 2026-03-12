@@ -2441,17 +2441,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const normApo = (s) => String(s).replace(/[\u2019\u2018\u0027]/g, "'");
     const t = norm(text);
     if (t.length < 24) return text;
-    // Récap répété sans espace (ex. "C'est bien ça ?Parfait, je récapitule...")
-    const recapStart = /Parfait,\s*je\s+récapitule\s*:/i;
-    const m1 = t.match(recapStart);
-    if (m1) {
-      const idx1 = t.indexOf(m1[0]);
-      const idx2 = t.indexOf(m1[0], idx1 + 10);
-      if (idx2 > idx1 && idx2 < t.length * 0.85) {
-        const firstBlock = norm(t.slice(idx1, idx2));
-        const secondBlock = norm(t.slice(idx2));
-        if (firstBlock.length >= 40 && (firstBlock === secondBlock || normApo(firstBlock) === normApo(secondBlock))) {
-          return norm(t.slice(0, idx2));
+    // Récap répété (ex. "Parfait, en terrasse. Je récapitule :... C'est bien ça ?Parfait, en terrasse. Je récapitule...")
+    const dupStart = /Parfait,\s*(en terrasse|à l'intérieur|à l'interieur|je récapitule)/i;
+    const idx1 = t.search(dupStart);
+    if (idx1 === 0) {
+      const idx2 = t.slice(30).search(dupStart);
+      if (idx2 >= 0) {
+        const pos2 = 30 + idx2;
+        const firstPart = norm(t.slice(0, pos2));
+        const secondPart = norm(t.slice(pos2));
+        if (firstPart.length >= 40 && (firstPart === secondPart || normApo(firstPart) === normApo(secondPart))) {
+          return firstPart;
         }
       }
     }
@@ -4291,17 +4291,17 @@ But: être naturel et mettre le client en confiance.`,
             const normApo = (s) => String(s).replace(/[\u2019\u2018\u0027]/g, "'");
             const t = norm(text);
             if (t.length < 24) return text;
-            // Récap répété sans espace (ex. "C'est bien ça ?Parfait, je récapitule...") : prendre jusqu'à la 2e occurrence exclusive
-            const recapStart = /Parfait,\s*je\s+récapitule\s*:/i;
-            const m1 = t.match(recapStart);
-            if (m1) {
-              const idx1 = t.indexOf(m1[0]);
-              const idx2 = t.indexOf(m1[0], idx1 + 10);
-              if (idx2 > idx1 && idx2 < t.length * 0.85) {
-                const firstBlock = norm(t.slice(idx1, idx2));
-                const secondBlock = norm(t.slice(idx2));
-                if (firstBlock.length >= 40 && (firstBlock === secondBlock || normApo(firstBlock) === normApo(secondBlock))) {
-                  return norm(t.slice(0, idx2));
+            // Récap répété (ex. "Parfait, en terrasse. Je récapitule :... C'est bien ça ?Parfait, en terrasse. Je récapitule...")
+            const dupStart = /Parfait,\s*(en terrasse|à l'intérieur|à l'interieur|je récapitule)/i;
+            const idx1 = t.search(dupStart);
+            if (idx1 === 0) {
+              const idx2 = t.slice(30).search(dupStart);
+              if (idx2 >= 0) {
+                const pos2 = 30 + idx2;
+                const firstPart = norm(t.slice(0, pos2));
+                const secondPart = norm(t.slice(pos2));
+                if (firstPart.length >= 40 && (firstPart === secondPart || normApo(firstPart) === normApo(secondPart))) {
+                  return firstPart;
                 }
               }
             }
@@ -5292,6 +5292,67 @@ But: être naturel et mettre le client en confiance.`,
                   setTimeout(() => triggerHangup("auto_goodbye"), GOODBYE_POST_AUDIO_DELAY_MS);
                 };
                 setTimeout(checkAudioAndHangup, 2000); // Délai initial : laisser Minimax envoyer sa dernière phrase
+              } else if (!isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_MS && timeSinceLastUserActivity >= MIN_USER_INACTIVITY_FOR_GOODBYE_MS) {
+                const clientText = doneText.toLowerCase();
+                const saidYesForAppointment = /\b(oui|d'accord|ok|bien sûr|c'est bon|parfait|oui je veux|oui je veux bien)\b/i.test(clientText) &&
+                  (clientText.includes("réservation") || clientText.includes("résa") || clientText.includes("restaurant") || clientText.includes("réserver"));
+                const clientSaidNoMore = !saidYesForAppointment && (
+                  /(non|pas|plus)\s+(besoin|rien|autre|d'autre)/i.test(clientText) ||
+                  /c'est\s+tout/i.test(clientText) ||
+                  /(non|pas)\s+(du\s+tout|maintenant)/i.test(clientText)
+                );
+                if (clientSaidNoMore) {
+                  goodbyeDetected = true;
+                  console.log("👋 Client a confirmé qu'il n'a plus besoin d'aide (restaurant), faire dire 'au revoir' à l'IA avant de raccrocher");
+                  if (goodbyeTimer) clearTimeout(goodbyeTimer);
+                  if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                  goodbyeFallbackTimer = setTimeout(() => {
+                    goodbyeFallbackTimer = null;
+                    console.log("📞 Hangup fallback après au revoir (timeout " + GOODBYE_MAX_WAIT_MS + " ms)");
+                    triggerHangup("auto_goodbye");
+                  }, GOODBYE_MAX_WAIT_MS);
+                  if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+                    const goodbyeMessage = {
+                      type: "conversation.item.create",
+                      item: {
+                        type: "message",
+                        role: "user",
+                        content: [{ type: "input_text", text: "Au revoir" }]
+                      }
+                    };
+                    openaiWs.send(JSON.stringify(goodbyeMessage));
+                    console.log("📤 Message 'Au revoir' envoyé à l'IA (client n'a plus besoin)");
+                    setTimeout(() => {
+                      let checkCount = 0;
+                      let emptyChecksConsecutive = 0;
+                      const MIN_EMPTY_CHECKS = Number(process.env.GOODBYE_MIN_EMPTY_CHECKS) || 4;
+                      const MAX_CHECK_COUNT = 60;
+                      const checkAudioAndHangupAfterGoodbye = () => {
+                        const hasAudioPending = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueue.length > 0 || outboundQueuedBytes > 0;
+                        if (hasAudioPending && checkCount < MAX_CHECK_COUNT) {
+                          emptyChecksConsecutive = 0;
+                          checkCount++;
+                          setTimeout(checkAudioAndHangupAfterGoodbye, 500);
+                          return;
+                        }
+                        if (!hasAudioPending) emptyChecksConsecutive++;
+                        if (emptyChecksConsecutive < MIN_EMPTY_CHECKS && checkCount < MAX_CHECK_COUNT) {
+                          checkCount++;
+                          setTimeout(checkAudioAndHangupAfterGoodbye, 500);
+                          return;
+                        }
+                        if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                        goodbyeFallbackTimer = null;
+                        setTimeout(() => triggerHangup("auto_goodbye"), GOODBYE_POST_AUDIO_DELAY_MS);
+                      };
+                      checkAudioAndHangupAfterGoodbye();
+                    }, 1000);
+                  } else {
+                    if (goodbyeFallbackTimer) clearTimeout(goodbyeFallbackTimer);
+                    goodbyeFallbackTimer = null;
+                    triggerHangup("auto_goodbye");
+                  }
+                }
               } else if (isGoodbye && !goodbyeDetected) {
                 console.log("⚠️ Fin d'échange détectée mais conditions non remplies:", {
                   callDuration: Math.round(callDurationMs / 1000) + "s (min: " + Math.round(MIN_CALL_DURATION_MS / 1000) + "s)",
@@ -5299,7 +5360,7 @@ But: être naturel et mettre le client en confiance.`,
                   textPreview: doneText.substring(0, 100)
                 });
               }
-              if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
+              if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid && !spokenSet.has(rid)) {
                 const textForTts = dedupeRepeatedPhrase(applyPricingHoursGuard(doneText));
                 transcriptMap.set(rid, textForTts);
                 flushRealtimeElevenChunks(rid, true);
@@ -5697,7 +5758,7 @@ But: être naturel et mettre le client en confiance.`,
                   if (consentRequired && !consentGiven && looksLikeAssistantResponseToRefusal(extractedText)) {
                     console.log("🛑 Réponse IA (response.output_item.done) = refus enregistrement, remplacement par message fixe.");
                     playConsentRefusalAndHangup();
-                  } else if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid) {
+                  } else if (REALTIME_ELEVEN_CHUNKING_ENABLED && rid && !spokenSet.has(rid)) {
                     flushRealtimeElevenChunks(rid, msg.type === "response.output_item.done");
                   } else if ((!rid || !spokenSet.has(rid)) && !REALTIME_USE_ELEVEN) {
                     if (rid) spokenSet.add(rid);
