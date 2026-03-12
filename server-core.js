@@ -103,7 +103,7 @@ async function handleRunAnalysis(callId, res) {
   const { data: call, error: callError } = await supabase
     .schema("autoguru")
     .from("calls")
-    .select("id, garage_id, consent, transcript_text, symptom_summary, client_insights, status, call_summary, ai_conclusion, from_number, created_at, service_requested, call_outcome, rdv_incomplete_reason, rdv_requested")
+    .select("id, garage_id, consent, transcript_text, symptom_summary, client_insights, garage_notes, status, call_summary, ai_conclusion, from_number, created_at, service_requested, call_outcome, rdv_incomplete_reason, rdv_requested")
     .eq("id", callId)
     .maybeSingle();
   if (callError) {
@@ -230,6 +230,14 @@ async function handleRunAnalysis(callId, res) {
       };
       const callOutcomeRest = (analysis.callOutcome ?? "").trim();
       const rdvRequested = (analysis.callType ?? "") === "demande_reservation";
+      const allergies = (reservationDetails.allergies ?? "").trim();
+      const preferences = (reservationDetails.preferences ?? "").trim();
+      const messageForRestaurant = [allergies, preferences].filter(Boolean).join(". ");
+      const existingNotes = (call.garage_notes && typeof call.garage_notes === "object" && !Array.isArray(call.garage_notes))
+        ? { ...call.garage_notes } : {};
+      const garageNotes = messageForRestaurant
+        ? { ...existingNotes, toConfirmOrAsk: messageForRestaurant }
+        : existingNotes;
       updatePayload = {
         status: "done",
         updated_at: new Date().toISOString(),
@@ -242,6 +250,7 @@ async function handleRunAnalysis(callId, res) {
         symptom_summary: null,
         probable_causes: [],
         urgency_level: null,
+        ...(Object.keys(garageNotes).length > 0 ? { garage_notes: garageNotes } : {}),
       };
     } else {
       const filteredProbableCauses = Array.isArray(analysis.probableCauses)
