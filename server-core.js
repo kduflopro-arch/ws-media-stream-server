@@ -6787,8 +6787,11 @@ But: être naturel et mettre le client en confiance.`,
                 outboundQueuedBytes > 0 ||
                 outboundQueue.length > 0 ||
                 assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
+              // Pendant que Minimax/TTS lit (audio sort vers le HP du téléphone) : couper le micro SANS bypass.
+              // Le HP déclencherait sinon le micro → l'IA interprète l'écho comme parole client.
+              const premiumTtsPlaying = premiumTtsInFlight || outboundQueuedBytes > 0 || outboundQueue.length > 0;
               const userSpeakingNow = avg > INPUT_SUPPRESS_BYPASS_THRESHOLD;
-              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking && !speechActive && !userSpeakingNow;
+              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking && (premiumTtsPlaying ? true : (!speechActive && !userSpeakingNow));
               if (suppressInputNow) {
                 if (typeof ws.__suppressLogCount === "undefined") ws.__suppressLogCount = 0;
                 ws.__suppressLogCount = (ws.__suppressLogCount || 0) + 1;
