@@ -3948,7 +3948,7 @@ ${compactPersona}`;
               input: {
                 turn_detection: {
                   type: "semantic_vad",
-                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || "high"), // high=2s max (réactivité), medium=4s, low=8s
+                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || "high"), // high = chunks ASAP (réactivité), medium=4s, low=8s
                 },
               },
             },
@@ -4157,7 +4157,7 @@ ${compactPersona}`;
         }
         if (!hasSentInitialGreeting) {
           hasSentInitialGreeting = true;
-          const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "80");
+          const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "50");
           const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
           const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
           setTimeout(() => {
@@ -6467,7 +6467,7 @@ But: être naturel et mettre le client en confiance.`,
         try {
           const greetOncePerCall = (process.env.GREETING_ONCE_PER_CALL ?? "true").toLowerCase() === "true";
           const greetTtlMs = Number(process.env.GREETING_ONCE_TTL_MS ?? String(10 * 60 * 1000));
-          const fallbackDelayMs = Number(process.env.GREETING_FALLBACK_DELAY_MS ?? "900");
+          const fallbackDelayMs = Number(process.env.GREETING_FALLBACK_DELAY_MS ?? "600");
           if (!transferFailed && (!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
             ws.__greetingFallbackTimer = setTimeout(() => {
               if (initialAssistantGreetingText || clientInfo) return;
