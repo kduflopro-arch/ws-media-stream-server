@@ -106,10 +106,12 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
   if (dinnerPassedForToday) cutoffParts.push("⚠️ MAINTENANT: l'heure limite dîner est DÉPASSÉE pour aujourd'hui — refuse toute résa CE SOIR (ce soir = dîner aujourd'hui).");
   const lunchEndDisplay = lunchReservationEnd ? lunchReservationEnd.replace(":", "h") : "14h";
   const dinnerEndDisplay = dinnerReservationEnd ? dinnerReservationEnd.replace(":", "h") : "l'heure limite";
-  const noSoirAlternative = dinnerFullToday ? " NE propose JAMAIS « ou pour le soir ? » ni « ce soir » — le soir est complet. Propose UNIQUEMENT un autre jour (demain midi, demain soir, etc.)." : "";
+  const phraseMidiDepasseSoirLibre = !dinnerFullToday
+    ? "Malheureusement on ne prend plus de réservations pour le déjeuner aujourd'hui, c'est après l'heure limite. Mais on peut faire une demande de réservation pour ce soir ou demain midi, ça vous irait ?"
+    : "Malheureusement on ne prend plus de réservations pour le déjeuner aujourd'hui, c'est après l'heure limite. Je peux vous proposer demain midi ou un autre jour ?";
   const arrivalCutoffLunch = lunchReservationEnd
     ? lunchPassedForToday
-      ? `MIDI AUJOURD'HUI DÉPASSÉ (règle prioritaire) : L'heure actuelle est DÉJÀ après ${lunchEndDisplay}. Si le client demande une résa pour "ce midi" ou "déjeuner aujourd'hui", dis : "Malheureusement on ne prend plus de réservations pour le déjeuner aujourd'hui, c'est après l'heure limite." Puis propose UNIQUEMENT un autre JOUR : "Je peux vous proposer demain midi ?" (ou un autre jour). NE dis JAMAIS "une heure avant ${lunchEndDisplay}" — c'est déjà passé.${noSoirAlternative}`
+      ? `MIDI AUJOURD'HUI DÉPASSÉ (règle prioritaire) : L'heure actuelle est DÉJÀ après ${lunchEndDisplay}. Si le client demande une résa pour "ce midi" ou "déjeuner aujourd'hui", dis exactement : "${phraseMidiDepasseSoirLibre}" Si le client répond "oui" ou "oui ça m'irait" (sans préciser ce soir ou demain midi), tu DOIS demander : "Ok, du coup ce soir ou demain midi ?" pour qu'il choisisse. Puis enchaîne selon sa réponse (ce soir = demande l'heure d'arrivée, demain midi = confirme la date puis l'heure). NE dis JAMAIS "une heure avant ${lunchEndDisplay}" — c'est déjà passé.`
       : `HEURE D'ARRIVÉE MIDI : Si le client veut "ce midi" et donne une heure à ${lunchEndDisplay} ou APRÈS, tu REFUSES cette heure. Dis : "Malheureusement pour le déjeuner on ne prend pas de réservation avec arrivée après ${lunchEndDisplay}. Vous préférez une heure avant ${lunchEndDisplay} ?"${dinnerFullToday ? " Ne propose PAS « ou pour le soir ? » (soir complet). Propose uniquement une heure avant ${lunchEndDisplay} ou un autre jour (ex. demain midi)." : " Tu peux ajouter « Ou pour le soir ? » si le client peut décaler."} Ne prends JAMAIS la résa avec une heure d'arrivée midi >= ${lunchEndDisplay}.`
     : "";
   const arrivalCutoffDinner = dinnerReservationEnd
