@@ -1282,7 +1282,8 @@ wss.on("connection", (ws, req) => {
     const goodbyePatternsEnd = [
       "au revoir", "aurevoir",
       "merci et au revoir", "merci et bonne journée", "merci et bonne journee",
-      "à très bientôt", "a tres bientot", "à plus tard", "a plus tard",
+      "à très bientôt", "a tres bientot", "à bientôt", "a bientot", "bonne journée et à bientôt", "bonne journee et a bientot",
+      "à plus tard", "a plus tard",
       "je vous souhaite une bonne journée", "je vous souhaite une bonne journee",
       "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
       "au revoir et bonne journée", "aurevoir et bonne journee", "au revoir, bonne journée", "aurevoir, bonne journee"
