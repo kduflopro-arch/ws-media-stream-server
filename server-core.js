@@ -568,6 +568,7 @@ wss.on("connection", (ws, req) => {
   let pendingRestaurantInstruction = null; // instruction moteur à injecter avant response.create
   let restaurantBaseInstructions = ""; // prompt restaurant de base (sans directive de tour)
   let restaurantDynamicInstructions = ""; // directive de tour en cours injectée via session.update
+  let lastRestaurantTranscriptAt = 0; // dernier moment où une transcription restaurant exploitable a été reçue
   let goodbyeDetected = false;
   let goodbyeTimer = null;
   let deferredFinalizeTimer = null; // fallback finalize si on a différé (client raccroche sans 2e stream)
@@ -3428,8 +3429,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!dynamic) return base;
     return `${base}
 
-# Directive prioritaire du serveur (tour en cours)
-Cette directive est prioritaire sur l'historique de conversation pour CE TOUR uniquement.
+# DIRECTIVE DE TOUR — PRIORITÉ ABSOLUE
+Cette directive du serveur est prioritaire sur TOUT pour ce tour: historique, réponses précédentes, hypothèses, protocole implicite.
+Tu dois l'exécuter exactement, sans ajouter d'étape, sans revenir au début, sans poser d'autre question.
 ${dynamic}`;
   }
   function pushRestaurantSessionUpdate(dynamicInstruction = "") {
@@ -3467,14 +3469,20 @@ ${dynamic}`;
     }
     lastResponseCreateRequestedAt = now;
     try {
-      if (effectiveSector === "restaurant" && RESTAURANT_CONVERSATION_ENGINE_ENABLED && pendingRestaurantInstruction) {
-        try {
-          pushRestaurantSessionUpdate(pendingRestaurantInstruction);
-          if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine] Directive de tour injectée via session.update");
-        } catch (injectErr) {
-          console.error("❌ Erreur injection instruction restaurant:", injectErr);
+      if (effectiveSector === "restaurant" && RESTAURANT_CONVERSATION_ENGINE_ENABLED) {
+        const dynamicInstruction = String(pendingRestaurantInstruction || "").trim();
+        if (dynamicInstruction) {
+          pushRestaurantSessionUpdate(dynamicInstruction);
+          if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine] session.update temporaire envoyé avant response.create", { dynamicInstruction });
+          pendingRestaurantInstruction = null;
+          setTimeout(() => {
+            if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+            if (responseInProgress) return;
+            openaiWs.send(JSON.stringify({ type: "response.create" }));
+            if (reason) console.log("🗣️ response.create envoyé:", { reason, mode: "restaurant_turn_override" });
+          }, 35);
+          return;
         }
-        pendingRestaurantInstruction = null;
       }
       openaiWs.send(JSON.stringify({ type: "response.create" }));
       if (reason) console.log("🗣️ response.create envoyé:", { reason });
@@ -3991,6 +3999,7 @@ ${compactPersona}`;
                 turn_detection: {
                   type: "semantic_vad",
                   eagerness: (process.env.TURN_DETECTION_EAGERNESS || "high"), // high = chunks ASAP (réactivité), medium=4s, low=8s
+                  ...(effectiveSector === "restaurant" ? { create_response: false, interrupt_response: false } : {}),
                 },
               },
             },
@@ -4468,12 +4477,9 @@ But: être naturel et mettre le client en confiance.`,
             const outputModalities = msg.response?.output_modalities || [];
             const hasAudioModality = Array.isArray(outputModalities) && outputModalities.includes("audio");
             if (effectiveSector === "restaurant" && restaurantDynamicInstructions) {
-              try {
-                pushRestaurantSessionUpdate("");
-                if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine] Directive de tour vidée après response.done");
-              } catch (restoreErr) {
-                console.warn("⚠️ Impossible de restaurer le prompt restaurant de base:", restoreErr?.message || restoreErr);
-              }
+              restaurantDynamicInstructions = "";
+              pushRestaurantSessionUpdate("");
+              if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine] Directive de tour vidée après response.done et session restaurée");
             }
             console.log("☎️ Realtime response.done output_modalities:", JSON.stringify(outputModalities), hasAudioModality ? "(contient audio)" : "(texte seul)");
             if (LOG_VERBOSE) {
@@ -5866,6 +5872,7 @@ But: être naturel et mettre le client en confiance.`,
                 const engineResult = conversationEngineHandleUserMessage(transcript, reservationState, ctx);
                 reservationState = engineResult.updatedState;
                 pendingRestaurantInstruction = engineResult.instruction || null;
+                lastRestaurantTranscriptAt = lastCommittedAt;
                 if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine]", { intent: engineResult.intent, slots: engineResult.slots, nextQuestion: engineResult.nextQuestion, instruction: pendingRestaurantInstruction, state: reservationState });
               }
             } else if (transcriptTrimmed) {
@@ -6150,8 +6157,21 @@ But: être naturel et mettre le client en confiance.`,
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
                 if (responseInProgress) return;
                 if (lastResponseCreatedAt >= lastCommitAt) return;
+                if (effectiveSector === "restaurant" && RESTAURANT_CONVERSATION_ENGINE_ENABLED && (consentGiven || !consentRequired)) {
+                  const transcriptReadyForThisTurn = lastRestaurantTranscriptAt >= lastCommitAt;
+                  if (!transcriptReadyForThisTurn && !pendingRestaurantInstruction) {
+                    if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine] Attente transcription avant response.create", { lastCommitAt, lastRestaurantTranscriptAt });
+                    setTimeout(() => {
+                      if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+                      if (responseInProgress) return;
+                      if (lastResponseCreatedAt >= lastCommitAt) return;
+                      requestResponseCreate("watchdog_after_commit_waited_transcript");
+                    }, Math.max(150, WATCHDOG_AFTER_COMMIT_MS));
+                    return;
+                  }
+                }
                 requestResponseCreate("watchdog_after_commit");
-              }, WATCHDOG_AFTER_COMMIT_MS);
+              }, effectiveSector === "restaurant" ? Math.max(WATCHDOG_AFTER_COMMIT_MS, 150) : WATCHDOG_AFTER_COMMIT_MS);
             }
           }
           if (msg.type === "response.created") {
