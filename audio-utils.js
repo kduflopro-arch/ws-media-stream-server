@@ -1,5 +1,6 @@
 /**
  * Utilitaires de conversion audio pour Twilio Media Streams.
+ * Module isolé pour éviter la duplication dans server-core.js et sécuriser le pipeline temps réel.
  * µ-law 8 kHz ↔ PCM 24 kHz / 16 kHz / 32 kHz
  * Ne pas modifier : utilisé par server-core.js pour le pipeline Twilio.
  */

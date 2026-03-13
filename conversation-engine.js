@@ -5,8 +5,6 @@
  * Intents: reservation | info_menu | info_hours | cancel_reservation | modify_reservation | transfer_to_human | unknown
  * Slots: date, service (midi|soir), time, covers, seating (terrasse|intérieur), name
  * State: phoneConfirmed, confirmed
- *
- * Exemples: "demain soir à 21h pour 4", "une table pour deux", "ce soir vers 20h", "on sera peut-être 5"
  */
 
 const INTENTS = {
@@ -20,312 +18,270 @@ const INTENTS = {
 };
 
 const SLOTS = ["date", "service", "time", "covers", "seating", "name"];
+const NUMBER_WORDS = {
+  un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
+  onze: 11, douze: 12,
+};
 
-/**
- * Détecte l'intention principale du client.
- */
-function detectIntent(text) {
-  if (!text || typeof text !== "string") return INTENTS.UNKNOWN;
-  const t = text.toLowerCase().trim().replace(/\s+/g, " ");
+function normalizeText(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  if (
-    /\b(parler|parler à|quelqu'un|un humain|réception|accueil)\b/.test(t) ||
-    /\b(transfert|transférer|passer|passer la ligne)\b/.test(t)
-  ) {
+function detectIntent(text, state = {}) {
+  const t = normalizeText(text);
+  if (!t) return INTENTS.UNKNOWN;
+
+  if (/\b(parler(?:\s+à)?|un humain|quelqu'un|la réception|l'accueil|le restaurant directement)\b/.test(t) || /\b(transfert|transférer|passer(?:\s+la\s+ligne)?)\b/.test(t)) {
     return INTENTS.TRANSFER_TO_HUMAN;
   }
-  if (
-    /\b(annuler|annulation)\s+(ma\s+|ma\s+)?(réservation|resa|table)\b/.test(t) ||
-    /\bannuler\b.*\b(réservation|resa|table)\b/.test(t) ||
-    /\bplus besoin\b.*\b(réservation|table)\b/.test(t)
-  ) {
+  if (/\b(annuler|annulation)\b.*\b(réservation|reservation|resa|table)\b/.test(t) || /\bplus besoin\b.*\b(table|réservation|reservation)\b/.test(t)) {
     return INTENTS.CANCEL_RESERVATION;
   }
-  if (
-    /\b(modifier|changer|déplacer|reporter|décaler)\s+(ma\s+|ma\s+)?(réservation|resa|table)\b/.test(t) ||
-    /\b(modifier|changer)\b.*\b(réservation|resa|table)\b/.test(t)
-  ) {
+  if (/\b(modifier|changer|déplacer|reporter|décaler)\b.*\b(réservation|reservation|resa|table)\b/.test(t)) {
     return INTENTS.MODIFY_RESERVATION;
   }
-  if (
-    /\b(menu|carte|plats|manger|cuisine)\b/.test(t) &&
-    !/\b(réserver|réservation|table)\b/.test(t)
-  ) {
+  if (/\b(menu|carte|plats?|desserts?|boissons?|vin|manger|cuisine)\b/.test(t) && !/\b(réserver|réservation|reservation|table)\b/.test(t)) {
     return INTENTS.INFO_MENU;
   }
-  if (
-    /\b(horaires|heures?|ouvert|fermé|ouvrir|fermer)\b/.test(t) &&
-    !/\b(réserver|réservation|table)\b/.test(t)
-  ) {
+  if (/\b(horaires|heure|ouvert|ferm[ée]|ouvrir|fermer|ce soir vous êtes ouverts)\b/.test(t) && !/\b(réserver|réservation|reservation|table)\b/.test(t)) {
     return INTENTS.INFO_HOURS;
   }
   if (
-    /\b(réserver|réservation|resa|table)\b/.test(t) ||
-    /\b(je\s+)?(voudrais|veux|aimerais|souhaite)\s+(réserver|une table|réserver une table)\b/.test(t) ||
-    /\b(prendre|avoir)\s+(une?\s+)?(table|réservation)\b/.test(t) ||
-    /\b(une?\s+)?table\s+(pour|ce soir|demain)\b/.test(t)
+    /\b(réserver|réservation|reservation|resa|table)\b/.test(t) ||
+    /\b(voudrais|veux|aimerais|souhaite)\b.*\b(réserver|une table)\b/.test(t) ||
+    /\b(une )?table\b.*\b(pour|ce soir|demain|samedi|midi|soir)\b/.test(t)
   ) {
     return INTENTS.RESERVATION;
   }
+
+  const extracted = extractSlots(t, { today: state?.today || undefined, hasTerrace: state?.hasTerrace });
+  const hasAnySlot = Object.values(extracted).some((v) => v !== null && v !== undefined && v !== "");
+  const reservationInProgress = !!(state?.date || state?.service || state?.time || state?.covers || state?.seating);
+  if (reservationInProgress && (hasAnySlot || /\b(oui|ouais|ok|d'accord|parfait|ça marche)\b/.test(t))) {
+    return INTENTS.RESERVATION;
+  }
+
   return INTENTS.UNKNOWN;
 }
 
-/**
- * Normalise une heure "21h", "20h30", "vers 20h" → "20:00" ou "21:00", "20:30"
- */
 function normalizeTime(str) {
   if (!str) return null;
-  const m = str.match(/(\d{1,2})h(\d{0,2})?/i);
+  const m = String(str).match(/(\d{1,2})h(?:(\d{1,2}))?/i);
   if (!m) return null;
   const h = parseInt(m[1], 10);
   const min = m[2] ? parseInt(m[2], 10) : 0;
-  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  if (Number.isNaN(h) || Number.isNaN(min) || h < 0 || h > 23 || min < 0 || min > 59) return null;
   return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 }
 
-/**
- * Extrait les slots (date, service, time, covers, seating, name) du texte.
- * Comprend : "demain soir", "ce soir", "samedi prochain", "vers 20h30", "pour 4", "3 ou 4", "en terrasse", etc.
- */
+function inferServiceFromTime(time) {
+  if (!time) return null;
+  const [hh] = String(time).split(":");
+  const h = parseInt(hh, 10);
+  if (Number.isNaN(h)) return null;
+  if (h >= 18 || h < 2) return "soir";
+  if (h >= 11 && h <= 14) return "midi";
+  return null;
+}
+
+function parseFrenchNumber(raw) {
+  if (!raw) return null;
+  const t = normalizeText(raw);
+  if (/^\d+$/.test(t)) return parseInt(t, 10);
+  return NUMBER_WORDS[t] ?? null;
+}
+
+function nextOccurrence(baseDate, targetDow, forceNextWeek = false) {
+  const d = new Date(baseDate);
+  let diff = (targetDow - d.getDay() + 7) % 7;
+  if (diff === 0 && forceNextWeek) diff = 7;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
 function extractSlots(text, context = {}) {
   const slots = { date: null, service: null, time: null, covers: null, seating: null, name: null };
-  if (!text || typeof text !== "string") return slots;
-  const t = text.toLowerCase().trim().replace(/\s+/g, " ");
+  const t = normalizeText(text);
+  if (!t) return slots;
   const today = context.today ? new Date(context.today) : new Date();
 
-  // --- DATE ---
-  if (/\baujourd'hui\b|ce soir|ce midi/.test(t)) {
-    const d = today.toISOString().slice(0, 10);
-    slots.date = d;
+  // date
+  if (/\baujourd'hui\b|\bce soir\b|\bce midi\b/.test(t)) {
+    slots.date = today.toISOString().slice(0, 10);
     if (/\bce soir\b/.test(t)) slots.service = "soir";
     if (/\bce midi\b/.test(t)) slots.service = "midi";
   }
-  if (/\bdemain\b/.test(t) && !slots.date) {
+  if (!slots.date && /\bdemain\b/.test(t)) {
     const d = new Date(today);
     d.setDate(d.getDate() + 1);
     slots.date = d.toISOString().slice(0, 10);
-    if (/\bdemain\s+soir\b/.test(t)) slots.service = "soir";
-    if (/\bdemain\s+midi\b/.test(t)) slots.service = "midi";
+    if (/\bdemain soir\b/.test(t)) slots.service = "soir";
+    if (/\bdemain midi\b/.test(t)) slots.service = "midi";
   }
-  if (/\baprès-demain\b/.test(t) && !slots.date) {
+  if (!slots.date && /\baprès-demain\b/.test(t)) {
     const d = new Date(today);
     d.setDate(d.getDate() + 2);
     slots.date = d.toISOString().slice(0, 10);
   }
   const dayNames = [
-    { re: /\bdimanche\b/, add: 0 },
-    { re: /\blundi\b/, add: 1 },
-    { re: /\bmardi\b/, add: 2 },
-    { re: /\bmercredi\b/, add: 3 },
-    { re: /\bjeudi\b/, add: 4 },
-    { re: /\bvendredi\b/, add: 5 },
-    { re: /\bsamedi\b/, add: 6 },
+    ["dimanche", 0], ["lundi", 1], ["mardi", 2], ["mercredi", 3], ["jeudi", 4], ["vendredi", 5], ["samedi", 6],
   ];
-  const todayDow = today.getDay();
-  for (const { re, add } of dayNames) {
-    if (re.test(t) && !slots.date) {
-      let diff = (add - todayDow + 7) % 7;
-      if (/\bprochain\b|semaine\s+prochaine/.test(t) && diff === 0) diff = 7;
-      if (diff === 0 && !/\bprochain\b/.test(t)) diff = 0;
-      const d = new Date(today);
-      d.setDate(d.getDate() + diff);
+  for (const [name, dow] of dayNames) {
+    if (!slots.date && new RegExp(`\\b${name}\\b`).test(t)) {
+      const d = nextOccurrence(today, dow, /\b(prochain|semaine prochaine)\b/.test(t));
       slots.date = d.toISOString().slice(0, 10);
       break;
     }
   }
-  const dateMatch = t.match(/\b(le\s+)?(\d{1,2})[\s\/\-](\d{1,2})[\s\/\-]?(\d{2,4})?/);
-  if (dateMatch && !slots.date) {
-    const [, , day, month, year] = dateMatch;
-    const y = year ? (year.length === 2 ? `20${year}` : year) : today.getFullYear();
-    slots.date = `${y}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const exactDate = t.match(/\b(?:le\s+)?(\d{1,2})[\/\-\s](\d{1,2})(?:[\/\-\s](\d{2,4}))?\b/);
+  if (!slots.date && exactDate) {
+    const day = parseInt(exactDate[1], 10);
+    const month = parseInt(exactDate[2], 10);
+    const year = exactDate[3] ? parseInt(exactDate[3].length === 2 ? `20${exactDate[3]}` : exactDate[3], 10) : today.getFullYear();
+    slots.date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
 
-  // --- SERVICE (midi/soir) ---
-  if (!slots.service) {
-    if (/\b(midi|déjeuner)\b/.test(t)) slots.service = "midi";
-    if (/\b(soir|dîner|diner)\b/.test(t)) slots.service = "soir";
-  }
-  const timeMatch = t.match(/(\d{1,2})h(\d{0,2})/i);
-  if (timeMatch && !slots.service) {
-    const h = parseInt(timeMatch[1], 10);
-    if (h >= 18 || h < 2) slots.service = "soir";
-    if (h >= 11 && h <= 14) slots.service = "midi";
-  }
+  // service
+  if (/\b(midi|déjeuner|dej)\b/.test(t)) slots.service = "midi";
+  if (/\b(soir|dîner|diner)\b/.test(t)) slots.service = "soir";
 
-  // --- TIME ---
-  const timeRaw = t.match(/(?:vers\s+|à\s+)?(\d{1,2})h(\d{0,2})?/i);
-  if (timeRaw) {
-    slots.time = normalizeTime(timeRaw[0]);
+  // time
+  const timeMatch = t.match(/(?:vers\s+|à\s+)?(\d{1,2})h(?:(\d{1,2}))?/i);
+  if (timeMatch) {
+    slots.time = normalizeTime(timeMatch[0]);
+    if (!slots.service) slots.service = inferServiceFromTime(slots.time);
   }
 
-  // --- COVERS ---
-  const coversMatch = t.match(/(?:pour|on sera|nous serons|serons|sera|table pour)\s+(\d+)(?:\s+ou\s+(\d+))?/i)
-    || t.match(/(?:pour|table pour)\s+(deux|trois|quatre|cinq|six|sept|huit|neuf|dix)/i)
-    || t.match(/(\d+)\s+personnes?/i)
-    || t.match(/(\d+)\s+convives?/i)
-    || t.match(/nous\s+sommes\s+(\d+)/i)
-    || t.match(/(?:sera|serons)\s+(?:peut-être\s+)?(\d+)/i)
-    || t.match(/^\s*(\d+)\s*$/);
-  const numWords = { deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10 };
-  if (coversMatch) {
-    let a = parseInt(coversMatch[1], 10);
-    if (isNaN(a) && coversMatch[1]) a = numWords[coversMatch[1].toLowerCase()] ?? parseInt(coversMatch[1], 10);
-    const b = coversMatch[2] ? (parseInt(coversMatch[2], 10) || numWords[coversMatch[2]?.toLowerCase()]) : a;
-    if (!isNaN(a)) slots.covers = typeof b === "number" ? Math.max(a, b) : a;
+  // covers
+  const coversPatterns = [
+    /(?:pour|table pour|on sera|nous serons|nous sommes|sera|serons)\s+(?:peut[- ]?être\s+)?(\d+|une|un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze)(?:\s+ou\s+(\d+|une|un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze))?/i,
+    /(\d+)\s+personnes?/i,
+    /(\d+)\s+convives?/i,
+    /une table pour\s+(\d+|une|un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze)/i,
+  ];
+  for (const re of coversPatterns) {
+    const m = t.match(re);
+    if (m) {
+      const first = parseFrenchNumber(m[1]);
+      const second = parseFrenchNumber(m[2]);
+      if (first != null) {
+        slots.covers = second != null ? Math.max(first, second) : first;
+        break;
+      }
+    }
   }
 
-  // --- SEATING ---
-  if (/\b(terrasse|dehors|extérieur)\b/.test(t)) slots.seating = "terrasse";
-  if (/\b(intérieur|dedans|à l'intérieur)\b/.test(t)) slots.seating = "intérieur";
-  if (/\b(peu importe|égal|pas de préférence)\b/.test(t)) slots.seating = "";
+  // seating
+  if (/\b(terrasse|dehors|extérieur|exterieur)\b/.test(t)) slots.seating = "terrasse";
+  if (/\b(intérieur|interieur|dedans|à l'intérieur|a l'intérieur)\b/.test(t)) slots.seating = "intérieur";
+  if (/\b(peu importe|comme vous voulez|pas de préférence|pas de preference|indifférent|indifferent)\b/.test(t)) slots.seating = context.hasTerrace === false ? "" : "";
 
-  // --- NAME ---
-  const nameMatch = t.match(/(?:au nom de|nom|nom de famille|m[eo]|c'est)\s+([A-Za-zÀ-ÿ\-\s]{2,40})/i)
-    || t.match(/^([A-Za-zÀ-ÿ\-]+(?:\s+[A-Za-zÀ-ÿ\-]+)*)\s*$/);
+  // name only if explicitly given
+  const nameMatch = t.match(/(?:au nom de|c[' ]est au nom de|nom de)\s+([a-zà-ÿ\-\s]{2,40})/i);
   if (nameMatch) {
-    const name = nameMatch[1].trim();
-    if (name.length >= 2 && !/^\d+$/.test(name)) slots.name = name;
+    const candidate = String(nameMatch[1] || "").trim();
+    if (candidate && !/^\d+$/.test(candidate)) slots.name = candidate;
   }
 
   return slots;
 }
 
-/**
- * Fusionne les slots extraits dans l'état existant (sans écraser les valeurs déjà présentes).
- */
-function mergeSlotsIntoState(state, extractedSlots) {
+function mergeSlotsIntoState(state, extractedSlots, intent) {
   const next = { ...state };
   for (const k of SLOTS) {
     const v = extractedSlots[k];
-    if (v != null && v !== "" && v !== undefined) {
-      if (next[k] == null || next[k] === "") next[k] = v;
+    if (v === undefined || v === null) continue;
+    // si le client corrige/modifie, on écrase la valeur existante
+    if (intent === INTENTS.MODIFY_RESERVATION || intent === INTENTS.RESERVATION) {
+      if (v !== "" || k === "seating") next[k] = v;
+      continue;
     }
+    if (next[k] == null || next[k] === "") next[k] = v;
   }
   return next;
 }
 
-/**
- * Détermine quelle information manque et quelle action faire.
- */
-function decideNextAction(state, intent) {
+function decideNextAction(state, intent, context = {}) {
   const missing = [];
   if (!state.date) missing.push("date");
   if (!state.service) missing.push("service");
   if (!state.time) missing.push("time");
   if (!state.covers) missing.push("covers");
-  if (state.seating === undefined || state.seating === null) missing.push("seating");
-  // Nom non requis pour restaurant (réservation au numéro)
+  if (context.hasTerrace !== false && (state.seating === undefined || state.seating === null)) missing.push("seating");
 
-  const nextAction = { type: "none", question: null, confirm: false };
-  const infoLabels = {
-    date: "le jour",
-    service: "le service (midi ou soir)",
-    time: "l'heure d'arrivée",
-    covers: "le nombre de personnes",
-    seating: "terrasse ou intérieur",
-    name: "le nom",
-  };
+  const nextAction = { type: "none", question: null, confirm: false, missing };
 
-  if (intent === INTENTS.TRANSFER_TO_HUMAN) {
-    nextAction.type = "transfer";
-    nextAction.question = null;
-    return { nextAction, missing };
-  }
-  if (intent === INTENTS.CANCEL_RESERVATION) {
-    nextAction.type = "cancel";
-    nextAction.question = "À quel nom ?";
-    return { nextAction, missing };
-  }
-  if (intent === INTENTS.MODIFY_RESERVATION) {
-    nextAction.type = "modify";
-    nextAction.question = "À quel nom la réservation ?";
-    return { nextAction, missing };
-  }
-  if (intent === INTENTS.INFO_MENU || intent === INTENTS.INFO_HOURS) {
-    nextAction.type = "info";
-    nextAction.question = null;
-    return { nextAction, missing };
-  }
+  if (intent === INTENTS.TRANSFER_TO_HUMAN) return { nextAction: { type: "transfer", question: null, confirm: false, missing }, missing };
+  if (intent === INTENTS.CANCEL_RESERVATION) return { nextAction: { type: "cancel", question: "Demande les éléments pour identifier la réservation à annuler.", confirm: false, missing }, missing };
+  if (intent === INTENTS.MODIFY_RESERVATION) return { nextAction: { type: "modify", question: "Demande ce qu'il faut modifier dans la réservation.", confirm: false, missing }, missing };
+  if (intent === INTENTS.INFO_MENU || intent === INTENTS.INFO_HOURS) return { nextAction: { type: "info", question: null, confirm: false, missing }, missing };
+
   if (intent === INTENTS.RESERVATION) {
-    if (missing.length === 0) {
-      nextAction.type = "confirm";
-      nextAction.confirm = true;
-      return { nextAction, missing };
-    }
-    const priorityOrder = ["date", "service", "time", "covers", "seating", "name"];
-    for (const slot of priorityOrder) {
-      if (missing.includes(slot)) {
-        nextAction.type = "ask";
-        if (slot === "date") nextAction.question = "Pour quel jour ?";
-        else if (slot === "service") nextAction.question = "Plutôt pour le midi ou le soir ?";
-        else if (slot === "time") nextAction.question = "À quelle heure prévoyez-vous d'arriver ?";
-        else if (slot === "covers") nextAction.question = "Vous serez combien ?";
-        else if (slot === "seating") nextAction.question = "Terrasse ou intérieur ?";
-        else if (slot === "name") nextAction.question = "À quel nom ?";
-        break;
-      }
-    }
-    return { nextAction, missing };
+    if (missing.length === 0) return { nextAction: { type: "confirm", question: null, confirm: true, missing }, missing };
+    const priority = ["date", "service", "time", "covers", ...(context.hasTerrace !== false ? ["seating"] : [])];
+    const slot = priority.find((s) => missing.includes(s)) || missing[0];
+    const questions = {
+      date: "Demande le jour souhaité.",
+      service: "Demande si c'est pour le midi ou le soir.",
+      time: "Demande l'heure d'arrivée.",
+      covers: "Demande le nombre de personnes.",
+      seating: "Demande si c'est en terrasse ou à l'intérieur.",
+    };
+    return { nextAction: { type: "ask", question: questions[slot] || "Demande l'information manquante.", confirm: false, missing }, missing };
   }
 
-  nextAction.type = "none";
   return { nextAction, missing };
 }
 
-/**
- * Construit l'instruction à injecter au LLM.
- * Format: Informations connues + Action demandée.
- */
-function buildInstruction(result, state) {
-  const { intent, nextAction, missing } = result;
+function formatKnown(state, context = {}) {
   const known = [];
-  if (state.date) known.push(`date : ${state.date}`);
-  if (state.service) known.push(`service : ${state.service}`);
-  if (state.time) known.push(`heure : ${state.time}`);
-  if (state.covers) known.push(`personnes : ${state.covers}`);
-  if (state.seating) known.push(`terrasse/intérieur : ${state.seating}`);
+  if (state.date) known.push(`date=${state.date}`);
+  if (state.service) known.push(`service=${state.service}`);
+  if (state.time) known.push(`heure=${state.time}`);
+  if (state.covers) known.push(`personnes=${state.covers}`);
+  if (context.hasTerrace !== false && state.seating !== null && state.seating !== undefined && state.seating !== "") known.push(`placement=${state.seating}`);
   if (state.phoneConfirmed) known.push(`téléphone confirmé`);
-
-  if (intent === "transfer_to_human") {
-    return "Le client souhaite parler à quelqu'un. Dis que tu le transfère et appelle transfer_to_restaurant.";
-  }
-  if (intent === "cancel_reservation") {
-    return "Le client souhaite annuler sa réservation. Demande à quel nom la réservation est enregistrée.";
-  }
-  if (intent === "modify_reservation") {
-    return "Le client souhaite modifier sa réservation. Demande à quel nom la réservation est enregistrée.";
-  }
-  if (intent === "info_menu") {
-    return "Le client demande des infos sur le menu. Utilise get_restaurant_info puis réponds naturellement.";
-  }
-  if (intent === "info_hours") {
-    return "Le client demande les horaires. Utilise get_restaurant_info puis réponds naturellement.";
-  }
-  if (intent === "reservation") {
-    if (nextAction.confirm) {
-      const prefix = known.length ? `Informations connues : ${known.join(", ")}.\n` : "";
-      return `${prefix}Action : fais un récapitulatif naturel puis confirme la réservation (C'est noté !).`;
-    }
-    if (nextAction.question && missing.length > 0) {
-      const slotLabels = { date: "le jour", service: "le service (midi ou soir)", time: "l'heure d'arrivée", covers: "le nombre de personnes", seating: "terrasse ou intérieur", name: "le nom" };
-      const slotToAsk = slotLabels[missing[0]] || missing[0];
-      const prefix = known.length ? `Informations connues : ${known.join(", ")}.\n` : "";
-      return `${prefix}Action : demande ${slotToAsk}.`;
-    }
-    const prefix = known.length ? `Informations connues : ${known.join(", ")}.\n` : "";
-    return `${prefix}Action : continue la collecte de manière naturelle.`;
-  }
-
-  return "Réponds de manière naturelle au client.";
+  return known;
 }
 
-/**
- * Point d'entrée principal.
- * @param {string} transcript - Texte du client
- * @param {object} state - État actuel { date, service, time, covers, seating, name }
- * @param {object} context - { today: "YYYY-MM-DD" } optionnel
- * @returns {object} { intent, slots, nextAction, nextQuestion, updatedState, instruction }
- */
+function buildInstruction(result, state, context = {}) {
+  const { intent, nextAction, missing } = result;
+  const known = formatKnown(state, context);
+  const prefix = known.length ? `Informations connues: ${known.join(", ")}.\n` : "";
+
+  if (intent === INTENTS.TRANSFER_TO_HUMAN) {
+    return "INSTRUCTION PRIORITAIRE SERVEUR: le client veut parler à quelqu'un. Dis une seule phrase naturelle annonçant le transfert, puis appelle transfer_to_restaurant.";
+  }
+  if (intent === INTENTS.CANCEL_RESERVATION) {
+    return `${prefix}INSTRUCTION PRIORITAIRE SERVEUR: le client veut annuler une réservation. Demande brièvement les éléments nécessaires pour identifier la réservation.`;
+  }
+  if (intent === INTENTS.MODIFY_RESERVATION) {
+    return `${prefix}INSTRUCTION PRIORITAIRE SERVEUR: le client veut modifier une réservation. Demande très brièvement ce qu'il faut modifier.`;
+  }
+  if (intent === INTENTS.INFO_MENU) {
+    return "INSTRUCTION PRIORITAIRE SERVEUR: le client demande des informations sur le menu. Dis 'Je vérifie ça tout de suite.', appelle get_restaurant_info, puis réponds naturellement.";
+  }
+  if (intent === INTENTS.INFO_HOURS) {
+    return "INSTRUCTION PRIORITAIRE SERVEUR: le client demande les horaires ou informations pratiques. Dis 'Je vérifie ça tout de suite.', appelle get_restaurant_info, puis réponds naturellement.";
+  }
+  if (intent === INTENTS.RESERVATION) {
+    if (nextAction.confirm) {
+      return `${prefix}INSTRUCTION PRIORITAIRE SERVEUR: fais un récapitulatif naturel et bref de la demande. Ne repars pas au début du protocole. Termine par une confirmation chaleureuse.`;
+    }
+    if (nextAction.question) {
+      return `${prefix}INSTRUCTION PRIORITAIRE SERVEUR: ${nextAction.question} Ne pose qu'une seule question. Ne redemande rien d'autre. Champs manquants: ${missing.join(", ") || "aucun"}.`;
+    }
+  }
+  if (known.length) {
+    return `${prefix}INSTRUCTION PRIORITAIRE SERVEUR: réponds naturellement sans relancer le protocole.`;
+  }
+  return null;
+}
+
 function handleUserMessage(transcript, state = {}, context = {}) {
   const currentState = {
     date: state.date ?? null,
@@ -336,17 +292,19 @@ function handleUserMessage(transcript, state = {}, context = {}) {
     name: state.name ?? null,
     phoneConfirmed: state.phoneConfirmed ?? false,
     confirmed: state.confirmed ?? false,
+    today: context.today ?? state.today ?? null,
+    hasTerrace: context.hasTerrace ?? state.hasTerrace,
   };
 
-  const intent = detectIntent(transcript);
-  const slots = extractSlots(transcript, context);
-  const updatedState = mergeSlotsIntoState(currentState, slots);
-  const { nextAction, missing } = decideNextAction(updatedState, intent);
+  const intent = detectIntent(transcript, currentState);
+  const slots = extractSlots(transcript, { today: currentState.today, hasTerrace: currentState.hasTerrace });
+  const updatedState = mergeSlotsIntoState(currentState, slots, intent);
+  const { nextAction, missing } = decideNextAction(updatedState, intent, { hasTerrace: currentState.hasTerrace });
 
-  const instruction = buildInstruction(
-    { intent, slots, nextAction, missing },
-    updatedState
-  );
+  if (nextAction.confirm) updatedState.confirmed = true;
+  else updatedState.confirmed = false;
+
+  const instruction = buildInstruction({ intent, slots, nextAction, missing }, updatedState, { hasTerrace: currentState.hasTerrace });
 
   return {
     intent,
@@ -359,11 +317,4 @@ function handleUserMessage(transcript, state = {}, context = {}) {
   };
 }
 
-export {
-  handleUserMessage,
-  detectIntent,
-  extractSlots,
-  decideNextAction,
-  INTENTS,
-  SLOTS,
-};
+export { handleUserMessage, detectIntent, extractSlots, decideNextAction, INTENTS, SLOTS };
