@@ -274,58 +274,49 @@ function decideNextAction(state, intent) {
 
 /**
  * Construit l'instruction à injecter au LLM.
+ * Format: Informations connues + Action demandée.
  */
 function buildInstruction(result, state) {
   const { intent, nextAction, missing } = result;
-  const lines = [];
-  lines.push("[INSTRUCTION SERVEUR — Le client vient de parler. Tu formules UNIQUEMENT une réponse naturelle et courte en suivant ces consignes.]");
-  lines.push("");
+  const known = [];
+  if (state.date) known.push(`date : ${state.date}`);
+  if (state.service) known.push(`service : ${state.service}`);
+  if (state.time) known.push(`heure : ${state.time}`);
+  if (state.covers) known.push(`personnes : ${state.covers}`);
+  if (state.seating) known.push(`terrasse/intérieur : ${state.seating}`);
+  if (state.phoneConfirmed) known.push(`téléphone confirmé`);
 
   if (intent === "transfer_to_human") {
-    lines.push("Le client souhaite parler à quelqu'un. Dis que tu le transfère et transfère l'appel.");
-    return lines.join("\n");
+    return "Le client souhaite parler à quelqu'un. Dis que tu le transfère et appelle transfer_to_restaurant.";
   }
   if (intent === "cancel_reservation") {
-    lines.push("Le client souhaite annuler sa réservation. Demande à quel nom.");
-    return lines.join("\n");
+    return "Le client souhaite annuler sa réservation. Demande à quel nom la réservation est enregistrée.";
   }
   if (intent === "modify_reservation") {
-    lines.push("Le client souhaite modifier sa réservation. Demande à quel nom.");
-    return lines.join("\n");
+    return "Le client souhaite modifier sa réservation. Demande à quel nom la réservation est enregistrée.";
   }
   if (intent === "info_menu") {
-    lines.push("Le client demande des informations sur le menu. Utilise get_restaurant_info pour répondre.");
-    return lines.join("\n");
+    return "Le client demande des infos sur le menu. Utilise get_restaurant_info puis réponds naturellement.";
   }
   if (intent === "info_hours") {
-    lines.push("Le client demande les horaires. Utilise get_restaurant_info pour répondre.");
-    return lines.join("\n");
+    return "Le client demande les horaires. Utilise get_restaurant_info puis réponds naturellement.";
   }
   if (intent === "reservation") {
-    const known = [];
-    if (state.date) known.push(`date = ${state.date}`);
-    if (state.service) known.push(`service = ${state.service}`);
-    if (state.time) known.push(`heure = ${state.time}`);
-    if (state.covers) known.push(`personnes = ${state.covers}`);
-    if (state.seating) known.push(`terrasse/intérieur = ${state.seating}`);
-    if (state.phoneConfirmed) known.push(`téléphone confirmé`);
-
     if (nextAction.confirm) {
-      lines.push("Toutes les informations sont collectées. Fais un récapitulatif naturel puis confirme la réservation.");
-      if (known.length) lines.push("Infos:", known.join(", "));
-    } else if (nextAction.question) {
-      const slotLabel = { date: "le jour", service: "midi ou soir", time: "l'heure", covers: "le nombre de personnes", seating: "terrasse ou intérieur", name: "le nom" }[missing[0]] || missing[0];
-      lines.push(`Demande ${slotLabel}. ${nextAction.question}`);
-      if (known.length) lines.push("Informations connues : " + known.join(", ") + ".");
-    } else {
-      lines.push("Continue la collecte des informations de réservation de manière naturelle.");
-      if (known.length) lines.push("Infos connues:", known.join(", "));
+      const prefix = known.length ? `Informations connues : ${known.join(", ")}.\n` : "";
+      return `${prefix}Action : fais un récapitulatif naturel puis confirme la réservation (C'est noté !).`;
     }
-    return lines.join("\n");
+    if (nextAction.question && missing.length > 0) {
+      const slotLabels = { date: "le jour", service: "le service (midi ou soir)", time: "l'heure d'arrivée", covers: "le nombre de personnes", seating: "terrasse ou intérieur", name: "le nom" };
+      const slotToAsk = slotLabels[missing[0]] || missing[0];
+      const prefix = known.length ? `Informations connues : ${known.join(", ")}.\n` : "";
+      return `${prefix}Action : demande ${slotToAsk}.`;
+    }
+    const prefix = known.length ? `Informations connues : ${known.join(", ")}.\n` : "";
+    return `${prefix}Action : continue la collecte de manière naturelle.`;
   }
 
-  lines.push("Réponds de manière naturelle au client.");
-  return lines.join("\n");
+  return "Réponds de manière naturelle au client.";
 }
 
 /**
