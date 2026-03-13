@@ -3462,7 +3462,7 @@ ${dynamic}`;
 
     try {
       openaiWs.send(JSON.stringify(payload));
-      if (reason) console.log("🗣️ response.create envoyé:", { reason });
+      console.log("response.create envoyé:", reason);
     } catch (err) {
       console.error("❌ Erreur response.create:", err);
     }
@@ -3921,7 +3921,9 @@ FIN D'APPEL:
 ${compactPersona}`;
         }
         const REALTIME_INSTRUCTIONS_MAX_CHARS = 44200;
-        const REALTIME_INPUT_TRANSCRIPTION_ENABLED = (process.env.REALTIME_INPUT_TRANSCRIPTION_ENABLED ?? "false").toLowerCase() === "true";
+        const REALTIME_INPUT_TRANSCRIPTION_ENABLED =
+          (process.env.REALTIME_INPUT_TRANSCRIPTION_ENABLED ?? "false").toLowerCase() === "true" ||
+          (effectiveSector === "restaurant" && RESTAURANT_CONVERSATION_ENGINE_ENABLED);
         const REALTIME_INPUT_TRANSCRIPTION_MODEL = process.env.REALTIME_INPUT_TRANSCRIPTION_MODEL ?? "whisper-1";
         const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
         const garageTools = [
@@ -5819,45 +5821,40 @@ But: être naturel et mettre le client en confiance.`,
             if (LOG_VERBOSE) console.log("🔊 Message audio/output:", msg.type, { hasDelta: !!msg.delta, hasAudio: !!msg.audio, keys: Object.keys(msg).slice(0, 10) });
           }
           if (msg.type === "conversation.item.input_audio_transcription.completed") {
-            const transcript = msg.transcript;
+            const transcript = msg.transcript || "";
+            const transcriptTrimmed = transcript.trim();
             const isJunk = isJunkTranscript(transcript);
             if (!isJunk) {
-              console.log("🟢 Le client a parlé (transcription complétée):", (transcript ?? "").substring(0, 120));
-              console.log(`[CLIENT-SAYS] (input_audio_transcription) ${transcript ?? ""}`);
+              console.log("🟢 transcription.completed:", (transcript || "").substring(0, 120));
+              console.log(`[CLIENT-SAYS] ${transcript || ""}`);
             }
-            const transcriptTrimmed = transcript && transcript.trim();
-            const shouldUpdate = transcriptTrimmed && !isJunk;
-            if (shouldUpdate) {
-              const oldLastCommittedAt = lastCommittedAt;
+
+            if (effectiveSector === "restaurant" && transcriptTrimmed.length > 0 && RESTAURANT_CONVERSATION_ENGINE_ENABLED && (consentGiven || !consentRequired)) {
+              const ctx = {
+                today: (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? callStartIso.slice(0, 10) : new Date().toISOString().slice(0, 10),
+                hasTerrace: restaurantHasTerrace,
+              };
+              const result = conversationEngineHandleUserMessage(transcript, reservationState, ctx);
+              reservationState = result.updatedState;
+              if (result.instruction) {
+                pendingRestaurantInstruction = result.instruction;
+              }
+              lastRestaurantTranscriptAt = nowMs();
               lastCommittedAt = nowMs();
               userHasSpoken = true;
               lastUserActivityMs = nowMs();
-              lastUserMessageText = String(transcript || "").trim();
-              const norm = String(transcript).trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
-              const dedupKey = "speak_" + norm;
-              if (!userSpeakItemIds.has(dedupKey)) {
-                userSpeakItemIds.add(dedupKey);
-                userSpeakCount++;
-                if (LOG_VERBOSE) console.log("📊 userSpeakCount (input_audio_transcription):", userSpeakCount);
-              }
-              console.log("✅ Transcription utilisateur reçue, lastCommittedAt mis à jour:", { transcript: transcript.substring(0, 100), lastCommittedAt, oldLastCommittedAt });
-              if (effectiveSector === "restaurant" && RESTAURANT_CONVERSATION_ENGINE_ENABLED && (consentGiven || !consentRequired)) {
-                const ctx = {
-                  today: (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? callStartIso.slice(0, 10) : new Date().toISOString().slice(0, 10),
-                  hasTerrace: restaurantHasTerrace,
-                };
-                const result = conversationEngineHandleUserMessage(transcript, reservationState, ctx);
-                reservationState = result.updatedState;
-                if (result.instruction) {
-                  pendingRestaurantInstruction = result.instruction;
-                }
-                lastRestaurantTranscriptAt = lastCommittedAt;
-                if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine]", { intent: result.intent, slots: result.slots, nextQuestion: result.nextQuestion, instruction: pendingRestaurantInstruction, state: reservationState });
-              }
-              requestResponseCreate("after_transcription");
-            } else if (transcriptTrimmed) {
+              lastUserMessageText = transcriptTrimmed;
+              if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine]", { intent: result.intent, slots: result.slots, instruction: pendingRestaurantInstruction });
+            } else if (transcriptTrimmed && !isJunk) {
+              lastCommittedAt = nowMs();
+              userHasSpoken = true;
+              lastUserActivityMs = nowMs();
+              lastUserMessageText = transcriptTrimmed;
+            }
+
+            requestResponseCreate("after_transcription");
+            if (transcriptTrimmed && isJunk) {
               console.log("⚠️ Transcription ignorée (bruit détecté):", transcript.substring(0, 50));
-            } else {
             }
             const userText = String(transcript || "").toLowerCase().trim();
             const userTextNorm = userText.replace(/\s+/g, " ").trim();
