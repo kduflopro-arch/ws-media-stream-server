@@ -6151,27 +6151,8 @@ But: être naturel et mettre le client en confiance.`,
             const canRequest = (commitTs - lastResponseAt) > 300;
             const restaurantSkipCommitWithoutSpeech = effectiveSector === "restaurant" && !hasRealSpeech;
             if (canRequest && !restaurantSkipCommitWithoutSpeech) {
-              lastResponseAt = commitTs;
-              awaitingUserResponse = false;
-              setTimeout(() => {
-                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-                if (responseInProgress) return;
-                if (lastResponseCreatedAt >= lastCommitAt) return;
-                if (effectiveSector === "restaurant" && RESTAURANT_CONVERSATION_ENGINE_ENABLED && (consentGiven || !consentRequired)) {
-                  const transcriptReadyForThisTurn = lastRestaurantTranscriptAt >= lastCommitAt;
-                  if (!transcriptReadyForThisTurn && !pendingRestaurantInstruction) {
-                    if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine] Attente transcription avant response.create", { lastCommitAt, lastRestaurantTranscriptAt });
-                    setTimeout(() => {
-                      if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-                      if (responseInProgress) return;
-                      if (lastResponseCreatedAt >= lastCommitAt) return;
-                      requestResponseCreate("watchdog_after_commit_waited_transcript");
-                    }, Math.max(150, WATCHDOG_AFTER_COMMIT_MS));
-                    return;
-                  }
-                }
-                requestResponseCreate("watchdog_after_commit");
-              }, effectiveSector === "restaurant" ? Math.max(WATCHDOG_AFTER_COMMIT_MS, 150) : WATCHDOG_AFTER_COMMIT_MS);
+              // ne rien faire ici
+              // attendre transcription completed
             }
           }
           if (msg.type === "response.created") {
