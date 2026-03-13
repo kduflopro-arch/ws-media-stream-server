@@ -7,6 +7,15 @@ import { WebSocketServer, WebSocket } from "ws";
 import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
 import { RESTAURANT_CALL_ANALYSIS_PROMPT, RESTAURANT_CALL_ANALYSIS_SCHEMA, buildRestaurantInstructions } from "./config-restaurant.js";
+import { handleUserMessage as conversationEngineHandleUserMessage } from "./conversation-engine.js";
+import {
+  convertMulawToPcm24k,
+  convertPcm24kToMulaw,
+  convertPcm32kToMulaw,
+  convertPcm8kToMulaw,
+  convertPcm16kBlockToMulaw,
+  avgAbsMulaw,
+} from "./audio-utils.js";
 
 const PORT = process.env.PORT || 8080;
 const ACCOUNT_SECTOR = process.env.ACCOUNT_SECTOR || "garage";
@@ -415,112 +424,6 @@ function runRest() {
      if (firstKey) greetedCallSidCache.delete(firstKey);
    }
  }
-const MULAW_DECODE_TABLE = new Int16Array(256);
-for (let i = 0; i < 256; i++) {
-  let uval = (~i) & 0xff;
-  let t = ((uval & 0x0f) << 3) + 0x84;
-  t <<= (uval & 0x70) >> 4;
-  MULAW_DECODE_TABLE[i] = (uval & 0x80) ? (0x84 - t) : (t - 0x84);
-}
-const MULAW_BIAS = 0x84;
-const MULAW_CLIP = 32635;
-const MULAW_SEG_END = [0xFF, 0x1FF, 0x3FF, 0x7FF, 0xFFF, 0x1FFF, 0x3FFF, 0x7FFF];
-function clamp16(x) {
-  if (x > 32767) return 32767;
-  if (x < -32768) return -32768;
-  return x;
-}
-function mulawEncodeSample(pcm16) {
-  let sample = pcm16;
-  let sign = 0;
-  if (sample < 0) {
-    sign = 0x80;
-    sample = -sample;
-    if (sample < 0) sample = 32767;
-  }
-  if (sample > MULAW_CLIP) sample = MULAW_CLIP;
-  sample = sample + MULAW_BIAS;
-  let seg = 0;
-  while (seg < 8 && sample > MULAW_SEG_END[seg]) seg++;
-  if (seg > 7) seg = 7;
-  const mantissa = (sample >> (seg + 3)) & 0x0f;
-  const uval = sign | (seg << 4) | mantissa;
-  return (~uval) & 0xff;
-}
-function resample8kTo24k(pcm8k) {
-  const pcm24k = new Int16Array(pcm8k.length * 3);
-  for (let i = 0; i < pcm8k.length; i++) {
-    const s0 = pcm8k[i];
-    const s1 = i + 1 < pcm8k.length ? pcm8k[i + 1] : s0;
-    pcm24k[i * 3] = s0;
-    pcm24k[i * 3 + 1] = (2 * s0 + s1) / 3;
-    pcm24k[i * 3 + 2] = (s0 + 2 * s1) / 3;
-  }
-  return pcm24k;
-}
-function convertMulawToPcm24k(mulawBuffer) {
-  const pcm8k = new Int16Array(mulawBuffer.length);
-  for (let i = 0; i < mulawBuffer.length; i++) {
-    pcm8k[i] = MULAW_DECODE_TABLE[mulawBuffer[i] & 0xFF];
-  }
-  return resample8kTo24k(pcm8k);
-}
-function convertPcm24kToMulaw(pcm24k) {
-  const outLen = Math.floor(pcm24k.length / 3);
-  const mulaw = new Uint8Array(outLen);
-  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.0");
-  for (let i = 0; i < outLen; i++) {
-    const a = pcm24k[i * 3];
-    const b = pcm24k[i * 3 + 1];
-    const c = pcm24k[i * 3 + 2];
-    const avg = (a + b + c) / 3;
-    const gained = clamp16((avg * outputGain) | 0);
-    mulaw[i] = mulawEncodeSample(gained);
-  }
-  return mulaw;
-}
-function convertPcm32kToMulaw(pcm32k) {
-  const outLen = Math.floor(pcm32k.length / 4);
-  const mulaw = new Uint8Array(outLen);
-  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.0");
-  for (let i = 0; i < outLen; i++) {
-    const a = pcm32k[i * 4];
-    const b = pcm32k[i * 4 + 1];
-    const c = pcm32k[i * 4 + 2];
-    const d = pcm32k[i * 4 + 3];
-    const avg = (a + b + c + d) / 4;
-    const gained = clamp16((avg * outputGain) | 0);
-    mulaw[i] = mulawEncodeSample(gained);
-  }
-  return mulaw;
-}
-function convertPcm8kToMulaw(pcm8k) {
-  const mulaw = new Uint8Array(pcm8k.length);
-  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.0");
-  for (let i = 0; i < pcm8k.length; i++) {
-    const gained = clamp16((pcm8k[i] * outputGain) | 0);
-    mulaw[i] = mulawEncodeSample(gained);
-  }
-  return mulaw;
-}
-function convertPcm16kBlockToMulaw(pcm16kBlockBuf) {
-  const sampleCount = Math.floor(pcm16kBlockBuf.length / 2);
-  const pcm16k = new Int16Array(sampleCount);
-  for (let i = 0; i < sampleCount; i++) {
-    pcm16k[i] = pcm16kBlockBuf.readInt16LE(i * 2);
-  }
-  const outLen = Math.floor(pcm16k.length / 2);
-  const mulaw = new Uint8Array(outLen);
-  const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.0");
-  for (let i = 0; i < outLen; i++) {
-    const a = pcm16k[i * 2];
-    const b = pcm16k[i * 2 + 1];
-    const avg = (a + b) / 2;
-    const gained = clamp16((avg * outputGain) | 0);
-    mulaw[i] = mulawEncodeSample(gained);
-  }
-  return Buffer.from(mulaw);
-}
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_AUDIO_FORMAT = (process.env.OPENAI_AUDIO_FORMAT || "pcm16").toLowerCase();
 if (!OPENAI_API_KEY) console.error("⚠️ OPENAI_API_KEY non configuré !");
@@ -562,6 +465,9 @@ wss.on("connection", (ws, req) => {
   }
   if (LOG_VERBOSE) console.log("📞 Paramètres extraits:", { callSid, garageId, garageName, fromNumber });
   let effectiveSector = ACCOUNT_SECTOR; // Surchargé par garageType des params (restaurant vs garage)
+  const RESTAURANT_CONVERSATION_ENGINE_ENABLED = (process.env.RESTAURANT_CONVERSATION_ENGINE ?? "true").toLowerCase() === "true";
+  let reservationState = { date: null, service: null, time: null, covers: null, seating: null, name: null, phoneConfirmed: false, confirmed: false };
+  let pendingRestaurantInstruction = null; // instruction moteur à injecter avant response.create
   let goodbyeDetected = false;
   let goodbyeTimer = null;
   let deferredFinalizeTimer = null; // fallback finalize si on a différé (client raccroche sans 2e stream)
@@ -2845,15 +2751,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   async function drainElevenLabsQueue() {
     await drainPremiumTtsQueue();
   }
-  function avgAbsMulaw(mulawBuf) {
-    if (!mulawBuf || mulawBuf.length === 0) return false;
-    let sum = 0;
-    for (let i = 0; i < mulawBuf.length; i++) {
-      const s = MULAW_DECODE_TABLE[mulawBuf[i] & 0xff];
-      sum += Math.abs(s);
-    }
-    return sum / mulawBuf.length;
-  }
   function numberToFrenchWords(n) {
     const num = Number(n);
     if (!Number.isFinite(num)) return String(n);
@@ -3435,6 +3332,22 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     lastResponseCreateRequestedAt = now;
     try {
+      if (effectiveSector === "restaurant" && RESTAURANT_CONVERSATION_ENGINE_ENABLED && pendingRestaurantInstruction) {
+        try {
+          openaiWs.send(JSON.stringify({
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "system",
+              content: [{ type: "text", text: pendingRestaurantInstruction }],
+            },
+          }));
+          if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine] Instruction injectée avant response.create");
+        } catch (injectErr) {
+          console.error("❌ Erreur injection instruction restaurant:", injectErr);
+        }
+        pendingRestaurantInstruction = null;
+      }
       openaiWs.send(JSON.stringify({ type: "response.create" }));
       if (reason) console.log("🗣️ response.create envoyé:", { reason });
     } catch (err) {
@@ -5805,6 +5718,13 @@ But: être naturel et mettre le client en confiance.`,
                 if (LOG_VERBOSE) console.log("📊 userSpeakCount (input_audio_transcription):", userSpeakCount);
               }
               console.log("✅ Transcription utilisateur reçue, lastCommittedAt mis à jour:", { transcript: transcript.substring(0, 100), lastCommittedAt, oldLastCommittedAt });
+              if (effectiveSector === "restaurant" && RESTAURANT_CONVERSATION_ENGINE_ENABLED && (consentGiven || !consentRequired)) {
+                const ctx = { today: (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? callStartIso.slice(0, 10) : new Date().toISOString().slice(0, 10) };
+                const engineResult = conversationEngineHandleUserMessage(transcript, reservationState, ctx);
+                reservationState = engineResult.updatedState;
+                pendingRestaurantInstruction = engineResult.instruction;
+                if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine]", { intent: engineResult.intent, slots: engineResult.slots, nextQuestion: engineResult.nextQuestion, state: reservationState });
+              }
             } else if (transcriptTrimmed) {
               console.log("⚠️ Transcription ignorée (bruit détecté):", transcript.substring(0, 50));
             } else {
