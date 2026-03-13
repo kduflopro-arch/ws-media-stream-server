@@ -3452,39 +3452,16 @@ ${dynamic}`;
   }
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-    const now = nowMs();
-    if (responseInProgress) {
-      try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:3374',message:'requestResponseCreate_skipped',data:{reason,why:'responseInProgress'},hypothesisId:'C',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
-      return;
+    if (responseInProgress) return;
+
+    const payload = { type: "response.create" };
+    if (pendingRestaurantInstruction) {
+      payload.response = { instructions: pendingRestaurantInstruction };
+      pendingRestaurantInstruction = null;
     }
-    const isCommitTrigger = reason === "watchdog_after_commit" || reason === "after_response_done_pending_commit";
-    if (isCommitTrigger && effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < RESTAURANT_POST_TTS_GUARD_MS) {
-      if (LOG_VERBOSE) console.log("🗣️ response.create ignoré (restaurant): trop tôt après TTS (anti-écho)", { reason, msSinceTtsEnd: now - lastTtsEndAt, guardMs: RESTAURANT_POST_TTS_GUARD_MS });
-      return;
-    }
-    const skipDebounce = reason === "after_function_call_output";
-    if (!skipDebounce && (now - lastResponseCreateRequestedAt) < RESPONSE_CREATE_DEBOUNCE_MS) {
-      try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:3378',message:'requestResponseCreate_skipped',data:{reason,why:'debounce',msSince:now-lastResponseCreateRequestedAt},hypothesisId:'C',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
-      return;
-    }
-    lastResponseCreateRequestedAt = now;
+
     try {
-      if (effectiveSector === "restaurant" && RESTAURANT_CONVERSATION_ENGINE_ENABLED) {
-        const dynamicInstruction = String(pendingRestaurantInstruction || "").trim();
-        if (dynamicInstruction) {
-          pushRestaurantSessionUpdate(dynamicInstruction);
-          if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine] session.update temporaire envoyé avant response.create", { dynamicInstruction });
-          pendingRestaurantInstruction = null;
-          setTimeout(() => {
-            if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-            if (responseInProgress) return;
-            openaiWs.send(JSON.stringify({ type: "response.create" }));
-            if (reason) console.log("🗣️ response.create envoyé:", { reason, mode: "restaurant_turn_override" });
-          }, 35);
-          return;
-        }
-      }
-      openaiWs.send(JSON.stringify({ type: "response.create" }));
+      openaiWs.send(JSON.stringify(payload));
       if (reason) console.log("🗣️ response.create envoyé:", { reason });
     } catch (err) {
       console.error("❌ Erreur response.create:", err);
@@ -5869,12 +5846,15 @@ But: être naturel et mettre le client en confiance.`,
                   today: (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? callStartIso.slice(0, 10) : new Date().toISOString().slice(0, 10),
                   hasTerrace: restaurantHasTerrace,
                 };
-                const engineResult = conversationEngineHandleUserMessage(transcript, reservationState, ctx);
-                reservationState = engineResult.updatedState;
-                pendingRestaurantInstruction = engineResult.instruction || null;
+                const result = conversationEngineHandleUserMessage(transcript, reservationState, ctx);
+                reservationState = result.updatedState;
+                if (result.instruction) {
+                  pendingRestaurantInstruction = result.instruction;
+                }
                 lastRestaurantTranscriptAt = lastCommittedAt;
-                if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine]", { intent: engineResult.intent, slots: engineResult.slots, nextQuestion: engineResult.nextQuestion, instruction: pendingRestaurantInstruction, state: reservationState });
+                if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine]", { intent: result.intent, slots: result.slots, nextQuestion: result.nextQuestion, instruction: pendingRestaurantInstruction, state: reservationState });
               }
+              requestResponseCreate("after_transcription");
             } else if (transcriptTrimmed) {
               console.log("⚠️ Transcription ignorée (bruit détecté):", transcript.substring(0, 50));
             } else {
