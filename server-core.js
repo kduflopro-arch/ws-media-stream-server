@@ -7,7 +7,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
 import { RESTAURANT_CALL_ANALYSIS_PROMPT, RESTAURANT_CALL_ANALYSIS_SCHEMA, buildRestaurantInstructions } from "./config-restaurant.js";
-import { handleUserMessage as conversationEngineHandleUserMessage } from "./conversation-engine.js";
+import { checkAvailability, createReservation, cancelReservation } from "./restaurant-tools.js";
 
 const PORT = process.env.PORT || 8080;
 const ACCOUNT_SECTOR = process.env.ACCOUNT_SECTOR || "garage";
@@ -563,12 +563,6 @@ wss.on("connection", (ws, req) => {
   }
   if (LOG_VERBOSE) console.log("📞 Paramètres extraits:", { callSid, garageId, garageName, fromNumber });
   let effectiveSector = ACCOUNT_SECTOR; // Surchargé par garageType des params (restaurant vs garage)
-  const RESTAURANT_CONVERSATION_ENGINE_ENABLED = (process.env.RESTAURANT_CONVERSATION_ENGINE ?? "true").toLowerCase() === "true";
-  let reservationState = { date: null, service: null, time: null, covers: null, seating: null, name: null, phoneConfirmed: false, confirmed: false };
-  let pendingRestaurantInstruction = null; // instruction moteur à injecter avant response.create
-  let restaurantBaseInstructions = ""; // prompt restaurant de base (sans directive de tour)
-  let restaurantDynamicInstructions = ""; // directive de tour en cours injectée via session.update
-  let lastRestaurantTranscriptAt = 0; // dernier moment où une transcription restaurant exploitable a été reçue
   let goodbyeDetected = false;
   let goodbyeTimer = null;
   let deferredFinalizeTimer = null; // fallback finalize si on a différé (client raccroche sans 2e stream)
@@ -3423,42 +3417,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
   const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "240");
   const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "1200");
-  function composeRestaurantInstructions(baseInstructions, dynamicInstruction) {
-    const base = String(baseInstructions || "").trim();
-    const dynamic = String(dynamicInstruction || "").trim();
-    if (!dynamic) return base;
-    return `${base}
-
-# DIRECTIVE DE TOUR — PRIORITÉ ABSOLUE
-Cette directive du serveur est prioritaire sur TOUT pour ce tour: historique, réponses précédentes, hypothèses, protocole implicite.
-Tu dois l'exécuter exactement, sans ajouter d'étape, sans revenir au début, sans poser d'autre question.
-${dynamic}`;
-  }
-  function pushRestaurantSessionUpdate(dynamicInstruction = "") {
-    if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || effectiveSector !== "restaurant") return;
-    const instructions = composeRestaurantInstructions(restaurantBaseInstructions || ws.__sessionInstructions || "", dynamicInstruction);
-    restaurantDynamicInstructions = String(dynamicInstruction || "").trim();
-    openaiWs.send(JSON.stringify({
-      type: "session.update",
-      session: {
-        type: "realtime",
-        instructions,
-        output_modalities: ["text"],
-        tools: [{ type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires d'ouverture et informations du restaurant. À appeler pour questions sur le menu, les horaires, l'adresse.", parameters: { type: "object", properties: {} } }, ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : [])],
-        tool_choice: "auto",
-      },
-    }));
-    ws.__sessionInstructions = String(instructions || "");
-  }
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     if (responseInProgress) return;
 
     const payload = { type: "response.create" };
-    if (pendingRestaurantInstruction) {
-      payload.response = { instructions: pendingRestaurantInstruction };
-      pendingRestaurantInstruction = null;
-    }
 
     try {
       openaiWs.send(JSON.stringify(payload));
@@ -3923,7 +3886,7 @@ ${compactPersona}`;
         const REALTIME_INSTRUCTIONS_MAX_CHARS = 44200;
         const REALTIME_INPUT_TRANSCRIPTION_ENABLED =
           (process.env.REALTIME_INPUT_TRANSCRIPTION_ENABLED ?? "false").toLowerCase() === "true" ||
-          (effectiveSector === "restaurant" && RESTAURANT_CONVERSATION_ENGINE_ENABLED);
+          (effectiveSector === "restaurant");
         const REALTIME_INPUT_TRANSCRIPTION_MODEL = process.env.REALTIME_INPUT_TRANSCRIPTION_MODEL ?? "whisper-1";
         const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
         const garageTools = [
@@ -3935,7 +3898,10 @@ ${compactPersona}`;
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_garage", description: "Transfère l'appel vers le garage (un humain). À appeler quand le client demande à être transféré, à parler à quelqu'un du garage ou pour VALIDER un devis. Argument validation_devis: true si le client appelle POUR VALIDER un devis déjà établi (ex: 'j'appelle pour valider mon devis').", parameters: { type: "object", properties: { validation_devis: { type: "boolean", description: "true si le client appelle pour valider un devis déjà établi par le garage" } } } }] : []),
         ];
         const restaurantTools = [
-          { type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires d'ouverture et informations du restaurant. À appeler pour questions sur le menu, les horaires, l'adresse.", parameters: { type: "object", properties: {} } },
+          { type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires et informations du restaurant. À appeler pour questions sur le menu, les horaires, l'adresse.", parameters: { type: "object", properties: {} } },
+          { type: "function", name: "check_availability", description: "Vérifie la disponibilité pour une date et un service (midi ou soir). Paramètres: date (YYYY-MM-DD), service (midi|soir), covers (optionnel).", parameters: { type: "object", properties: { date: { type: "string", description: "Date au format YYYY-MM-DD" }, service: { type: "string", enum: ["midi", "soir"], description: "Service midi ou soir" }, covers: { type: "number", description: "Nombre de personnes (optionnel)" } }, required: ["date", "service"] } },
+          { type: "function", name: "create_reservation", description: "Enregistre une demande de réservation. Paramètres: date, service, time, covers, seating (optionnel), name (optionnel).", parameters: { type: "object", properties: { date: { type: "string" }, service: { type: "string", enum: ["midi", "soir"] }, time: { type: "string", description: "Heure au format HH:MM" }, covers: { type: "number" }, seating: { type: "string", enum: ["terrasse", "intérieur"] }, name: { type: "string" } }, required: ["date", "service", "time", "covers"] } },
+          { type: "function", name: "cancel_reservation", description: "Annule une réservation. Paramètre: identifier (numéro de téléphone ou nom).", parameters: { type: "object", properties: { identifier: { type: "string", description: "Numéro ou nom de la réservation" } }, required: ["identifier"] } },
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : []),
         ];
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
@@ -3965,7 +3931,6 @@ ${compactPersona}`;
           hasTerrace: restaurantHasTerrace,
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
-        if (effectiveSector === "restaurant") restaurantBaseInstructions = restaurantInstructions;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
         const sessionUpdate = {
           type: "session.update",
@@ -4038,7 +4003,6 @@ ${compactPersona}`;
               const truncNote = "\n\n[RÈGLES: réservation naturelle, une question à la fois, multilangue.]";
               instructionsToSend = instructionsToSend.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - truncNote.length - 400) + truncNote;
             }
-            restaurantBaseInstructions = instructionsToSend;
             openaiWs.send(JSON.stringify({
               type: "session.update",
               session: {
@@ -4097,7 +4061,6 @@ ${compactPersona}`;
           console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
         }
         sessionUpdate.session.instructions = initialInstructionsText;
-        if (effectiveSector === "restaurant") restaurantBaseInstructions = initialInstructionsText;
         sessionUpdate.session.tools = activeTools;
         sessionUpdate.session.tool_choice = "auto";
         ws.__sessionInstructions = String(sessionUpdate.session.instructions || "");
@@ -4133,7 +4096,6 @@ ${compactPersona}`;
             const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS
               ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES: réservation naturelle, une question à la fois.]"
               : instr;
-            restaurantBaseInstructions = toSend;
             openaiWs.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: toSend, output_modalities: ["text"], tools: restaurantTools, tool_choice: "auto" } }));
             ws.__sessionInstructions = String(toSend || "");
             console.log("✅ Session mise à jour: consentement donné (restaurant)");
@@ -4455,11 +4417,6 @@ But: être naturel et mettre le client en confiance.`,
             const rid = msg.response_id ?? msg.response?.id ?? null;
             const outputModalities = msg.response?.output_modalities || [];
             const hasAudioModality = Array.isArray(outputModalities) && outputModalities.includes("audio");
-            if (effectiveSector === "restaurant" && restaurantDynamicInstructions) {
-              restaurantDynamicInstructions = "";
-              pushRestaurantSessionUpdate("");
-              if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine] Directive de tour vidée après response.done et session restaurée");
-            }
             console.log("☎️ Realtime response.done output_modalities:", JSON.stringify(outputModalities), hasAudioModality ? "(contient audio)" : "(texte seul)");
             if (LOG_VERBOSE) {
               const resp = msg.response || {};
@@ -5534,7 +5491,7 @@ But: être naturel et mettre le client en confiance.`,
               const toolName = msg.item.name;
               const previousItemId = msg.item.id;
               const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
-              const restaurantDataTools = ["get_restaurant_info"];
+              const restaurantDataTools = ["get_restaurant_info", "check_availability", "create_reservation", "cancel_reservation"];
               const dataTools = effectiveSector === "restaurant" ? restaurantDataTools : garageDataTools;
               if (dataTools.includes(toolName)) {
                 const recentMs = 15000;
@@ -5628,7 +5585,23 @@ But: être naturel et mettre le client en confiance.`,
                 const parts = [menuText ? `MENU: ${menuText}` : "", garageHoursText ? `HORAIRES: ${garageHoursText}` : "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine];
                 output = parts.filter(Boolean).join("\n");
                 if (!output.trim()) output = "Aucune information disponible. Propose au client de rappeler ou de consulter le site.";
-                output += "\n\nRÈGLE: Tu DOIS TOUJOURS répondre au client avec ces informations (ou proposer une alternative si vide). Ne reste JAMAIS silencieux après un appel outil.";
+              }
+              else if (toolName === "check_availability") {
+                let args = {};
+                try { args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {}; } catch (_) { /* ignore */ }
+                const todayStr = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? callStartIso.slice(0, 10) : new Date().toISOString().slice(0, 10);
+                const ctx = { lunchFullToday, dinnerFullToday, lunchPassedForToday, dinnerPassedForToday, today: todayStr };
+                output = checkAvailability(args, ctx);
+              }
+              else if (toolName === "create_reservation") {
+                let args = {};
+                try { args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {}; } catch (_) { /* ignore */ }
+                output = createReservation(args);
+              }
+              else if (toolName === "cancel_reservation") {
+                let args = {};
+                try { args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {}; } catch (_) { /* ignore */ }
+                output = cancelReservation(args);
               }
               else if (toolName === "transfer_to_restaurant") {
                 try {
@@ -5752,7 +5725,7 @@ But: être naturel et mettre le client en confiance.`,
               if (!transferOutputDeferred) {
                 try {
                   const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
-                  const restaurantDataToolsDelay = ["get_restaurant_info"]; // Menu, horaires : laisser finir "Je vérifie ça tout de suite"
+                  const restaurantDataToolsDelay = ["get_restaurant_info", "check_availability", "create_reservation", "cancel_reservation"];
                   if (garageDataTools.includes(toolName)) lastGarageToolOutputAt = nowMs();
                   openaiWs.send(JSON.stringify({
                     type: "conversation.item.create",
@@ -5829,23 +5802,7 @@ But: être naturel et mettre le client en confiance.`,
               console.log(`[CLIENT-SAYS] ${transcript || ""}`);
             }
 
-            if (effectiveSector === "restaurant" && transcriptTrimmed.length > 0 && RESTAURANT_CONVERSATION_ENGINE_ENABLED && (consentGiven || !consentRequired)) {
-              const ctx = {
-                today: (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? callStartIso.slice(0, 10) : new Date().toISOString().slice(0, 10),
-                hasTerrace: restaurantHasTerrace,
-              };
-              const result = conversationEngineHandleUserMessage(transcript, reservationState, ctx);
-              reservationState = result.updatedState;
-              if (result.instruction) {
-                pendingRestaurantInstruction = result.instruction;
-              }
-              lastRestaurantTranscriptAt = nowMs();
-              lastCommittedAt = nowMs();
-              userHasSpoken = true;
-              lastUserActivityMs = nowMs();
-              lastUserMessageText = transcriptTrimmed;
-              if (LOG_VERBOSE) console.log("🍽️ [Restaurant Engine]", { intent: result.intent, slots: result.slots, instruction: pendingRestaurantInstruction });
-            } else if (transcriptTrimmed && !isJunk) {
+            if (transcriptTrimmed && !isJunk) {
               lastCommittedAt = nowMs();
               userHasSpoken = true;
               lastUserActivityMs = nowMs();
