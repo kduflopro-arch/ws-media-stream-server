@@ -5816,12 +5816,12 @@ But: être naturel et mettre le client en confiance.`,
             }
 
             if (effectiveSector === "restaurant") {
-              if (!transcript || transcript.trim().length < 5) {
-                console.log("⚠️ Transcription trop courte ou bruit ignoré:", (transcript || "").substring(0, 50));
+              if (!transcript || transcript.trim().length < 4) {
+                console.log("⚠️ Bruit ignoré");
                 return;
               }
               if (isJunk) {
-                console.log("⚠️ Transcription bruit détecté, réponse IA bloquée:", transcript.substring(0, 80));
+                console.log("⚠️ Bruit ignoré");
                 return;
               }
               userSpeakCount++;
