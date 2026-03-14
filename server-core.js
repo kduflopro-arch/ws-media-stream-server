@@ -7,7 +7,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
 import { RESTAURANT_CALL_ANALYSIS_PROMPT, RESTAURANT_CALL_ANALYSIS_SCHEMA, buildRestaurantInstructions } from "./config-restaurant.js";
-import { checkAvailability, createReservation, cancelReservation } from "./restaurant-tools.js";
+import { checkAvailability, createReservation, cancelReservation, getReservationLimits } from "./restaurant-tools.js";
 
 const PORT = process.env.PORT || 8080;
 const ACCOUNT_SECTOR = process.env.ACCOUNT_SECTOR || "garage";
@@ -3901,8 +3901,9 @@ ${compactPersona}`;
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_garage", description: "Transfère l'appel vers le garage (un humain). À appeler quand le client demande à être transféré, à parler à quelqu'un du garage ou pour VALIDER un devis. Argument validation_devis: true si le client appelle POUR VALIDER un devis déjà établi (ex: 'j'appelle pour valider mon devis').", parameters: { type: "object", properties: { validation_devis: { type: "boolean", description: "true si le client appelle pour valider un devis déjà établi par le garage" } } } }] : []),
         ];
         const restaurantTools = [
-          { type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires et informations du restaurant. À appeler pour questions sur le menu, les horaires, l'adresse.", parameters: { type: "object", properties: {} } },
-          { type: "function", name: "check_availability", description: "Vérifie la disponibilité pour une date et un service (midi ou soir). Paramètres: date (YYYY-MM-DD), service (midi|soir), covers (optionnel).", parameters: { type: "object", properties: { date: { type: "string", description: "Date au format YYYY-MM-DD" }, service: { type: "string", enum: ["midi", "soir"], description: "Service midi ou soir" }, covers: { type: "number", description: "Nombre de personnes (optionnel)" } }, required: ["date", "service"] } },
+          { type: "function", name: "get_restaurant_info", description: "Menu, horaires, adresse, jours de fermeture. OBLIGATOIRE pour toute question factuelle (menu, horaires, adresse). Ne jamais inventer — appelle ce tool.", parameters: { type: "object", properties: {} } },
+          { type: "function", name: "get_reservation_limits", description: "Heures limites pour prendre une résa (midi/soir). OBLIGATOIRE avant de valider une heure d'arrivée — ne jamais inventer.", parameters: { type: "object", properties: {} } },
+          { type: "function", name: "check_availability", description: "Disponibilité pour date+service. OBLIGATOIRE quand le client demande s'il reste de la place — ne jamais répondre sans appeler ce tool.", parameters: { type: "object", properties: { date: { type: "string", description: "Date YYYY-MM-DD" }, service: { type: "string", enum: ["midi", "soir"] }, covers: { type: "number" } }, required: ["date", "service"] } },
           { type: "function", name: "create_reservation", description: "Enregistre une demande de réservation. Paramètres: date, service, time, covers, seating (optionnel: terrasse|intérieur), name (optionnel), phone (optionnel).", parameters: { type: "object", properties: { date: { type: "string" }, service: { type: "string", enum: ["midi", "soir"] }, time: { type: "string", description: "Heure au format HH:MM" }, covers: { type: "number" }, seating: { type: "string", enum: ["terrasse", "intérieur"] }, name: { type: "string" }, phone: { type: "string" } }, required: ["date", "service", "time", "covers"] } },
           { type: "function", name: "cancel_reservation", description: "Annule une réservation. Paramètre: reservation_id (ou identifier = numéro/nom).", parameters: { type: "object", properties: { reservation_id: { type: "string", description: "ID ou identifiant de la réservation" }, identifier: { type: "string", description: "Numéro ou nom (alternative)" } } } },
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : []),
@@ -5498,7 +5499,7 @@ But: être naturel et mettre le client en confiance.`,
               const toolName = msg.item.name;
               const previousItemId = msg.item.id;
               const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
-              const restaurantDataTools = ["get_restaurant_info", "check_availability", "create_reservation", "cancel_reservation"];
+              const restaurantDataTools = ["get_restaurant_info", "get_reservation_limits", "check_availability", "create_reservation", "cancel_reservation"];
               const dataTools = effectiveSector === "restaurant" ? restaurantDataTools : garageDataTools;
               if (dataTools.includes(toolName)) {
                 const recentMs = 15000;
@@ -5591,7 +5592,10 @@ But: être naturel et mettre le client en confiance.`,
                 const stateLine = garageClosed ? "État actuel: le restaurant est actuellement FERMÉ." : "État actuel: le restaurant est actuellement OUVERT.";
                 const parts = [menuText ? `MENU: ${menuText}` : "", garageHoursText ? `HORAIRES: ${garageHoursText}` : "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine];
                 output = parts.filter(Boolean).join("\n");
-                if (!output.trim()) output = "Aucune information disponible. Propose au client de rappeler ou de consulter le site.";
+                if (!output.trim()) output = "Aucune information disponible. Dis au client que tu n'as pas l'info et proposes de le faire rappeler.";
+              }
+              else if (toolName === "get_reservation_limits") {
+                output = getReservationLimits({ lunchReservationEnd, dinnerReservationEnd });
               }
               else if (toolName === "check_availability") {
                 let args = {};
@@ -5736,7 +5740,7 @@ But: être naturel et mettre le client en confiance.`,
               if (!transferOutputDeferred) {
                 try {
                   const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
-                  const restaurantDataToolsDelay = ["get_restaurant_info", "check_availability", "create_reservation", "cancel_reservation"];
+                  const restaurantDataToolsDelay = ["get_restaurant_info", "get_reservation_limits", "check_availability", "create_reservation", "cancel_reservation"];
                   if (garageDataTools.includes(toolName)) lastGarageToolOutputAt = nowMs();
                   openaiWs.send(JSON.stringify({
                     type: "conversation.item.create",

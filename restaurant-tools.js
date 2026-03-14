@@ -62,6 +62,21 @@ export function createReservation(params) {
 }
 
 /**
+ * Récupère les heures limites de réservation (midi/soir).
+ * Le LLM doit appeler ce tool pour connaître les limites — ne jamais inventer.
+ * @param {object} context - { lunchReservationEnd, dinnerReservationEnd }
+ * @returns {string}
+ */
+export function getReservationLimits(context = {}) {
+  const { lunchReservationEnd = "", dinnerReservationEnd = "" } = context;
+  const parts = [];
+  if (lunchReservationEnd) parts.push(`Déjeuner: après ${lunchReservationEnd.replace(":", "h")}, on ne prend plus de réservation midi.`);
+  if (dinnerReservationEnd) parts.push(`Dîner: après ${dinnerReservationEnd.replace(":", "h")}, on ne prend plus de réservation soir.`);
+  if (parts.length === 0) return "Pas d'heure limite configurée. Tu peux accepter les réservations selon les horaires d'ouverture.";
+  return parts.join(" ");
+}
+
+/**
  * Annule une réservation.
  * @param {object} params - { reservation_id } ou { identifier } (numéro ou nom)
  * @returns {string} message pour le LLM
