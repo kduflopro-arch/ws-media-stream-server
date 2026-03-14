@@ -741,6 +741,7 @@ wss.on("connection", (ws, req) => {
   let transferToGarageStatus = null; // 'success' | 'failure' | null — mis par webhooks Twilio (transfer-join human = success, transfer-garage-status = failure)
   let transferTriggered = false; // true si on a appelé call-transfer avec succès → envoyer transfer_to_garage: true au finalize
   let transferFailed = false; // true si reconnexion après transfert raté (garage n'a pas répondu) — utilisé dans connectToOpenAI
+  let reservationCreatedByTool = false; // restaurant: true si create_reservation a retourné succès → rdv_requested au finalize
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let lastUserMessageText = ""; // Dernier texte client (pour safeguard hangup : ne pas raccrocher si demande devis/RDV)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
@@ -988,19 +989,19 @@ wss.on("connection", (ws, req) => {
       if (RUN_ANALYSIS_DELAY_MS > 0) {
         await new Promise((r) => setTimeout(r, RUN_ANALYSIS_DELAY_MS));
       }
-      const lastIntentAtFinalize = (() => {
+      const lastIntentAtFinalize = effectiveSector === "garage" ? (() => {
         const raw = String(lastAssistantText || "");
         const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
         const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase();
         const asksRdv = (/\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target)) && target.includes("?");
         return asksRdv ? "rdv" : (getMostRecentAssistantIntent(25000));
-      })();
-      const assistantAskedForDayOrSlot = hasAskedDayOrSlot || ((lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || "")));
-      const pureDevisFlow = devisAcceptedByClient && !assistantAskedForDayOrSlot;
-      const rdvRequestedFromWs = !pureDevisFlow && ((rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient));
+      })() : null;
+      const assistantAskedForDayOrSlot = effectiveSector === "garage" && (hasAskedDayOrSlot || ((lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || ""))));
+      const pureDevisFlow = effectiveSector === "garage" && devisAcceptedByClient && !assistantAskedForDayOrSlot;
+      const rdvRequestedFromWs = effectiveSector === "restaurant" ? reservationCreatedByTool : (!pureDevisFlow && ((rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient)));
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
-      console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, validation_devis: validationDevisByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage_status: transferToGarageStatus });
-      console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, assistantAskedForDayOrSlot });
+      console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { sector: effectiveSector, devis_requested: devisAcceptedByClient, validation_devis: validationDevisByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage_status: transferToGarageStatus });
+      if (effectiveSector === "garage") console.log("📌 [RDV] État badges:", { rdvAcceptedByClient, rdvRefusedByClient, rdvRequestedFromWs, assistantAskedForDayOrSlot });
       const lastLow = (lastAssistantText || "").toLowerCase().trim();
       const looksLikePostConsent = lastLow.includes("en quoi puis-je vous aider") || lastLow.includes("quel est votre besoin") || (lastLow.includes("dites-moi") && (lastLow.includes("souci") || lastLow.includes("puis-je vous aider"))) || /^bonjour\s+(monsieur|madame)\s+/i.test(String(lastAssistantText || "").trim());
       const effectiveConsentGranted = consentGiven || (consentRequired && !!lastAssistantText && looksLikePostConsent && userSpeakCount >= 1);
@@ -1008,9 +1009,9 @@ wss.on("connection", (ws, req) => {
         console.log("✅ Consentement inféré (IA a répondu après accueil + client a parlé au moins 1 fois):", lastAssistantText ? lastAssistantText.substring(0, 80) : "");
       }
       const hasMultiTurnExchange = assistantTurnCount >= 2;
-      const noRequest = userSpeakCount < 1 && !assistantAskedForDayOrSlot && !hasMultiTurnExchange;
+      const noRequest = effectiveSector === "restaurant" ? (userSpeakCount < 1) : (userSpeakCount < 1 && !assistantAskedForDayOrSlot && !hasMultiTurnExchange);
       const noRequestReason = "Le client n'a fait aucune demande";
-      const rdvIncomplete = assistantAskedForDayOrSlot && !rdvAcceptedByClient; // Demande RDV, l'assistant a demandé jour/créneau, le client n'a pas donné de préférence
+      const rdvIncomplete = effectiveSector === "garage" && assistantAskedForDayOrSlot && !rdvAcceptedByClient;
       const rdvIncompleteReason = "Le client a raccroché avant d'indiquer ses préférences de date pour le rendez-vous.";
       if (rdvIncomplete) console.log("📌 rdv_incomplete (WS envoie call_outcome + raison):", { userSpeakCount, rdvAcceptedByClient, lastAssistantText: (lastAssistantText || "").slice(0, 60) });
       if (noRequest) console.log("📌 no_request (client n'a pas parlé):", { userSpeakCount, assistantTurnCount });
@@ -1041,7 +1042,7 @@ wss.on("connection", (ws, req) => {
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
           consent_granted: effectiveConsentGranted,
           ...(noRequest ? { no_request: true, no_request_reason: noRequestReason } : {}),
-          ...(rdvIncomplete ? { call_outcome: "rdv_incomplete", rdv_incomplete_reason: rdvIncompleteReason } : (rdvRequestedFromWs && rdvAcceptedByClient && assistantAskedForDayOrSlot ? { call_outcome: "completed" } : {})),
+          ...(rdvIncomplete ? { call_outcome: "rdv_incomplete", rdv_incomplete_reason: rdvIncompleteReason } : (effectiveSector === "restaurant" && rdvRequestedFromWs ? { call_outcome: "completed" } : (rdvRequestedFromWs && rdvAcceptedByClient && assistantAskedForDayOrSlot ? { call_outcome: "completed" } : {}))),
         }),
       }).catch((err) => {
         console.error("❌ Erreur lors de l'appel à realtime-finalize:", err);
@@ -3902,8 +3903,8 @@ ${compactPersona}`;
         const restaurantTools = [
           { type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires et informations du restaurant. À appeler pour questions sur le menu, les horaires, l'adresse.", parameters: { type: "object", properties: {} } },
           { type: "function", name: "check_availability", description: "Vérifie la disponibilité pour une date et un service (midi ou soir). Paramètres: date (YYYY-MM-DD), service (midi|soir), covers (optionnel).", parameters: { type: "object", properties: { date: { type: "string", description: "Date au format YYYY-MM-DD" }, service: { type: "string", enum: ["midi", "soir"], description: "Service midi ou soir" }, covers: { type: "number", description: "Nombre de personnes (optionnel)" } }, required: ["date", "service"] } },
-          { type: "function", name: "create_reservation", description: "Enregistre une demande de réservation. Paramètres: date, service, time, covers, seating (optionnel), name (optionnel).", parameters: { type: "object", properties: { date: { type: "string" }, service: { type: "string", enum: ["midi", "soir"] }, time: { type: "string", description: "Heure au format HH:MM" }, covers: { type: "number" }, seating: { type: "string", enum: ["terrasse", "intérieur"] }, name: { type: "string" } }, required: ["date", "service", "time", "covers"] } },
-          { type: "function", name: "cancel_reservation", description: "Annule une réservation. Paramètre: identifier (numéro de téléphone ou nom).", parameters: { type: "object", properties: { identifier: { type: "string", description: "Numéro ou nom de la réservation" } }, required: ["identifier"] } },
+          { type: "function", name: "create_reservation", description: "Enregistre une demande de réservation. Paramètres: date, service, time, covers, seating (optionnel: terrasse|intérieur), name (optionnel), phone (optionnel).", parameters: { type: "object", properties: { date: { type: "string" }, service: { type: "string", enum: ["midi", "soir"] }, time: { type: "string", description: "Heure au format HH:MM" }, covers: { type: "number" }, seating: { type: "string", enum: ["terrasse", "intérieur"] }, name: { type: "string" }, phone: { type: "string" } }, required: ["date", "service", "time", "covers"] } },
+          { type: "function", name: "cancel_reservation", description: "Annule une réservation. Paramètre: reservation_id (ou identifier = numéro/nom).", parameters: { type: "object", properties: { reservation_id: { type: "string", description: "ID ou identifiant de la réservation" }, identifier: { type: "string", description: "Numéro ou nom (alternative)" } } } },
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : []),
         ];
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
@@ -5603,6 +5604,10 @@ But: être naturel et mettre le client en confiance.`,
                 let args = {};
                 try { args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {}; } catch (_) { /* ignore */ }
                 output = createReservation(args);
+                try {
+                  const parsed = typeof output === "string" ? JSON.parse(output) : output;
+                  if (parsed?.status === "ok") reservationCreatedByTool = true;
+                } catch (_) { /* ignore */ }
               }
               else if (toolName === "cancel_reservation") {
                 let args = {};
