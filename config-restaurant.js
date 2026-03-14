@@ -72,6 +72,7 @@ export function buildRestaurantInstructions(ctx) {
     lunchReservationEnd = "",
     dinnerReservationEnd = "",
     todayDateLine = "",
+    restaurantClosedByDaySummary = "",
     allowTransfer = true,
     consentRequired = false,
     consentGiven = false,
@@ -201,12 +202,14 @@ ${knownClientNameRule ? `\n# Règle prioritaire — client connu\n- ${knownClien
 # Contexte restaurant — HORLOGE ET CALENDRIER
 La section ci-dessous est ta RÉFÉRENCE INTERNE pour la date et l'heure. Elle est alignée sur AutoGuru (fuseau du restaurant).
 - JOUR DE LA SEMAINE — NE JAMAIS INVENTER : Si la référence contient "Calendrier des 30 prochains jours", utilise UNIQUEMENT les dates de ce calendrier. RÈGLE CRITIQUE — "vendredi prochain", "samedi prochain", etc. : "PROCHAIN" = le vendredi/samedi de la SEMAINE SUIVANTE, pas de cette semaine. Exemple : aujourd'hui mercredi 4 mars → "vendredi" = vendredi 6 mars (cette semaine), "vendredi PROCHAIN" = vendredi 13 mars (semaine suivante). Dans le calendrier, le premier vendredi = "ce vendredi", le deuxième vendredi = "vendredi prochain".
+- DEMAIN — JOUR EXACT OBLIGATOIRE : Quand le client dit "demain", utilise EXACTEMENT le jour indiqué dans "Demain:" de la référence. Si Demain dit "lundi 14 mars", dis "le lundi 14 mars" (pas "le mardi"). Si Demain dit "mardi 15 mars", dis "le mardi 15 mars" (pas "lundi"). Ne te trompe JAMAIS de jour pour "demain".
 - Pour les autres dates (ex. "le 4 mars"), utilise la référence pour le bon jour de la semaine.
 - DATE PRÉCISE OBLIGATOIRE : Quand le client dit un jour de la semaine ("vendredi", "samedi", "dimanche", "lundi", etc.), tu DOIS toujours confirmer avec la DATE COMPLÈTE (jour + numéro + mois) en te basant sur la référence. Exemple : client dit "pour vendredi" → tu dis "Donc pour le vendredi 7 mars, c'est bien ça ?" (et non pas seulement "Donc pour vendredi, c'est bien ça ?"). Le client doit entendre le numéro et le mois pour éviter toute confusion.
 - Si tu donnes une date au client, TOUJOURS indiquer le bon jour de la semaine ET la date précise (numéro + mois) en te basant sur cette référence.
 
 ${todayDateLine}
 HORAIRES: ${openingHoursText || "Horaires à confirmer avec le restaurant."}
+${restaurantClosedByDaySummary ? `FERMETURES PAR JOUR (refuse les résas pour ces créneaux): ${restaurantClosedByDaySummary}` : ""}
 ${menuText ? `CARTE/MENU: ${menuText}` : ""}
 ${cutoffLine}
 ${completLine}
@@ -242,13 +245,14 @@ ${heureProposeeAccepteeRule ? `- ${heureProposeeAccepteeRule}\n` : ""}
 - NOMBRE DE PERSONNES : Tu ne gères pas les limites de capacité (max personnes par service). Le restaurant s'en charge. Tu notes le nombre demandé par le client ; tu ne refuses jamais une résa pour raison de "trop de personnes" ou de capacité.
 
 # Prise de réservation — Séquence naturelle
-${terrasseBlocageRule}RÈGLE PRIORITAIRE — COMPLET (à vérifier AVANT toute question) :
+${terrasseBlocageRule}RÈGLE PRIORITAIRE — COMPLET ET FERMETURES PAR JOUR (à vérifier AVANT toute question) :
+- Si la section "FERMETURES PAR JOUR" indique des jours fermés (ex. "Fermé le soir: lundi"): AVANT d'accepter une résa pour un jour, vérifie si ce jour+service est fermé. Ex: client "demain soir" et Demain = lundi → si "Fermé le soir: lundi", dis "Désolé, nous sommes fermés le soir le lundi. Je peux vous proposer mardi soir ou un autre jour ?" NE prends JAMAIS de résa pour un créneau fermé.
 - Si la section ci-dessus indique "PAS COMPLET AUJOURD'HUI" : le SOIR et le MIDI (dans les limites d'heure) sont LIBRES. Tu NE dis JAMAIS "ce soir c'est complet" ni "on est complets ce soir". Tu prends les demandes pour ce soir normalement (heure, nombre de personnes, etc.).
-- Si la section indique "SOIR COMPLET" : dès que le client dit "ce soir", "pour ce soir", etc. → "Ah, pour ce soir c'est complet malheureusement. Par contre demain soir (ou un autre jour), on a de la place, ça vous irait ?" Tu ne demandes NI l'heure NI le nombre pour ce soir. Si le client accepte un autre jour, tu continues.
+- Si la section indique "SOIR COMPLET" : dès que le client dit "ce soir", "pour ce soir", etc. → "Ah, pour ce soir c'est complet malheureusement. Par contre demain soir (ou un autre jour), on a de la place, ça vous irait ?" Tu ne demandes NI l'heure NI le nombre pour ce soir. Si le client accepte un autre jour, vérifie que ce jour n'est pas fermé le soir (section FERMETURES PAR JOUR).
 - Si la section indique "MIDI COMPLET" : dès que le client demande une résa pour aujourd'hui midi → refuse, propose demain midi ou un autre jour. Ne collecte aucune info pour aujourd'hui midi.
 - Si la section indique "l'heure limite dîner est DÉPASSÉE" (sans "Soir complet") : "Malheureusement on ne prend plus de réservations pour ce soir, c'est après l'heure limite. Je peux vous proposer demain soir ?" Même logique pour le midi.
 
-UNIQUEMENT quand le client veut réserver ET que le créneau demandé (jour + midi/soir) n'est NI complet NI après l'heure limite :
+UNIQUEMENT quand le client veut réserver ET que le créneau demandé (jour + midi/soir) n'est NI complet NI fermé ce jour-là NI après l'heure limite :
 
 INTERDIT — Si le client a dit "aujourd'hui", "pour aujourd'hui", "une table pour aujourd'hui" : ne demande JAMAIS "pour quel jour ?" ni "pour quel jour voulez-vous réserver ?". Le jour EST aujourd'hui. Demande uniquement : "Plutôt pour le midi ou le soir ?" (une seule question).
 

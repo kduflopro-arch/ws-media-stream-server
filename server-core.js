@@ -808,6 +808,7 @@ wss.on("connection", (ws, req) => {
   let referenceTomorrowLine = "";
   let referenceWeekCalendar = "";
   let restaurantHasTerrace = true; // Si false, l'IA ne demande pas terrasse/intérieur
+  let restaurantClosedByDaySummary = ""; // Ex: "Fermé le midi: dimanche. Fermé le soir: lundi."
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -3935,6 +3936,7 @@ ${compactPersona}`;
           clientInfo,
           garageTone,
           hasTerrace: restaurantHasTerrace,
+          restaurantClosedByDaySummary,
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
@@ -4002,6 +4004,7 @@ ${compactPersona}`;
               clientInfo,
               garageTone,
               hasTerrace: restaurantHasTerrace,
+              restaurantClosedByDaySummary,
             });
             let instructionsToSend = updatedRestaurantInstructions;
             if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
@@ -4097,6 +4100,7 @@ ${compactPersona}`;
               clientInfo,
               garageTone,
               hasTerrace: restaurantHasTerrace,
+              restaurantClosedByDaySummary,
             });
             const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS
               ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES: réservation naturelle, une question à la fois.]"
@@ -6235,6 +6239,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalReferenceTomorrowLine = startParams.referenceTomorrowLine || "";
         const finalReferenceWeekCalendar = startParams.referenceWeekCalendar || "";
         const finalRestaurantHasTerrace = startParams.restaurantHasTerrace || "";
+        const finalRestaurantClosedByDaySummary = startParams.restaurantClosedByDaySummary || "";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
         if (finalGarageType === "restaurant") effectiveSector = "restaurant";
         console.log("🏷️ Secteur effectif:", effectiveSector, "(garageType reçu:", finalGarageType || "non fourni", ")");
@@ -6286,6 +6291,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalReferenceTomorrowLine === "string" && finalReferenceTomorrowLine.trim()) referenceTomorrowLine = String(finalReferenceTomorrowLine).trim();
         if (typeof finalReferenceWeekCalendar === "string" && finalReferenceWeekCalendar.trim()) referenceWeekCalendar = String(finalReferenceWeekCalendar).trim();
         if (typeof finalRestaurantHasTerrace === "string") restaurantHasTerrace = finalRestaurantHasTerrace.trim().toLowerCase() !== "false";
+        if (typeof finalRestaurantClosedByDaySummary === "string" && finalRestaurantClosedByDaySummary.trim()) restaurantClosedByDaySummary = String(finalRestaurantClosedByDaySummary).trim();
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
