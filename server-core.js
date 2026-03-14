@@ -7,7 +7,6 @@ import { WebSocketServer, WebSocket } from "ws";
 import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
 import { RESTAURANT_CALL_ANALYSIS_PROMPT, RESTAURANT_CALL_ANALYSIS_SCHEMA, buildRestaurantInstructions } from "./config-restaurant.js";
-import { checkAvailability, createReservation, cancelReservation, getReservationLimits } from "./restaurant-tools.js";
 
 const PORT = process.env.PORT || 8080;
 const ACCOUNT_SECTOR = process.env.ACCOUNT_SECTOR || "garage";
@@ -563,7 +562,6 @@ wss.on("connection", (ws, req) => {
   }
   if (LOG_VERBOSE) console.log("📞 Paramètres extraits:", { callSid, garageId, garageName, fromNumber });
   let effectiveSector = ACCOUNT_SECTOR; // Surchargé par garageType des params (restaurant vs garage)
-  let restaurantBaseInstructions = ""; // prompt restaurant de base (pour update client)
   let goodbyeDetected = false;
   let goodbyeTimer = null;
   let deferredFinalizeTimer = null; // fallback finalize si on a différé (client raccroche sans 2e stream)
@@ -741,7 +739,6 @@ wss.on("connection", (ws, req) => {
   let transferToGarageStatus = null; // 'success' | 'failure' | null — mis par webhooks Twilio (transfer-join human = success, transfer-garage-status = failure)
   let transferTriggered = false; // true si on a appelé call-transfer avec succès → envoyer transfer_to_garage: true au finalize
   let transferFailed = false; // true si reconnexion après transfert raté (garage n'a pas répondu) — utilisé dans connectToOpenAI
-  let reservationCreatedByTool = false; // restaurant: true si create_reservation a retourné succès → rdv_requested au finalize
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let lastUserMessageText = ""; // Dernier texte client (pour safeguard hangup : ne pas raccrocher si demande devis/RDV)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
@@ -989,19 +986,19 @@ wss.on("connection", (ws, req) => {
       if (RUN_ANALYSIS_DELAY_MS > 0) {
         await new Promise((r) => setTimeout(r, RUN_ANALYSIS_DELAY_MS));
       }
-      const lastIntentAtFinalize = effectiveSector === "garage" ? (() => {
+      const lastIntentAtFinalize = (() => {
         const raw = String(lastAssistantText || "");
         const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
         const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase();
         const asksRdv = (/\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target)) && target.includes("?");
         return asksRdv ? "rdv" : (getMostRecentAssistantIntent(25000));
-      })() : null;
-      const assistantAskedForDayOrSlot = effectiveSector === "garage" && (hasAskedDayOrSlot || ((lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || ""))));
-      const pureDevisFlow = effectiveSector === "garage" && devisAcceptedByClient && !assistantAskedForDayOrSlot;
-      const rdvRequestedFromWs = effectiveSector === "restaurant" ? reservationCreatedByTool : (!pureDevisFlow && ((rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient)));
+      })();
+      const assistantAskedForDayOrSlot = hasAskedDayOrSlot || ((lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || "")));
+      const pureDevisFlow = devisAcceptedByClient && !assistantAskedForDayOrSlot;
+      const rdvRequestedFromWs = !pureDevisFlow && ((rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient));
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
-      console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { sector: effectiveSector, devis_requested: devisAcceptedByClient, validation_devis: validationDevisByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage_status: transferToGarageStatus });
-      if (effectiveSector === "garage") console.log("📌 [RDV] État badges:", { rdvAcceptedByClient, rdvRefusedByClient, rdvRequestedFromWs, assistantAskedForDayOrSlot });
+      console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, validation_devis: validationDevisByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage_status: transferToGarageStatus });
+      console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, assistantAskedForDayOrSlot });
       const lastLow = (lastAssistantText || "").toLowerCase().trim();
       const looksLikePostConsent = lastLow.includes("en quoi puis-je vous aider") || lastLow.includes("quel est votre besoin") || (lastLow.includes("dites-moi") && (lastLow.includes("souci") || lastLow.includes("puis-je vous aider"))) || /^bonjour\s+(monsieur|madame)\s+/i.test(String(lastAssistantText || "").trim());
       const effectiveConsentGranted = consentGiven || (consentRequired && !!lastAssistantText && looksLikePostConsent && userSpeakCount >= 1);
@@ -1009,9 +1006,9 @@ wss.on("connection", (ws, req) => {
         console.log("✅ Consentement inféré (IA a répondu après accueil + client a parlé au moins 1 fois):", lastAssistantText ? lastAssistantText.substring(0, 80) : "");
       }
       const hasMultiTurnExchange = assistantTurnCount >= 2;
-      const noRequest = effectiveSector === "restaurant" ? (userSpeakCount < 1) : (userSpeakCount < 1 && !assistantAskedForDayOrSlot && !hasMultiTurnExchange);
+      const noRequest = userSpeakCount < 1 && !assistantAskedForDayOrSlot && !hasMultiTurnExchange;
       const noRequestReason = "Le client n'a fait aucune demande";
-      const rdvIncomplete = effectiveSector === "garage" && assistantAskedForDayOrSlot && !rdvAcceptedByClient;
+      const rdvIncomplete = assistantAskedForDayOrSlot && !rdvAcceptedByClient; // Demande RDV, l'assistant a demandé jour/créneau, le client n'a pas donné de préférence
       const rdvIncompleteReason = "Le client a raccroché avant d'indiquer ses préférences de date pour le rendez-vous.";
       if (rdvIncomplete) console.log("📌 rdv_incomplete (WS envoie call_outcome + raison):", { userSpeakCount, rdvAcceptedByClient, lastAssistantText: (lastAssistantText || "").slice(0, 60) });
       if (noRequest) console.log("📌 no_request (client n'a pas parlé):", { userSpeakCount, assistantTurnCount });
@@ -1042,7 +1039,7 @@ wss.on("connection", (ws, req) => {
           ...(plateConfirmedByClient && clientInfo?.plate ? { plate: String(clientInfo.plate).trim() } : {}),
           consent_granted: effectiveConsentGranted,
           ...(noRequest ? { no_request: true, no_request_reason: noRequestReason } : {}),
-          ...(rdvIncomplete ? { call_outcome: "rdv_incomplete", rdv_incomplete_reason: rdvIncompleteReason } : (effectiveSector === "restaurant" && rdvRequestedFromWs ? { call_outcome: "completed" } : (rdvRequestedFromWs && rdvAcceptedByClient && assistantAskedForDayOrSlot ? { call_outcome: "completed" } : {}))),
+          ...(rdvIncomplete ? { call_outcome: "rdv_incomplete", rdv_incomplete_reason: rdvIncompleteReason } : (rdvRequestedFromWs && rdvAcceptedByClient && assistantAskedForDayOrSlot ? { call_outcome: "completed" } : {})),
         }),
       }).catch((err) => {
         console.error("❌ Erreur lors de l'appel à realtime-finalize:", err);
@@ -3421,14 +3418,25 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "1200");
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-    if (responseInProgress) return;
-    if (effectiveSector === "restaurant" && userSpeakCount === 0 && reason !== "greeting") {
-      console.log("⚠️ Aucune parole client détectée → réponse IA bloquée (reason:", reason, ")");
+    const now = nowMs();
+    if (responseInProgress) {
+      try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:3374',message:'requestResponseCreate_skipped',data:{reason,why:'responseInProgress'},hypothesisId:'C',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
       return;
     }
+    const isCommitTrigger = reason === "watchdog_after_commit" || reason === "after_response_done_pending_commit";
+    if (isCommitTrigger && effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < RESTAURANT_POST_TTS_GUARD_MS) {
+      if (LOG_VERBOSE) console.log("🗣️ response.create ignoré (restaurant): trop tôt après TTS (anti-écho)", { reason, msSinceTtsEnd: now - lastTtsEndAt, guardMs: RESTAURANT_POST_TTS_GUARD_MS });
+      return;
+    }
+    const skipDebounce = reason === "after_function_call_output";
+    if (!skipDebounce && (now - lastResponseCreateRequestedAt) < RESPONSE_CREATE_DEBOUNCE_MS) {
+      try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:3378',message:'requestResponseCreate_skipped',data:{reason,why:'debounce',msSince:now-lastResponseCreateRequestedAt},hypothesisId:'C',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
+      return;
+    }
+    lastResponseCreateRequestedAt = now;
     try {
       openaiWs.send(JSON.stringify({ type: "response.create" }));
-      console.log("response.create envoyé:", reason);
+      if (reason) console.log("🗣️ response.create envoyé:", { reason });
     } catch (err) {
       console.error("❌ Erreur response.create:", err);
     }
@@ -3887,9 +3895,7 @@ FIN D'APPEL:
 ${compactPersona}`;
         }
         const REALTIME_INSTRUCTIONS_MAX_CHARS = 44200;
-        const REALTIME_INPUT_TRANSCRIPTION_ENABLED =
-          (process.env.REALTIME_INPUT_TRANSCRIPTION_ENABLED ?? "false").toLowerCase() === "true" ||
-          effectiveSector === "restaurant";
+        const REALTIME_INPUT_TRANSCRIPTION_ENABLED = (process.env.REALTIME_INPUT_TRANSCRIPTION_ENABLED ?? "false").toLowerCase() === "true";
         const REALTIME_INPUT_TRANSCRIPTION_MODEL = process.env.REALTIME_INPUT_TRANSCRIPTION_MODEL ?? "whisper-1";
         const REALTIME_INPUT_TRANSCRIPTION_LANGUAGE = process.env.REALTIME_INPUT_TRANSCRIPTION_LANGUAGE ?? "fr";
         const garageTools = [
@@ -3901,11 +3907,7 @@ ${compactPersona}`;
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_garage", description: "Transfère l'appel vers le garage (un humain). À appeler quand le client demande à être transféré, à parler à quelqu'un du garage ou pour VALIDER un devis. Argument validation_devis: true si le client appelle POUR VALIDER un devis déjà établi (ex: 'j'appelle pour valider mon devis').", parameters: { type: "object", properties: { validation_devis: { type: "boolean", description: "true si le client appelle pour valider un devis déjà établi par le garage" } } } }] : []),
         ];
         const restaurantTools = [
-          { type: "function", name: "get_restaurant_info", description: "Menu, horaires, adresse, jours de fermeture. OBLIGATOIRE pour toute question factuelle (menu, horaires, adresse). Ne jamais inventer — appelle ce tool.", parameters: { type: "object", properties: {} } },
-          { type: "function", name: "get_reservation_limits", description: "Heures limites pour prendre une résa (midi/soir). OBLIGATOIRE avant de valider une heure d'arrivée — ne jamais inventer.", parameters: { type: "object", properties: {} } },
-          { type: "function", name: "check_availability", description: "Disponibilité pour date+service. OBLIGATOIRE quand le client demande s'il reste de la place — ne jamais répondre sans appeler ce tool.", parameters: { type: "object", properties: { date: { type: "string", description: "Date YYYY-MM-DD" }, service: { type: "string", enum: ["midi", "soir"] }, covers: { type: "number" } }, required: ["date", "service"] } },
-          { type: "function", name: "create_reservation", description: "Enregistre une demande de réservation. Paramètres: date, service, time, covers, seating (optionnel: terrasse|intérieur), name (optionnel), phone (optionnel).", parameters: { type: "object", properties: { date: { type: "string" }, service: { type: "string", enum: ["midi", "soir"] }, time: { type: "string", description: "Heure au format HH:MM" }, covers: { type: "number" }, seating: { type: "string", enum: ["terrasse", "intérieur"] }, name: { type: "string" }, phone: { type: "string" } }, required: ["date", "service", "time", "covers"] } },
-          { type: "function", name: "cancel_reservation", description: "Annule une réservation. Paramètre: reservation_id (ou identifier = numéro/nom).", parameters: { type: "object", properties: { reservation_id: { type: "string", description: "ID ou identifiant de la réservation" }, identifier: { type: "string", description: "Numéro ou nom (alternative)" } } } },
+          { type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires d'ouverture et informations du restaurant. À appeler pour questions sur le menu, les horaires, l'adresse.", parameters: { type: "object", properties: {} } },
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : []),
         ];
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
@@ -3935,7 +3937,6 @@ ${compactPersona}`;
           hasTerrace: restaurantHasTerrace,
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
-        if (effectiveSector === "restaurant") restaurantBaseInstructions = restaurantInstructions;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
         const sessionUpdate = {
           type: "session.update",
@@ -3948,7 +3949,6 @@ ${compactPersona}`;
                 turn_detection: {
                   type: "semantic_vad",
                   eagerness: (process.env.TURN_DETECTION_EAGERNESS || "high"), // high = chunks ASAP (réactivité), medium=4s, low=8s
-                  ...(effectiveSector === "restaurant" ? { create_response: false, interrupt_response: false } : {}),
                 },
               },
             },
@@ -4008,7 +4008,6 @@ ${compactPersona}`;
               const truncNote = "\n\n[RÈGLES: réservation naturelle, une question à la fois, multilangue.]";
               instructionsToSend = instructionsToSend.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - truncNote.length - 400) + truncNote;
             }
-            restaurantBaseInstructions = instructionsToSend;
             openaiWs.send(JSON.stringify({
               type: "session.update",
               session: {
@@ -4067,7 +4066,6 @@ ${compactPersona}`;
           console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
         }
         sessionUpdate.session.instructions = initialInstructionsText;
-        if (effectiveSector === "restaurant") restaurantBaseInstructions = initialInstructionsText;
         sessionUpdate.session.tools = activeTools;
         sessionUpdate.session.tool_choice = "auto";
         ws.__sessionInstructions = String(sessionUpdate.session.instructions || "");
@@ -4103,7 +4101,6 @@ ${compactPersona}`;
             const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS
               ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES: réservation naturelle, une question à la fois.]"
               : instr;
-            restaurantBaseInstructions = toSend;
             openaiWs.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: toSend, output_modalities: ["text"], tools: restaurantTools, tool_choice: "auto" } }));
             ws.__sessionInstructions = String(toSend || "");
             console.log("✅ Session mise à jour: consentement donné (restaurant)");
@@ -5499,7 +5496,7 @@ But: être naturel et mettre le client en confiance.`,
               const toolName = msg.item.name;
               const previousItemId = msg.item.id;
               const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
-              const restaurantDataTools = ["get_restaurant_info", "get_reservation_limits", "check_availability", "create_reservation", "cancel_reservation"];
+              const restaurantDataTools = ["get_restaurant_info"];
               const dataTools = effectiveSector === "restaurant" ? restaurantDataTools : garageDataTools;
               if (dataTools.includes(toolName)) {
                 const recentMs = 15000;
@@ -5592,31 +5589,8 @@ But: être naturel et mettre le client en confiance.`,
                 const stateLine = garageClosed ? "État actuel: le restaurant est actuellement FERMÉ." : "État actuel: le restaurant est actuellement OUVERT.";
                 const parts = [menuText ? `MENU: ${menuText}` : "", garageHoursText ? `HORAIRES: ${garageHoursText}` : "Horaires non renseignés.", closedDaysText ? `Jours de fermeture: ${closedDaysText}` : "", stateLine];
                 output = parts.filter(Boolean).join("\n");
-                if (!output.trim()) output = "Aucune information disponible. Dis au client que tu n'as pas l'info et proposes de le faire rappeler.";
-              }
-              else if (toolName === "get_reservation_limits") {
-                output = getReservationLimits({ lunchReservationEnd, dinnerReservationEnd });
-              }
-              else if (toolName === "check_availability") {
-                let args = {};
-                try { args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {}; } catch (_) { /* ignore */ }
-                const todayStr = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? callStartIso.slice(0, 10) : new Date().toISOString().slice(0, 10);
-                const ctx = { lunchFullToday, dinnerFullToday, lunchPassedForToday, dinnerPassedForToday, today: todayStr };
-                output = checkAvailability(args, ctx);
-              }
-              else if (toolName === "create_reservation") {
-                let args = {};
-                try { args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {}; } catch (_) { /* ignore */ }
-                output = createReservation(args);
-                try {
-                  const parsed = typeof output === "string" ? JSON.parse(output) : output;
-                  if (parsed?.status === "ok") reservationCreatedByTool = true;
-                } catch (_) { /* ignore */ }
-              }
-              else if (toolName === "cancel_reservation") {
-                let args = {};
-                try { args = msg.item.arguments ? (typeof msg.item.arguments === "string" ? JSON.parse(msg.item.arguments) : msg.item.arguments) : {}; } catch (_) { /* ignore */ }
-                output = cancelReservation(args);
+                if (!output.trim()) output = "Aucune information disponible. Propose au client de rappeler ou de consulter le site.";
+                output += "\n\nRÈGLE: Tu DOIS TOUJOURS répondre au client avec ces informations (ou proposer une alternative si vide). Ne reste JAMAIS silencieux après un appel outil.";
               }
               else if (toolName === "transfer_to_restaurant") {
                 try {
@@ -5740,7 +5714,7 @@ But: être naturel et mettre le client en confiance.`,
               if (!transferOutputDeferred) {
                 try {
                   const garageDataTools = ["get_garage_pricing", "get_opening_hours", "get_garage_services", "get_garage_faq", "get_garage_services_includes"];
-                  const restaurantDataToolsDelay = ["get_restaurant_info", "get_reservation_limits", "check_availability", "create_reservation", "cancel_reservation"];
+                  const restaurantDataToolsDelay = ["get_restaurant_info"]; // Menu, horaires : laisser finir "Je vérifie ça tout de suite"
                   if (garageDataTools.includes(toolName)) lastGarageToolOutputAt = nowMs();
                   openaiWs.send(JSON.stringify({
                     type: "conversation.item.create",
@@ -5809,40 +5783,32 @@ But: être naturel et mettre le client en confiance.`,
             if (LOG_VERBOSE) console.log("🔊 Message audio/output:", msg.type, { hasDelta: !!msg.delta, hasAudio: !!msg.audio, keys: Object.keys(msg).slice(0, 10) });
           }
           if (msg.type === "conversation.item.input_audio_transcription.completed") {
-            const transcript = msg.transcript || "";
-            const transcriptTrimmed = transcript.trim();
+            const transcript = msg.transcript;
             const isJunk = isJunkTranscript(transcript);
             if (!isJunk) {
-              console.log("🟢 transcription.completed:", (transcript || "").substring(0, 120));
-              console.log(`[CLIENT-SAYS] ${transcript || ""}`);
+              console.log("🟢 Le client a parlé (transcription complétée):", (transcript ?? "").substring(0, 120));
+              console.log(`[CLIENT-SAYS] (input_audio_transcription) ${transcript ?? ""}`);
             }
-
-            if (transcriptTrimmed && !isJunk) {
+            const transcriptTrimmed = transcript && transcript.trim();
+            const shouldUpdate = transcriptTrimmed && !isJunk;
+            if (shouldUpdate) {
+              const oldLastCommittedAt = lastCommittedAt;
               lastCommittedAt = nowMs();
               userHasSpoken = true;
               lastUserActivityMs = nowMs();
-              lastUserMessageText = transcriptTrimmed;
-            }
-
-            if (effectiveSector === "restaurant") {
-              if (!transcript || transcript.trim().length < 4) {
-                console.log("⚠️ Bruit ignoré");
-                return;
+              lastUserMessageText = String(transcript || "").trim();
+              const norm = String(transcript).trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
+              const dedupKey = "speak_" + norm;
+              if (!userSpeakItemIds.has(dedupKey)) {
+                userSpeakItemIds.add(dedupKey);
+                userSpeakCount++;
+                if (LOG_VERBOSE) console.log("📊 userSpeakCount (input_audio_transcription):", userSpeakCount);
               }
-              if (isJunk) {
-                console.log("⚠️ Bruit ignoré");
-                return;
-              }
-              userSpeakCount++;
-              console.log("🎤 Client réel détecté:", transcript);
-              requestResponseCreate("after_transcription");
-            } else {
-              requestResponseCreate("after_transcription");
-            }
-            if (transcriptTrimmed && isJunk) {
+              console.log("✅ Transcription utilisateur reçue, lastCommittedAt mis à jour:", { transcript: transcript.substring(0, 100), lastCommittedAt, oldLastCommittedAt });
+            } else if (transcriptTrimmed) {
               console.log("⚠️ Transcription ignorée (bruit détecté):", transcript.substring(0, 50));
+            } else {
             }
-            if (effectiveSector === "garage") {
             const userText = String(transcript || "").toLowerCase().trim();
             const userTextNorm = userText.replace(/\s+/g, " ").trim();
             const acceptsConsent = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|je l'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient|voilà|voila|je suis d'accord)(\s+oui|\s+merci)?\.?$/i.test(userTextNorm)
@@ -6049,7 +6015,6 @@ But: être naturel et mettre le client en confiance.`,
             } else if (otherVehicleFinal && !confirmsPlate) {
               console.log("🚗 Client demande un autre véhicule, l'IA devrait proposer d'envoyer un message pour plate_2:", { userText });
             }
-            }
           }
           if (msg.type === "error") {
             const err = msg.error || {};
@@ -6116,8 +6081,14 @@ But: être naturel et mettre le client en confiance.`,
             const canRequest = (commitTs - lastResponseAt) > 300;
             const restaurantSkipCommitWithoutSpeech = effectiveSector === "restaurant" && !hasRealSpeech;
             if (canRequest && !restaurantSkipCommitWithoutSpeech) {
-              // ne rien faire ici
-              // attendre transcription completed
+              lastResponseAt = commitTs;
+              awaitingUserResponse = false;
+              setTimeout(() => {
+                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+                if (responseInProgress) return;
+                if (lastResponseCreatedAt >= lastCommitAt) return;
+                requestResponseCreate("watchdog_after_commit");
+              }, WATCHDOG_AFTER_COMMIT_MS);
             }
           }
           if (msg.type === "response.created") {
