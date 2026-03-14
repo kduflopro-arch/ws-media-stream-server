@@ -3421,6 +3421,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     if (responseInProgress) return;
+    if (effectiveSector === "restaurant" && userSpeakCount === 0 && reason !== "greeting") {
+      console.log("⚠️ Aucune parole client détectée → réponse IA bloquée (reason:", reason, ")");
+      return;
+    }
     try {
       openaiWs.send(JSON.stringify({ type: "response.create" }));
       console.log("response.create envoyé:", reason);
@@ -5811,7 +5815,21 @@ But: être naturel et mettre le client en confiance.`,
               lastUserMessageText = transcriptTrimmed;
             }
 
-            requestResponseCreate("after_transcription");
+            if (effectiveSector === "restaurant") {
+              if (!transcript || transcript.trim().length < 5) {
+                console.log("⚠️ Transcription trop courte ou bruit ignoré:", (transcript || "").substring(0, 50));
+                return;
+              }
+              if (isJunk) {
+                console.log("⚠️ Transcription bruit détecté, réponse IA bloquée:", transcript.substring(0, 80));
+                return;
+              }
+              userSpeakCount++;
+              console.log("🎤 Client réel détecté:", transcript);
+              requestResponseCreate("after_transcription");
+            } else {
+              requestResponseCreate("after_transcription");
+            }
             if (transcriptTrimmed && isJunk) {
               console.log("⚠️ Transcription ignorée (bruit détecté):", transcript.substring(0, 50));
             }
