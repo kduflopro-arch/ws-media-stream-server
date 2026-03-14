@@ -1,77 +1,44 @@
-# Moteur conversationnel serveur — Restaurant
+# Architecture Restaurant — LLM pilote
 
-## Architecture
+## Vue d'ensemble
 
-Le serveur contrôle la logique conversationnelle. Le LLM formule uniquement les réponses naturelles.
+L'IA contrôle la conversation. Le serveur est un transport (audio + tools).
 
-### Pipeline
+### Pipeline cible
 
-1. **Transcription** : `conversation.item.input_audio_transcription.completed` → `transcript`
-2. **Moteur** : `handleUserMessage(transcript, reservationState, context)` → mise à jour de l’état et instruction
-3. **Commit** : `input_audio_buffer.committed` → watchdog 50 ms
-4. **Injection** : si `pendingRestaurantInstruction` → `conversation.item.create` (message user avec instruction)
-5. **Génération** : `response.create` → LLM produit une réponse naturelle selon l’instruction
+```
+Twilio audio → STT → LLM (décision + réponse) → tools serveur → TTS → Twilio
+```
 
-## Variables d’état (scope WebSocket)
+Le serveur ne décide plus : horaires, disponibilité, questions, flow conversation.
+Le LLM décide quand appeler les outils et quelle réponse donner.
 
-| Variable | Type | Description |
-|----------|------|-------------|
-| `reservationState` | `object` | État de la réservation en cours |
-| `reservationState.date` | `string \| null` | Date ISO (YYYY-MM-DD) |
-| `reservationState.service` | `string \| null` | "midi" ou "soir" |
-| `reservationState.time` | `string \| null` | Heure "HH:MM" |
-| `reservationState.covers` | `number \| null` | Nombre de personnes |
-| `reservationState.seating` | `string \| null` | "terrasse" ou "intérieur" |
-| `reservationState.name` | `string \| null` | Nom du client |
-| `pendingRestaurantInstruction` | `string \| null` | Instruction à injecter avant le prochain `response.create` |
+## Outils disponibles (tool calls)
 
-## Configuration
-
-- `RESTAURANT_CONVERSATION_ENGINE` (env) : `"true"` ou `"false"`. Par défaut `"true"`.
+| Outil | Description |
+|-------|-------------|
+| `get_restaurant_info` | Menu, horaires, adresse |
+| `check_availability` | Vérifie disponibilité (date, service midi/soir, covers optionnel) |
+| `create_reservation` | Enregistre une demande de réservation |
+| `cancel_reservation` | Annule une réservation (identifier = numéro ou nom) |
+| `transfer_to_restaurant` | Transfère l'appel vers un humain |
 
 ## Fichiers
 
-- **`conversation-engine.js`** : moteur (intent, slots, next action, instruction)
-- **`server-core.js`** : intégration (import, variables, handler transcription, injection avant response.create)
+| Fichier | Rôle |
+|---------|------|
+| `restaurant-tools.js` | Implémentation des outils : `checkAvailability`, `createReservation`, `cancelReservation` |
+| `config-restaurant.js` | System prompt unique, `buildRestaurantInstructions` |
+| `server-core.js` | Transport : websocket Twilio, audio, exécution des tools, TTS |
 
----
+## Configuration
 
-## Exemple de flux conversationnel
+- Les outils sont déclarés dans `restaurantTools` (server-core.js).
+- Le prompt système est fourni par `buildRestaurantInstructions` (config-restaurant.js).
+- Les paramètres dynamiques (lunchFullToday, dinnerFullToday, etc.) sont passés via start params ou via le contexte des outils.
 
-### Client : « Bonsoir je voudrais réserver demain soir pour 4 »
+## Préservation
 
-**Moteur :**
-- Intent : `reservation`
-- Slots extraits : `{ date: "2025-03-14", service: "soir", covers: 4, time: null, seating: null, name: null }`
-- État mis à jour : `{ date: "2025-03-14", service: "soir", time: null, covers: 4, seating: null, name: null }`
-- Manque : `time`
-- Instruction : « Le client souhaite réserver demain soir pour 4 personnes. Demande l’heure d’arrivée naturellement. Infos connues : date, service, personnes. »
-
-**LLM (réponse attendue) :**  
-« Très bien, à quelle heure prévoyez-vous d’arriver ? »
-
----
-
-### Client : « À 21h »
-
-**Moteur :**
-- Slots extraits : `{ time: "21:00" }`
-- État mis à jour : `{ ..., time: "21:00" }`
-- Manque : `seating` (terrasse ou intérieur)
-- Instruction : « Demande naturellement : Terrasse ou intérieur ? Infos connues : date, service, heure, personnes. »
-
-**LLM :**  
-« Parfait. Terrasse ou intérieur ? »
-
----
-
-### Client : « En terrasse »
-
-**Moteur :**
-- Slots : `{ seating: "terrasse" }`
-- État : complet
-- Action : `confirm`
-- Instruction : « Toutes les informations sont collectées. Fais un récapitulatif puis confirme la réservation. »
-
-**LLM :**  
-« Parfait, je récapitule : demain soir à 21h, en terrasse, pour 4 personnes. C’est noté, le restaurant vous confirmera par SMS. »
+- Twilio websocket, conversion µ-law, TTS
+- Badges AutoGuru, ingestion, finalize
+- SMS plaque, logs, fallback TTS

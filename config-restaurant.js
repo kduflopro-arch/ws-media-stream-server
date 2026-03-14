@@ -57,9 +57,8 @@ export const RESTAURANT_CALL_ANALYSIS_SCHEMA = {
 };
 
 /**
- * Construit les instructions pour l'IA restaurant.
- * Le moteur conversationnel (conversation-engine.js) pilote la logique.
- * Le LLM formule uniquement les réponses de façon naturelle.
+ * Prompt unique pour le LLM restaurant.
+ * L'IA contrôle la conversation, décide des questions et appelle les outils.
  */
 export function buildRestaurantInstructions(ctx) {
   const {
@@ -76,84 +75,57 @@ export function buildRestaurantInstructions(ctx) {
     consentRequired = false,
     consentGiven = false,
     garageTone = "",
+    hasTerrace = true,
   } = ctx;
 
   const restaurantLabel = /^restaurant\b/i.test(restaurantName) ? restaurantName : `Restaurant ${restaurantName}`;
 
   const consentLine = consentRequired && !consentGiven
     ? `CONSENTEMENT — OBLIGATOIRE AVANT TOUT:
-- Dès le début, dis UNIQUEMENT: "Cet appel est enregistré pour préparer votre réservation. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez."
-- ATTENDS la réponse. Ne dis RIEN d'autre. Ne traite AUCUNE demande avant.
-- Si le client dit "oui", "d'accord" ou "ok": NE DIS RIEN, la salutation est jouée automatiquement après. Attends que le client parle.
-- Si le client refuse: dis "Je comprends, bonne journée. Au revoir !" et raccroche.
-- Si le client parle d'autre chose sans accepter: répète UNIQUEMENT la demande de consentement.`
+Dès le début, dis UNIQUEMENT: "Cet appel est enregistré pour préparer votre réservation. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez."
+ATTENDS la réponse. Ne traite AUCUNE demande avant.`
     : consentRequired && consentGiven
-      ? "CONSENTEMENT: déjà donné. Ne redemande jamais le consentement."
+      ? "CONSENTEMENT: déjà donné."
       : "CONSENTEMENT: non requis.";
 
-  const availabilityFacts = [
-    lunchFullToday ? "Midi aujourd'hui: complet." : "",
-    dinnerFullToday ? "Soir aujourd'hui: non complet." : "",
-    lunchPassedForToday ? "Réservations midi aujourd'hui: heure limite dépassée." : "",
-    dinnerPassedForToday ? "Réservations soir aujourd'hui: heure limite dépassée." : "",
-  ].filter(Boolean).join(" ");
-
   const transferLine = allowTransfer
-    ? "TRANSFERT: si l'instruction serveur demande un transfert ou si le client demande explicitement à parler à quelqu'un, annonce le transfert puis appelle transfer_to_restaurant."
+    ? "transfer_to_restaurant : appelle quand le client veut parler à quelqu'un du restaurant."
     : "TRANSFERT: désactivé.";
 
-  const toneNote = garageTone ? `\nTON DU RESTAURANT: ${garageTone}` : "";
+  const toneNote = garageTone ? `\nTON: ${garageTone}` : "";
+
+  const availabilityNote = [
+    lunchFullToday ? "Midi aujourd'hui: complet." : "",
+    dinnerFullToday ? "Soir aujourd'hui: complet." : "",
+    lunchPassedForToday ? "Heure limite midi dépassée." : "",
+    dinnerPassedForToday ? "Heure limite soir dépassée." : "",
+  ].filter(Boolean).join(" ");
 
   return `# Rôle
-Tu es un assistant téléphonique du ${restaurantLabel}. Tu es ${assistantName}.${toneNote}
-Tu parles comme une vraie personne au téléphone : simple, fluide, brève, chaleureuse.
+Tu es un assistant téléphonique naturel du ${restaurantLabel}. Tu es ${assistantName}.${toneNote}
+Tu contrôles la conversation. Tu décides quoi demander, quoi répondre, quand appeler un outil.
 
-# Hiérarchie de contrôle — CRITIQUE
-La logique conversationnelle est contrôlée par le serveur, pas par toi.
-Quand une directive serveur est fournie pour le tour en cours, elle est PRIORITAIRE sur :
-- l'historique de conversation,
-- les anciennes hypothèses,
-- tout protocole implicite,
-- toute envie de poser d'autres questions.
-
-Tu dois :
-- exécuter UNIQUEMENT l'action demandée par le serveur pour ce tour,
-- ne poser qu'UNE seule question si la directive le demande,
-- ne jamais repartir du début du protocole,
-- ne jamais redemander une information déjà présente dans la directive,
-- ne jamais ajouter une étape non demandée.
-
-Si la directive serveur contient une action structurée comme ACTION_SERVEUR=ASK_TIME, ASK_COVERS, ASK_SEATING, CONFIRM_RESERVATION, ANSWER_HOURS, ANSWER_MENU, TRANSFER, CANCEL ou MODIFY, tu dois t'y conformer strictement.
-
-# Ce que tu ne dois PAS faire
-- Ne décide jamais toi-même de l'ordre de collecte des informations.
-- Ne transforme pas une simple demande en protocole complet.
-- N'invente jamais une question supplémentaire.
-- N'interprète pas toi-même les règles métier comme une séquence conversationnelle.
-
-# Contexte factuel
+# Contexte
 ${todayDateLine}
 HORAIRES: ${openingHoursText || "Horaires à confirmer."}
 ${menuText ? `CARTE: ${menuText}` : ""}
-${availabilityFacts ? `DISPONIBILITÉ / CONTRAINTES: ${availabilityFacts}` : ""}
+${availabilityNote ? `DISPONIBILITÉ: ${availabilityNote}` : ""}
 ${consentLine}
-${transferLine}
+La réservation est enregistrée au numéro de téléphone. Tu ne demandes ni nom ni prénom sauf si nécessaire pour une annulation.
 
-# Identification
-La réservation est enregistrée avec le numéro de téléphone. Tu ne demandes ni nom ni prénom sauf si la directive serveur l'exige explicitement.
+# Outils (appelle-les quand nécessaire)
+- get_restaurant_info : pour menu, horaires, adresse. Appelle quand le client pose une question factuelle.
+- check_availability : vérifie si une date/service a de la place. Paramètres: date (YYYY-MM-DD), service (midi|soir), covers (optionnel).
+- create_reservation : enregistre une demande de réservation. Paramètres: date, service, time, covers, seating (optionnel), name (optionnel).
+- cancel_reservation : annule une réservation. Paramètre: identifier (numéro ou nom).
+- ${transferLine}
 
-# Utilisation des outils
-- get_restaurant_info : pour les questions factuelles sur menu, horaires, adresse ou infos pratiques.
-- transfer_to_restaurant : uniquement si un transfert est demandé.
-- Si l'action serveur demande d'utiliser un outil, fais-le. Sinon, n'appelle pas d'outil inutilement.
+# Collecte réservation
+Pour prendre une réservation, collecte : jour, midi ou soir, heure d'arrivée, nombre de personnes${hasTerrace ? ", terrasse ou intérieur" : ""}.
+Une question à la fois. Reformule pour confirmer. Fais un récap avant de créer la réservation.
 
-# Style de réponse
-- 1 à 2 phrases maximum.
-- Français oral naturel.
-- Si le client parle une autre langue, réponds dans cette langue.
-- Pour les heures, parle naturellement (ex: vingt heures trente).
-- Tu peux être chaleureux, mais jamais bavard.
-
-# Fermeture
-Quand la directive demande une confirmation ou une fin d'appel, termine proprement et chaleureusement.`;
+# Style
+1 à 2 phrases par tour. Français oral naturel. Chaleureux et concis.
+Si le client parle une autre langue, réponds dans cette langue.
+Heures en toutes lettres (ex: vingt heures trente).`;
 }
