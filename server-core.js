@@ -5815,6 +5815,7 @@ But: être naturel et mettre le client en confiance.`,
             if (transcriptTrimmed && isJunk) {
               console.log("⚠️ Transcription ignorée (bruit détecté):", transcript.substring(0, 50));
             }
+            if (effectiveSector === "garage") {
             const userText = String(transcript || "").toLowerCase().trim();
             const userTextNorm = userText.replace(/\s+/g, " ").trim();
             const acceptsConsent = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|je l'accepte|d'accord pour l'enregistrement|cela me convient|ça me convient|me convient|voilà|voila|je suis d'accord)(\s+oui|\s+merci)?\.?$/i.test(userTextNorm)
@@ -6020,6 +6021,7 @@ But: être naturel et mettre le client en confiance.`,
               plateConfirmedByClient = true;
             } else if (otherVehicleFinal && !confirmsPlate) {
               console.log("🚗 Client demande un autre véhicule, l'IA devrait proposer d'envoyer un message pour plate_2:", { userText });
+            }
             }
           }
           if (msg.type === "error") {
