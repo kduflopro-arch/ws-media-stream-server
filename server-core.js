@@ -2500,6 +2500,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             console.log("[DEDUP-TTS] Doublon détecté après 'C'est bien ça ?'");
             return firstPart;
           }
+          // Récap répété : même bloc deux fois (ex. "Super, donc demain... C'est bien ça ?Super, donc demain...")
+          const prefixLen = Math.min(50, Math.floor(firstPart.length / 2));
+          if (prefixLen >= 25 && (rest.slice(0, prefixLen) === firstPart.slice(0, prefixLen) || normFull(rest.slice(0, prefixLen)) === normFull(firstPart.slice(0, prefixLen)))) {
+            console.log("[DEDUP-TTS] Bloc récap répété (même début après 'C'est bien ça ?'), garde premier bloc");
+            return firstPart;
+          }
         }
       }
     }
@@ -2513,8 +2519,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         if (firstPart.length >= 30) return firstPart;
       }
     }
-    // Récap répété (ex. "Parfait, en terrasse. Je récapitule :... C'est bien ça ?Parfait, en terrasse. Je récapitule...")
-    const dupStart = /Parfait,\s*(en terrasse|à l'intérieur|à l'interieur|je récapitule)/i;
+    // Récap répété (ex. "Parfait, en terrasse. Je récapitule :... C'est bien ça ?Parfait..." ou "Super, donc demain... C'est bien ça ?Super...")
+    const dupStart = /(Parfait|Super),?\s*(en terrasse|à l['']intérieur|à l['']interieur|donc\s+demain|je récapitule)/i;
     const idx1 = t.search(dupStart);
     if (idx1 === 0) {
       const idx2 = t.slice(30).search(dupStart);
@@ -2523,6 +2529,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const firstPart = norm(t.slice(0, pos2));
         const secondPart = norm(t.slice(pos2));
         if (firstPart.length >= 40 && (firstPart === secondPart || normApo(firstPart) === normApo(secondPart))) {
+          console.log("[DEDUP-TTS] Récap répété (Parfait/Super...), garde premier bloc");
           return firstPart;
         }
       }

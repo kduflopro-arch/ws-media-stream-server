@@ -165,9 +165,9 @@ Le restaurant est FERMÉ en ce moment. Toutes les règles ci-dessous sont subord
   const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre de personnes, terrasse/intérieur" : "jour, midi/soir, heure, nombre de personnes";
   const terrasseSequenceStep = hasTerrace ? "4b. \"Terrasse ou intérieur ?\" — OBLIGATOIRE si non dit. Après sa réponse, confirmer à voix haute : \"Parfait, en terrasse.\" ou \"Parfait, à l'intérieur.\" selon le mot qu'il a dit (ne pas inverser). Puis récap.\n" : "";
   const recapContent = hasTerrace ? "jour, HEURE d'arrivée, terrasse ou intérieur, ET nombre de personnes" : "jour, HEURE d'arrivée, ET nombre de personnes";
-  const recapExample = hasTerrace ? "Parfait, je récapitule : aujourd'hui midi à 12h30, en terrasse, pour 4 personnes. C'est bien ça ?" : "Parfait, je récapitule : aujourd'hui midi à 12h30, pour 4 personnes. C'est bien ça ?";
+  const recapExample = hasTerrace ? "Parfait, à l'intérieur. Je récapitule : demain, le lundi 16 mars, à 13h30, à l'intérieur, pour 4 personnes. C'est bien ça ?" : "Parfait. Je récapitule : demain, le lundi 16 mars, à 13h30, pour 4 personnes. C'est bien ça ?";
   const recapFinalExample = hasTerrace ? "le vendredi 7 mars à 20h30, en terrasse, pour 4 personnes (réservation enregistrée au numéro qui appelle)" : "le vendredi 7 mars à 20h30, pour 4 personnes (réservation enregistrée au numéro qui appelle)";
-  const recapNoPlaceholdersRule = "RÉCAP — INTERDIT de prononcer des crochets/placeholders. Utilise les VRAIES valeurs uniquement. Si une info manque, demande-la AVANT le récap. Exemple correct : \"" + recapFinalExample + ". C'est bien ça ?\"";
+  const recapNoPlaceholdersRule = "RÉCAP — INTERDIT de prononcer des crochets/placeholders. Utilise les VRAIES valeurs uniquement. Si une info manque, demande-la AVANT le récap. ORDRE OBLIGATOIRE : d'abord « Je récapitule : » puis LES DÉTAILS (jour, heure, terrasse/intérieur, nombre), puis « C'est bien ça ? ». INTERDIT d'écrire les détails avant « Je récapitule : ». INTERDIT d'écrire « Je récapitule : c'est bien ça ? » — « Je récapitule » introduit les détails, pas la question.";
   const extractionTerrasse = hasTerrace ? " préférence terrasse/intérieur," : "";
   const flowTerrasse = hasTerrace ? " puis \"Vous serez combien ?\", \"Terrasse ou intérieur ?\"." : " puis \"Vous serez combien ?\".";
   const orderTerrasse = hasTerrace ? " jour + heure + terrasse/intérieur + nombre de personnes." : " jour + heure + nombre de personnes.";
@@ -302,8 +302,8 @@ Séquence (infos MANQUANTES uniquement) :
 ${terrasseSequenceStep}⚠️ CHECKPOINT AVANT RÉCAP — VÉRIFIE QUE TU AS TOUT (BLOQUANT) :
 Avant de faire le récap, vérifie que tu as TOUTES ces infos : jour, midi/soir, heure d'arrivée, nombre de personnes${hasTerrace ? ", terrasse/intérieur" : ""}. S'il te MANQUE une info (${hasTerrace ? "notamment terrasse/intérieur" : "notamment le nombre de personnes"}), tu DOIS la demander AVANT. INTERDIT de faire le récap avec une info manquante.${hasTerrace ? " Si tu n'as pas encore demandé \"Terrasse ou intérieur ?\", pose cette question MAINTENANT et attends la réponse AVANT de récapituler." : ""}
 
-5. OBLIGATOIRE — Récapitule : ${recapContent}. ${recapNoPlaceholdersRule} Exemple : "${recapExample}" — UNE SEULE FOIS, jamais répéter.
-RÉCAP en UNE seule réplique : "Parfait, [terrasse/intérieur]. Je récapitule : [détails]. C'est bien ça ?" puis STOP. INTERDIT de redire "C'est bien ça ?" ou d'enchaîner avec "Parfait, à l'intérieur" (ou terrasse) une deuxième fois. Une seule question "C'est bien ça ?" par récap.
+5. OBLIGATOIRE — Récapitule : ${recapContent}. ${recapNoPlaceholdersRule}
+ORDRE STRICT du récap (UNE SEULE réplique) : "[Parfait/Super], [à l'intérieur ou en terrasse]. Je récapitule : [jour], [heure], [terrasse/intérieur], [X personnes]. C'est bien ça ?" — puis STOP. Les DÉTAILS (jour, heure, lieu, nombre) doivent être APRÈS « Je récapitule : », jamais avant. INTERDIT : « …pour 4 personnes. Je récapitule : c'est bien ça ? » (faux). INTERDIT de répéter la même phrase deux fois. Exemple correct : "${recapExample}"
 APRÈS "C'EST BIEN ÇA ?" → STOP TOTAL : Attends la réponse. Pas de "C'est noté" ni rien d'autre. Passe à la suite QUE si le client confirme clairement. Si ambigu → redemande.
 6. Pas de nom/prénom. La résa est au numéro qui appelle.
 7. "C'est bien à ce numéro qu'on peut vous joindre ?" — si pas encore confirmé.
