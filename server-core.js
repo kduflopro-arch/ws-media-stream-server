@@ -2321,12 +2321,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           take();
         });
         if (msg.type === "chunk" && msg.data) {
-          const buf = Buffer.from(msg.data, "base64");
-          if (buf.length > 0) {
-            totalBytes += buf.length;
-            for (let i = 0; i < buf.length; i += chunkSize) {
-              const chunk = buf.subarray(i, Math.min(i + chunkSize, buf.length));
-              if (chunk.length > 0) enqueueOutboundMulaw(chunk);
+          // Forwarding direct à Twilio (recommandé par Cartesia) — pas de re-découpage/queue
+          if (twilioStreamSid && ws && ws.readyState === 1) {
+            try {
+              ws.send(JSON.stringify({
+                event: "media",
+                streamSid: twilioStreamSid,
+                media: { payload: msg.data },
+              }));
+              totalBytes += msg.data.length;
+            } catch (err) {
+              console.error("❌ Erreur envoi Cartesia→Twilio:", err);
             }
           }
         }
