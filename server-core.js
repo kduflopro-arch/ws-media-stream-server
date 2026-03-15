@@ -4653,9 +4653,8 @@ But: être naturel et mettre le client en confiance.`,
                         }, 500);
                       }
                     } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                      const restaurantSkipRetryAfterTts = effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < (Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "5500"));
-                      if (restaurantSkipRetryAfterTts) {
-                        if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry juste après TTS (laisser le client répondre)");
+                      if (effectiveSector === "restaurant") {
+                        if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (réponse vide = souvent bruit/écho, retry désactivé)");
                       } else {
                         lastEmptyResponseRetryCommitAt = lastCommitAt;
                         console.log("🔄 Réponse vide alors que le client vient de parler — retry response.create (évite de répéter plusieurs fois)");
@@ -4686,9 +4685,8 @@ But: être naturel et mettre le client en confiance.`,
                     }
                     const now = nowMs();
                     if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                      const restaurantSkipRetryAfterTts2 = effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < (Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "5500"));
-                      if (restaurantSkipRetryAfterTts2) {
-                        if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (pas de texte) juste après TTS");
+                      if (effectiveSector === "restaurant") {
+                        if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (pas de texte = souvent bruit/écho)");
                       } else {
                         lastEmptyResponseRetryCommitAt = lastCommitAt;
                         console.log("🔄 Pas de texte extrait (structure?) alors que le client vient de parler — retry response.create");
@@ -4746,8 +4744,9 @@ But: être naturel et mettre le client en confiance.`,
                 }
                 const now = nowMs();
                 if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                  const restaurantSkipRetryAfterTts3 = effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < (Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "5500"));
-                  if (!restaurantSkipRetryAfterTts3) {
+                  if (effectiveSector === "restaurant") {
+                    if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (erreur extraction)");
+                  } else {
                     lastEmptyResponseRetryCommitAt = lastCommitAt;
                     console.log("🔄 Erreur extraction alors que le client vient de parler — retry response.create");
                     setTimeout(() => {
@@ -4761,8 +4760,9 @@ But: être naturel et mettre le client en confiance.`,
             } else if (REALTIME_USE_ELEVEN && rid && (!msg.response?.output || (Array.isArray(msg.response.output) && msg.response.output.length === 0))) {
               const now = nowMs();
               if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                const restaurantSkipRetryAfterTts4 = effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < (Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "5500"));
-                if (!restaurantSkipRetryAfterTts4) {
+                if (effectiveSector === "restaurant") {
+                  if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (sans output)");
+                } else {
                   lastEmptyResponseRetryCommitAt = lastCommitAt;
                   console.log("🔄 response.done sans output alors que le client vient de parler — retry response.create (évite de répéter)");
                   setTimeout(() => {
