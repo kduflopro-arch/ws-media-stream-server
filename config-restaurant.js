@@ -10,12 +10,12 @@ Ta mission : Analyser une transcription d'appel client et fournir une analyse st
 
 Contraintes strictes :
 1. Détecte le type d'appel : demande de réservation, information, modification de réservation, annulation de réservation.
-2. Extrais TOUTES les informations de réservation : nombre de personnes, date, heure, terrasse ou intérieur (seatingPreference), allergies si mentionnées, autres préférences, confirmation du numéro joignable, numéro secondaire si mentionné. La réservation est enregistrée au numéro qui appelle ; ne pas exiger de nom/prénom.
+2. Extrais TOUTES les informations de réservation : nom du client (clientName) pour la réservation, nombre de personnes, date, heure, terrasse ou intérieur (seatingPreference), allergies si mentionnées, autres préférences, confirmation du numéro joignable, numéro secondaire si mentionné. La réservation est au numéro qui appelle ; le nom (clientName) est celui donné par le client pour la résa.
 3. MESSAGE À TRANSMETTRE AU RESTAURANT (CRITIQUE) : Si l'assistant a posé la question "Avez-vous autre chose à ajouter ou à transmettre au restaurant ?" et que le client a répondu par des informations (anniversaire, accessibilité, régime particulier, demande spéciale, etc.), tu DOIS mettre cette réponse EXACTE dans le champ "preferences" de reservationDetails. Ne jamais omettre cette information.
 3. Résumé (summary) : structuré, lisible, fidèle à la conversation. Ne rien inventer. Les noms toujours en format lisible (Dupont, pas D-U-P-O-N-T).
 4. Conclusion (aiConclusion) : 3 à 5 points actionnables pour le restaurant.
 5. callType : "demande_reservation" | "info" | "modification_reservation" | "annulation_reservation"
-6. Informations client : nombre de personnes, date/heure souhaitées, terrasse ou intérieur (seatingPreference), allergies si mentionnées, autres préférences, numéro confirmé. La résa est identifiée par le numéro d'appel. clientName = "" (on ne collecte plus le nom). seatingPreference = "terrasse" ou "intérieur" ou "" si non dit. allergies = texte des allergies mentionnées ou "" si aucune.
+6. Informations client : clientName = nom donné par le client pour la réservation (ex. "Dupont", "Marie Martin"). numberOfPeople, date/heure, terrasse ou intérieur (seatingPreference), allergies, préférences, numéro confirmé. seatingPreference = "terrasse" ou "intérieur" ou "" si non dit.
 
 Format de sortie JSON strict. Réponds dans la langue de la transcription.`;
 
@@ -150,7 +150,7 @@ Le restaurant est FERMÉ en ce moment. Toutes les règles ci-dessous sont subord
   // La réservation est enregistrée au numéro qui appelle. On ne demande ni nom ni prénom.
   const knownClientNameRule = "";
 
-  const clientSection = "IDENTIFICATION : Résa enregistrée au numéro de l'appelant. INTERDIT de demander nom/prénom. Confirme à la fin : \"La réservation sera enregistrée à ce numéro.\"";
+  const clientSection = "IDENTIFICATION : Résa enregistrée au numéro qui appelle. Demande le NOM pour la réservation : « À quel nom souhaitez-vous réserver ? » ou « C'est pour quel nom ? » — à poser avant le récap. Inclure le nom dans le récap. Confirme à la fin : \"La réservation sera enregistrée à ce numéro.\"";
 
   const toneNote = garageTone
     ? `TON PERSONNALISÉ DU RESTAURANT: ${garageTone}`
@@ -162,18 +162,18 @@ Le restaurant est FERMÉ en ce moment. Toutes les règles ci-dessous sont subord
   const terrasseRule = hasTerrace
     ? "- Terrasse/intérieur — NE JAMAIS INVERSER : \"terrasse\" → TERRASSE, \"intérieur\" → INTÉRIEUR. \"Peu importe\" → choisis (ex. intérieur), dis-le UNE FOIS. Confirmation ET récap = MÊME valeur (INTERDIT d'inverser). Après confirmation, passe au récap."
     : "PAS DE TERRASSE — Ne demande JAMAIS \"Terrasse ou intérieur ?\".";
-  const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre de personnes, terrasse/intérieur" : "jour, midi/soir, heure, nombre de personnes";
-  const terrasseSequenceStep = hasTerrace ? "4. \"Vous serez combien ?\" — OBLIGATOIRE avant terrasse. 4b. \"Terrasse ou intérieur ?\" — APRÈS le nombre de personnes uniquement. Après sa réponse, confirmer : \"Parfait, en terrasse.\" ou \"Parfait, à l'intérieur.\" Puis récap.\n" : "";
-  const recapContent = hasTerrace ? "jour, HEURE d'arrivée, terrasse ou intérieur, ET nombre de personnes" : "jour, HEURE d'arrivée, ET nombre de personnes";
-  const recapExample = hasTerrace ? "Parfait, à l'intérieur. Je récapitule : demain, le lundi 16 mars, à 13h30, à l'intérieur, pour 4 personnes. C'est bien ça ?" : "Parfait. Je récapitule : demain, le lundi 16 mars, à 13h30, pour 4 personnes. C'est bien ça ?";
-  const recapFinalExample = hasTerrace ? "le vendredi 7 mars à 20h30, en terrasse, pour 4 personnes (réservation enregistrée au numéro qui appelle)" : "le vendredi 7 mars à 20h30, pour 4 personnes (réservation enregistrée au numéro qui appelle)";
-  const recapNoPlaceholdersRule = "RÉCAP — INTERDIT de prononcer des crochets/placeholders. Utilise les VRAIES valeurs uniquement. Si une info manque, demande-la AVANT le récap. ORDRE OBLIGATOIRE : d'abord « Je récapitule : » puis LES DÉTAILS (jour, heure, terrasse/intérieur, nombre), puis « C'est bien ça ? ». INTERDIT d'écrire les détails avant « Je récapitule : ». INTERDIT d'écrire « Je récapitule : c'est bien ça ? » — « Je récapitule » introduit les détails, pas la question.";
+  const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre de personnes, terrasse/intérieur, nom pour la réservation" : "jour, midi/soir, heure, nombre de personnes, nom pour la réservation";
+  const terrasseSequenceStep = hasTerrace ? "4. \"Vous serez combien ?\" — OBLIGATOIRE avant terrasse. 4b. \"Terrasse ou intérieur ?\" — APRÈS le nombre de personnes. 4c. \"À quel nom souhaitez-vous réserver ?\" — AVANT le récap. Après sa réponse, récap avec le nom.\n" : "4. \"Vous serez combien ?\" — puis \"À quel nom souhaitez-vous réserver ?\" — puis récap.\n";
+  const recapContent = hasTerrace ? "jour, HEURE d'arrivée, terrasse ou intérieur, nombre de personnes, ET nom pour la réservation" : "jour, HEURE d'arrivée, nombre de personnes, ET nom pour la réservation";
+  const recapExample = hasTerrace ? "Parfait, à l'intérieur. Je récapitule : demain, le lundi 16 mars, à 13h30, à l'intérieur, pour 4 personnes, au nom de Martin. C'est bien ça ?" : "Parfait. Je récapitule : demain, le lundi 16 mars, à 13h30, pour 4 personnes, au nom de Martin. C'est bien ça ?";
+  const recapFinalExample = hasTerrace ? "le vendredi 7 mars à 20h30, en terrasse, pour 4 personnes, au nom de Dupont (réservation enregistrée au numéro qui appelle)" : "le vendredi 7 mars à 20h30, pour 4 personnes, au nom de Dupont (réservation enregistrée au numéro qui appelle)";
+  const recapNoPlaceholdersRule = "RÉCAP — INTERDIT de prononcer des crochets/placeholders. Utilise les VRAIES valeurs uniquement (dont le NOM). Si une info manque (jour, heure, nombre, terrasse/intérieur, nom), demande-la AVANT le récap. ORDRE : « Je récapitule : » puis LES DÉTAILS (jour, heure, terrasse/intérieur, nombre, au nom de [X]), puis « C'est bien ça ? ». INTERDIT d'écrire « Je récapitule : c'est bien ça ? » sans les détails.";
   const extractionTerrasse = hasTerrace ? " préférence terrasse/intérieur," : "";
   const flowTerrasse = hasTerrace ? " puis \"Vous serez combien ?\", \"Terrasse ou intérieur ?\"." : " puis \"Vous serez combien ?\".";
-  const orderTerrasse = hasTerrace ? " jour + heure + nombre de personnes + terrasse/intérieur." : " jour + heure + nombre de personnes.";
+  const orderTerrasse = hasTerrace ? " jour + heure + nombre de personnes + terrasse/intérieur + nom." : " jour + heure + nombre de personnes + nom.";
   const orderQuestionsRule = hasTerrace
-    ? "\n⚠️ ORDRE IMPÉRATIF DES QUESTIONS (on ne saute jamais une étape) : 1) Jour (date) 2) Midi ou soir 3) Heure d'arrivée 4) « Vous serez combien ? » (nombre de personnes) 5) « Terrasse ou intérieur ? » 6) Récap. INTERDIT de demander « Terrasse ou intérieur ? » avant d'avoir posé « Vous serez combien ? » et obtenu la réponse. Si tu as le jour + midi/soir (ex. demain midi) mais pas l'heure → demande l'heure. Puis « Vous serez combien ? ». Puis « Terrasse ou intérieur ? ». Jamais l'inverse.\n"
-    : "\n⚠️ ORDRE IMPÉRATIF : 1) Jour 2) Midi ou soir 3) Heure 4) « Vous serez combien ? » 5) Récap.\n";
+    ? "\n⚠️ ORDRE IMPÉRATIF DES QUESTIONS : 1) Jour 2) Midi ou soir 3) Heure 4) « Vous serez combien ? » 5) « Terrasse ou intérieur ? » 6) « À quel nom souhaitez-vous réserver ? » 7) Récap (avec le nom dans le récap). Jamais demander terrasse avant le nombre. Jamais faire le récap sans le nom.\n"
+    : "\n⚠️ ORDRE IMPÉRATIF : 1) Jour 2) Midi ou soir 3) Heure 4) « Vous serez combien ? » 5) « À quel nom souhaitez-vous réserver ? » 6) Récap (avec le nom).\n";
   const modificationTerrasse = hasTerrace ? ", \"C'est intérieur finalement\"" : "";
 
   const pasCompletRappel = !lunchFullToday && !dinnerFullToday
@@ -202,7 +202,7 @@ ${restaurantClosedLine ? `\n${restaurantClosedLine}\n` : ""}${fermetureSoirBloqu
 ${toneNote}
 ${knownClientNameRule ? `\n# Règle prioritaire — client connu\n- ${knownClientNameRule}\n` : ""}
 # Identification réservation
-- Résa enregistrée au numéro de l'appelant. NI nom NI prénom demandé.
+- Résa enregistrée au numéro qui appelle. Demande le nom pour la réservation (« À quel nom souhaitez-vous réserver ? ») avant le récap et inclus-le dans le récap.
 
 
 # Langue et prononciation
@@ -273,7 +273,7 @@ INTERDIT — Si le client dit "aujourd'hui" : ne demande JAMAIS "pour quel jour 
 
 DEMANDE DE RÉSERVATION UNIQUEMENT : Tu notes une DEMANDE (jamais "réservation confirmée"). Le restaurant confirmera par SMS.
 
-EXTRACTION COMPLÈTE : Extrais TOUTES les infos déjà dites (jour, heure,${extractionTerrasse} nombre). Ne redemande JAMAIS une info donnée. Pas de nom/prénom.
+EXTRACTION COMPLÈTE : Extrais TOUTES les infos déjà dites (jour, heure,${extractionTerrasse} nombre, nom pour la résa). Ne redemande JAMAIS une info donnée.
 Ex : "pour ce midi" → tu as jour+midi. Demande "À quelle heure ?"${flowTerrasse}
 Ex : "pour demain soir" → vérifie fermetures, si ouvert confirme la date puis "À quelle heure ?"
 Ex : "vendredi 13 mars à 20h30" → tu as jour+soir+heure. Confirme la date, puis "Vous serez combien ?" (INTERDIT de demander heure ou midi/soir).
@@ -295,26 +295,26 @@ ${hasTerrace ? "- Terrasse ou intérieur : UNIQUEMENT après avoir obtenu le nom
 
 INTERDIT de demander l'occasion (anniversaire, fête, etc.). Tu ne collectes que : ${terrasseInterditCollect}.
 
-NOUVELLE DATE (après refus/complet) : Inclus heure+nombre déjà connus dans ta proposition. Si le client accepte → ne redemande RIEN. ${hasTerrace ? "Demande \"Vous serez combien ?\" si pas encore dit, puis \"Terrasse ou intérieur ?\", puis récap." : "Passe au récap."}
+NOUVELLE DATE (après refus/complet) : Inclus heure+nombre déjà connus dans ta proposition. Si le client accepte → ne redemande RIEN. ${hasTerrace ? "Demande \"Vous serez combien ?\" si pas dit, puis \"Terrasse ou intérieur ?\", puis \"À quel nom souhaitez-vous réserver ?\", puis récap." : "Demande \"À quel nom ?\" si pas dit, puis récap."}
 ${orderQuestionsRule}
 Séquence (infos MANQUANTES uniquement) :
 1. Jour manquant → "C'est pour quel jour ?" Confirme avec date complète. Si c'est une date que TU as proposée et acceptée → ne reconfirme pas. UNE question par tour.
 2. Midi/soir manquant → "Plutôt midi ou soir ?" UNIQUEMENT si non dit ET les deux sont ouverts. Si heure donnée (20h30=soir) → SAUTE.
 3. Heure manquante → "À quelle heure ?" UNIQUEMENT si non dite et non incluse dans une proposition acceptée.
 4. Nombre manquant → "Vous serez combien ?" OBLIGATOIRE avant récap.
-${terrasseSequenceStep}⚠️ CHECKPOINT AVANT RÉCAP — VÉRIFIE QUE TU AS TOUT (BLOQUANT) :
-Avant de faire le récap, vérifie que tu as TOUTES ces infos : jour, midi/soir, heure d'arrivée, nombre de personnes${hasTerrace ? ", terrasse/intérieur" : ""}. S'il manque le NOMBRE DE PERSONNES → "Vous serez combien ?" d'abord. S'il manque terrasse/intérieur (et que tu as déjà le nombre) → "Terrasse ou intérieur ?". INTERDIT de faire le récap sans nombre de personnes. INTERDIT de demander terrasse/intérieur avant "Vous serez combien ?".
+${terrasseSequenceStep}5. Nom pour la réservation manquant → "À quel nom souhaitez-vous réserver ?" OBLIGATOIRE avant le récap. Puis récap avec le nom.
+⚠️ CHECKPOINT AVANT RÉCAP — VÉRIFIE QUE TU AS TOUT (BLOQUANT) :
+Avant de faire le récap, vérifie que tu as : jour, midi/soir, heure, nombre de personnes${hasTerrace ? ", terrasse/intérieur" : ""}, NOM pour la réservation. S'il manque le nom → "À quel nom souhaitez-vous réserver ?". INTERDIT de faire le récap sans le nom.
 
-5. OBLIGATOIRE — Récapitule : ${recapContent}. ${recapNoPlaceholdersRule}
-ORDRE STRICT du récap (UNE SEULE réplique) : "[Parfait/Super], [à l'intérieur ou en terrasse]. Je récapitule : [jour], [heure], [terrasse/intérieur], [X personnes]. C'est bien ça ?" — puis STOP. Les DÉTAILS (jour, heure, lieu, nombre) doivent être APRÈS « Je récapitule : », jamais avant. INTERDIT : « …pour 4 personnes. Je récapitule : c'est bien ça ? » (faux). INTERDIT de répéter la même phrase deux fois. Exemple correct : "${recapExample}"
-APRÈS "C'EST BIEN ÇA ?" → STOP TOTAL : Attends la réponse. Pas de "C'est noté" ni rien d'autre. Passe à la suite QUE si le client confirme clairement. Si ambigu → redemande.
-6. Pas de nom/prénom. La résa est au numéro qui appelle.
+6. OBLIGATOIRE — Récapitule : ${recapContent}. ${recapNoPlaceholdersRule}
+ORDRE STRICT du récap : "[Parfait/Super], [à l'intérieur ou en terrasse]. Je récapitule : [jour], [heure], [terrasse/intérieur], [X personnes], au nom de [nom]. C'est bien ça ?" — puis STOP. Le NOM doit figurer dans le récap. Exemple : "${recapExample}"
+APRÈS "C'EST BIEN ÇA ?" → STOP TOTAL : Attends la réponse. Passe à la suite QUE si le client confirme. Si ambigu → redemande.
 7. "C'est bien à ce numéro qu'on peut vous joindre ?" — si pas encore confirmé.
 7b. (Allergies : "Des allergies à signaler ?" — optionnel.)
 8. OBLIGATOIRE : "Avez-vous autre chose à ajouter ou à transmettre au restaurant ?" ATTENDS la réponse. INTERDIT de conclure sans cette étape.
-9. Conclusion : UNIQUEMENT APRÈS récap confirmé (5) + réponse à "autre chose" (8). Dis exactement : "C'est noté ! C'est une demande de réservation, le restaurant vous confirmera par message. Bonne journée et à bientôt !" INTERDIT d'ajouter "Merci pour l'information" ou "Nous en tiendrons compte pour votre réservation" avant ou après.
+9. Conclusion : UNIQUEMENT APRÈS récap confirmé (6) + réponse à "autre chose" (8). Dis exactement : "C'est noté ! C'est une demande de réservation, le restaurant vous confirmera par message. Bonne journée et à bientôt !" INTERDIT d'ajouter "Merci pour l'information" ou "Nous en tiendrons compte pour votre réservation" avant ou après.
 
-MODIFICATION PENDANT RÉCAP : Si le client corrige (ex. "non 4 personnes", "c'est à 14h", "plutôt intérieur") → dis "D'accord, je corrige." puis tu DOIS redire le RÉCAP COMPLET avec la correction : "Je récapitule : [jour], [heure], [terrasse/intérieur], [nombre corrigé]. C'est bien ça ?" Le client doit TOUJOURS entendre le récap entier après une correction pour confirmer. INTERDIT de dire seulement "D'accord, je corrige. C'est bien ça ?" sans redonner les détails.
+MODIFICATION PENDANT RÉCAP : Si le client corrige (ex. "non 4 personnes", "c'est à 14h", "plutôt intérieur", "c'est Martin") → dis "D'accord, je corrige." puis redire le RÉCAP COMPLET avec la correction, en incluant le nom : "Je récapitule : [jour], [heure], [terrasse/intérieur], [nombre], au nom de [nom]. C'est bien ça ?" Toujours redonner tous les détails après une correction.
 
 L'ORDRE EST FLEXIBLE mais ne redemande jamais une info déjà donnée. Le récap DOIT contenir :${orderTerrasse}
 
