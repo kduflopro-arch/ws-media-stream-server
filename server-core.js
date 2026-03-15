@@ -2736,6 +2736,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!ws.__processingTexts) ws.__processingTexts = new Set();
     ws.__processingTexts.add(normalizedForCompare);
     setTimeout(() => { ws.__processingTexts.delete(normalizedForCompare); }, 60_000);
+    // Restaurant: éviter de redire "C'est bien ça ?" dans un second AI-SAYS alors que le récap vient de le dire
+    const onlyCestBienCa = /^c['']?est\s+bien\s+c[aà]\s*$/i.test(normalizedForCompare);
+    if (effectiveSector === "restaurant" && onlyCestBienCa && premiumTtsLastText) {
+      const lastNorm = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/['']/g, "'").replace(/\s+/g, " ").replace(/[.,!?;:]/g, "").trim();
+      if (lastNorm.endsWith("c'est bien ça") || lastNorm.endsWith("cest bien ca")) {
+        if (LOG_TTS) console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (réponse séparée "C'est bien ça ?" déjà en fin de récap précédent) [source: ${source}]`);
+        return;
+      }
+    }
     if (premiumTtsLastText && !skipRepetitionForUnInstant) {
       const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase()
         .replace(/['']/g, "'") // Normaliser les apostrophes
@@ -2754,7 +2763,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
         return;
       }
-      if (lastNormalized.includes(normalizedForCompare) && normalizedForCompare.length > 25) {
+      if (lastNormalized.includes(normalizedForCompare) && normalizedForCompare.length > 15) {
         if (LOG_TTS) console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (phrase déjà jouée, sous-chaîne du précédent) [source: ${source}]:`, textToSpeak.substring(0, 100));
         return;
       }
