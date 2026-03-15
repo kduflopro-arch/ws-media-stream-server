@@ -2468,11 +2468,25 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   /** Supprime une phrase répétée en double (ex. "A. A." → "A." ou phrase entière en double) pour éviter envoi double à Minimax/TTS. */
   function dedupeRepeatedPhraseAtTts(text) {
     if (!text || typeof text !== "string") return text;
+    let t = String(text).trim();
+    // Conclusion restaurant : enlever "Merci pour l'information" en tête si présent
+    if (/merci\s+pour\s+l['']information\.?\s*/i.test(t) && /\bc['']est\s+noté\b/i.test(t)) {
+      t = t.replace(/^merci\s+pour\s+l['']information\.?\s*/i, "");
+      if (/^nous\s+en\s+tiendrons\s+compte\s+pour\s+votre\s+réservation\.?\s*/i.test(t)) {
+        t = t.replace(/^nous\s+en\s+tiendrons\s+compte\s+pour\s+votre\s+réservation\.?\s*/i, "");
+      }
+      t = t.trim();
+    }
+    // Récap : "C'est bien ça ?Parfait" ou "C'est bien ça ?à l'intérieur" → garder uniquement "C'est bien ça ?"
+    const cestBienCaMatch = t.match(/(C['']est bien ça \?)\s*(Parfait|à l['']intérieur|à l['']interieur|en terrasse)/i);
+    if (cestBienCaMatch) {
+      t = cestBienCaMatch[1].trim();
+    }
     const norm = (s) => String(s).normalize("NFC").replace(/\s+/g, " ").trim();
     const normApo = (s) => String(s).normalize("NFC").replace(/[\u2019\u2018\u0027]/g, "'");
     const normFull = (s) => norm(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-    const t = norm(text);
-    if (t.length < 24) return text;
+    t = norm(t);
+    if (t.length < 24) return t;
     // Détection par phrase-terminale: si le texte contient "C'est bien ça ?" (ou autre terminaison) suivi de texte qui se répète
     const terminalPhrases = ["C'est bien ça ?", "c'est bien ça ?", "C\u2019est bien ça ?", "c\u2019est bien ça ?"];
     for (const tp of terminalPhrases) {
@@ -2552,7 +2566,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const b = normFull(t.slice(pos));
       if (a === b && a.length >= 30) { console.log("[DEDUP-TTS] Doublon détecté (fallback agressif)"); return norm(t.slice(0, pos)); }
     }
-    return text;
+    return t;
   }
   function enqueuePremiumTts(text, { interrupt = true, source = "unknown", responseId = null, allowWithoutUser = false, onComplete = null } = {}) {
     if (ws.__consentRefused && source !== "consent_refusal") {
