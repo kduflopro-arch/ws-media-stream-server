@@ -96,9 +96,10 @@ export function buildRestaurantInstructions(ctx) {
 - ATTENDS la réponse. Ne dis RIEN d'autre. Ne traite AUCUNE demande avant.
 - Si le client dit "oui", "d'accord" ou "ok": NE DIS RIEN, la salutation est jouée automatiquement après. Attends que le client parle.
 - Si le client refuse: dis "Je comprends, bonne journée. Au revoir !" et raccroche.
-- Si le client parle d'autre chose sans accepter: répète UNIQUEMENT la demande de consentement.`
+- Si le client parle d'autre chose sans accepter: répète UNIQUEMENT la demande de consentement.
+- EXCEPTION CRITIQUE : Si tu viens de répondre à une question du client (horaires, menu, adresse) et qu'il dit ensuite "je voudrais réserver", "j'aimerais une réservation", "une table s'il vous plaît" → le consentement est acquis (la conversation a déjà eu lieu). NE redis JAMAIS "Pour continuer, dites Oui je suis d'accord". Enchaîne directement : "Avec plaisir ! Plutôt pour le midi ou le soir ?" ou la question suivante.`
     : consentRequired && consentGiven
-      ? "CONSENTEMENT: déjà donné. INTERDICTION ABSOLUE de redemander ou de mentionner l'enregistrement."
+      ? "CONSENTEMENT: déjà donné. INTERDICTION ABSOLUE de redemander ou de mentionner l'enregistrement. Si le client dit 'je voudrais réserver', enchaîne avec la prise de réservation, jamais avec la phrase 'Oui je suis d'accord'."
       : "CONSENTEMENT: non requis.";
 
   const isLunchClosed = /^ferm(e|er|é)$/i.test(String(lunchReservationEnd || "").trim());
@@ -232,6 +233,7 @@ ${clientSection}
 
 # Règles de conversation — CRITIQUES
 - ACCUEIL APRÈS CONSENTEMENT : Après le oui du client, la phrase « Bienvenue au ${restaurantLabel}, que puis-je faire pour vous aujourd'hui ? » est jouée automatiquement (tu l'as déjà dite). Tu ne redis PAS « Merci ! », « Que puis-je faire pour vous ? » ni « Souhaitez-vous réserver une table ? ». Tu ÉCOUTES : attends que le client dise ce qu'il veut (réservation, horaires, menu, etc.). Tu peux aussi, si le moment s'y prête, demander "Comment allez-vous ?" puis "En quoi puis-je vous aider ?".
+- NE JAMAIS REDEMANDER LE CONSENTEMENT : Dès que tu as déjà répondu à une demande du client (horaires, menu, etc.), la conversation a commencé. Si le client dit ensuite "j'aimerais réserver", "je voudrais une table", "une réservation" → enchaîne IMMÉDIATEMENT avec la prise de réservation ("Avec plaisir ! Plutôt pour le midi ou le soir ?"). INTERDIT de dire "Pour continuer, dites Oui je suis d'accord" ou toute phrase de consentement.
 - ${changeToCeSoirRule}
 ${ceMidiAfterCeSoirCompletRule ? `- ${ceMidiAfterCeSoirCompletRule}\n` : ""}- COMPRÉHENSION : Porte une attention particulière aux chiffres (4, 5, 6, 7, 8...), aux dates et aux heures. "Déjeuner" et "dîner" désignent le repas (midi / soir), pas un nombre : ne les interprète JAMAIS comme "neuf" (9 personnes). Si tu as un doute, confirme : "Donc 6 personnes, c'est bien ça ?" avant de passer à la suite.
 - DATES — JOUR DE LA SEMAINE : Pour "demain", utilise UNIQUEMENT la ligne "Demain:" de la référence (ex. "Demain: jeudi 5 mars 2025" → dis "le jeudi 5 mars", jamais "le vendredi 5 mars"). Pour les autres dates, utilise la référence pour le bon jour. Ne devine jamais le jour de la semaine.
