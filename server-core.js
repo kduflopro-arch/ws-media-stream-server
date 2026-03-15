@@ -3473,6 +3473,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
   const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "240");
   const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "1200");
+  // Après la fin du TTS, ignorer speech_started pendant ce délai (écho haut-parleur → micro) — restaurant
+  const RESTAURANT_POST_TTS_SPEECH_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_SPEECH_GUARD_MS ?? "2800");
+  // Seuil niveau audio pour considérer "client a parlé" en restaurant (plus élevé = moins de faux positifs bruit/écho)
+  const RESTAURANT_INPUT_SPEECH_THRESHOLD = Number(process.env.RESTAURANT_INPUT_SPEECH_THRESHOLD ?? "800");
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     const now = nowMs();
@@ -6148,18 +6152,25 @@ But: être naturel et mettre le client en confiance.`,
           }
           if (msg.type === "input_audio_buffer.speech_started") {
             const shouldIgnoreLow = INPUT_GATE_ENABLED && lastInputAudioLevel < SPEECH_STARTED_IGNORE_THRESHOLD;
-            const shouldIgnoreRestaurantWeak = effectiveSector === "restaurant" && lastInputAudioLevel < INPUT_SPEECH_THRESHOLD;
+            const restaurantSpeechThreshold = effectiveSector === "restaurant" ? RESTAURANT_INPUT_SPEECH_THRESHOLD : INPUT_SPEECH_THRESHOLD;
+            const shouldIgnoreRestaurantWeak = effectiveSector === "restaurant" && lastInputAudioLevel < restaurantSpeechThreshold;
+            const shouldIgnoreRestaurantPostTts = effectiveSector === "restaurant" && lastTtsEndAt > 0 && (nowMs() - lastTtsEndAt) < RESTAURANT_POST_TTS_SPEECH_GUARD_MS;
             if (shouldIgnoreLow) {
               console.log("🔇 Ignoré speech_started OpenAI (bruit évident, niveau:", lastInputAudioLevel, "<", SPEECH_STARTED_IGNORE_THRESHOLD + ")");
               try { if (openaiWs && openaiWs.readyState === WebSocket.OPEN) openaiWs.send(JSON.stringify({ type: "input_audio_buffer.clear" })); } catch {}
               return;
             }
-            if (shouldIgnoreRestaurantWeak) {
-              console.log("🔇 Ignoré speech_started OpenAI (restaurant: niveau trop bas, parole incertaine)", { niveau: lastInputAudioLevel, seuil: INPUT_SPEECH_THRESHOLD });
+            if (shouldIgnoreRestaurantPostTts) {
+              console.log("🔇 Ignoré speech_started OpenAI (restaurant: trop tôt après TTS, écho possible)", { msSinceTtsEnd: nowMs() - lastTtsEndAt, guardMs: RESTAURANT_POST_TTS_SPEECH_GUARD_MS });
               try { if (openaiWs && openaiWs.readyState === WebSocket.OPEN) openaiWs.send(JSON.stringify({ type: "input_audio_buffer.clear" })); } catch {}
               return;
             }
-            console.log("🟢 Le client a parlé (détection début parole OpenAI - speech_started)", { niveau: lastInputAudioLevel, seuil: INPUT_SPEECH_THRESHOLD });
+            if (shouldIgnoreRestaurantWeak) {
+              console.log("🔇 Ignoré speech_started OpenAI (restaurant: niveau trop bas, parole incertaine)", { niveau: lastInputAudioLevel, seuil: restaurantSpeechThreshold });
+              try { if (openaiWs && openaiWs.readyState === WebSocket.OPEN) openaiWs.send(JSON.stringify({ type: "input_audio_buffer.clear" })); } catch {}
+              return;
+            }
+            console.log("🟢 Le client a parlé (détection début parole OpenAI - speech_started)", { niveau: lastInputAudioLevel, seuil: restaurantSpeechThreshold });
             // #region agent log
             try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:5902',message:'speech_started',data:{responseInProgress,outboundQueuedBytes,premiumTtsInFlight,lastCommitAt},hypothesisId:'A',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
             // #endregion
