@@ -3475,6 +3475,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "1200");
   // Après la fin du TTS, ignorer speech_started pendant ce délai (écho haut-parleur → micro) — restaurant
   const RESTAURANT_POST_TTS_SPEECH_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_SPEECH_GUARD_MS ?? "2800");
+  // Délai après la fin du TTS pendant lequel on n'envoie pas response.create (watchdog / empty_response_retry) — laisser le client répondre (ex. "Avez-vous autre chose à ajouter ?")
+  const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "5500");
   // Seuil niveau audio pour considérer "client a parlé" en restaurant (plus élevé = moins de faux positifs bruit/écho)
   const RESTAURANT_INPUT_SPEECH_THRESHOLD = Number(process.env.RESTAURANT_INPUT_SPEECH_THRESHOLD ?? "800");
   function requestResponseCreate(reason) {
@@ -3487,6 +3489,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const isCommitTrigger = reason === "watchdog_after_commit" || reason === "after_response_done_pending_commit";
     if (isCommitTrigger && effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < RESTAURANT_POST_TTS_GUARD_MS) {
       if (LOG_VERBOSE) console.log("🗣️ response.create ignoré (restaurant): trop tôt après TTS (anti-écho)", { reason, msSinceTtsEnd: now - lastTtsEndAt, guardMs: RESTAURANT_POST_TTS_GUARD_MS });
+      return;
+    }
+    const isWaitForUserTrigger = reason === "watchdog_after_commit" || reason === "empty_response_retry" || reason === "after_response_done_pending_commit";
+    if (isWaitForUserTrigger && effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < RESTAURANT_WAIT_AFTER_TTS_MS) {
+      if (LOG_VERBOSE) console.log("🗣️ response.create ignoré (restaurant): attendre réponse client après TTS", { reason, msSinceTtsEnd: now - lastTtsEndAt, waitMs: RESTAURANT_WAIT_AFTER_TTS_MS });
       return;
     }
     const skipDebounce = reason === "after_function_call_output";
@@ -4625,13 +4632,18 @@ But: être naturel et mettre le client en confiance.`,
                         }, 500);
                       }
                     } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                      lastEmptyResponseRetryCommitAt = lastCommitAt;
-                      console.log("🔄 Réponse vide alors que le client vient de parler — retry response.create (évite de répéter plusieurs fois)");
-                      setTimeout(() => {
-                        if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
-                          requestResponseCreate("empty_response_retry");
-                        }
-                      }, 350);
+                      const restaurantSkipRetryAfterTts = effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < (Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "5500"));
+                      if (restaurantSkipRetryAfterTts) {
+                        if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry juste après TTS (laisser le client répondre)");
+                      } else {
+                        lastEmptyResponseRetryCommitAt = lastCommitAt;
+                        console.log("🔄 Réponse vide alors que le client vient de parler — retry response.create (évite de répéter plusieurs fois)");
+                        setTimeout(() => {
+                          if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                            requestResponseCreate("empty_response_retry");
+                          }
+                        }, 350);
+                      }
                     } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
                       if (effectiveSector === "restaurant") {
                         console.log("ℹ️ Réponse vide après retry (restaurant) — pas de fallback TTS (anti-écho)");
@@ -4653,13 +4665,18 @@ But: être naturel et mettre le client en confiance.`,
                     }
                     const now = nowMs();
                     if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                      lastEmptyResponseRetryCommitAt = lastCommitAt;
-                      console.log("🔄 Pas de texte extrait (structure?) alors que le client vient de parler — retry response.create");
-                      setTimeout(() => {
-                        if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
-                          requestResponseCreate("empty_response_retry");
-                        }
-                      }, 350);
+                      const restaurantSkipRetryAfterTts2 = effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < (Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "5500"));
+                      if (restaurantSkipRetryAfterTts2) {
+                        if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (pas de texte) juste après TTS");
+                      } else {
+                        lastEmptyResponseRetryCommitAt = lastCommitAt;
+                        console.log("🔄 Pas de texte extrait (structure?) alors que le client vient de parler — retry response.create");
+                        setTimeout(() => {
+                          if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                            requestResponseCreate("empty_response_retry");
+                          }
+                        }, 350);
+                      }
                     } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
                       if (effectiveSector === "restaurant") {
                         console.log("ℹ️ Pas de texte extrait après retry (restaurant) — pas de fallback TTS (anti-écho)");
@@ -4708,25 +4725,31 @@ But: être naturel et mettre le client en confiance.`,
                 }
                 const now = nowMs();
                 if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                  const restaurantSkipRetryAfterTts3 = effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < (Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "5500"));
+                  if (!restaurantSkipRetryAfterTts3) {
+                    lastEmptyResponseRetryCommitAt = lastCommitAt;
+                    console.log("🔄 Erreur extraction alors que le client vient de parler — retry response.create");
+                    setTimeout(() => {
+                      if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
+                        requestResponseCreate("empty_response_retry");
+                      }
+                    }, 350);
+                  }
+                }
+              }
+            } else if (REALTIME_USE_ELEVEN && rid && (!msg.response?.output || (Array.isArray(msg.response.output) && msg.response.output.length === 0))) {
+              const now = nowMs();
+              if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                const restaurantSkipRetryAfterTts4 = effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < (Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "5500"));
+                if (!restaurantSkipRetryAfterTts4) {
                   lastEmptyResponseRetryCommitAt = lastCommitAt;
-                  console.log("🔄 Erreur extraction alors que le client vient de parler — retry response.create");
+                  console.log("🔄 response.done sans output alors que le client vient de parler — retry response.create (évite de répéter)");
                   setTimeout(() => {
                     if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
                       requestResponseCreate("empty_response_retry");
                     }
                   }, 350);
                 }
-              }
-            } else if (REALTIME_USE_ELEVEN && rid && (!msg.response?.output || (Array.isArray(msg.response.output) && msg.response.output.length === 0))) {
-              const now = nowMs();
-              if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                lastEmptyResponseRetryCommitAt = lastCommitAt;
-                console.log("🔄 response.done sans output alors que le client vient de parler — retry response.create (évite de répéter)");
-                setTimeout(() => {
-                  if (openaiWs && openaiWs.readyState === WebSocket.OPEN && !responseInProgress) {
-                    requestResponseCreate("empty_response_retry");
-                  }
-                }, 350);
               }
             }
             if (REALTIME_USE_ELEVEN && rid && !spokenSet.has(rid)) {
