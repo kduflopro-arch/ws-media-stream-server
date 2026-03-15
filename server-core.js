@@ -2473,6 +2473,22 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const normFull = (s) => norm(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     const t = norm(text);
     if (t.length < 24) return text;
+    // Détection par phrase-terminale: si le texte contient "C'est bien ça ?" (ou autre terminaison) suivi de texte qui se répète
+    const terminalPhrases = ["C'est bien ça ?", "c'est bien ça ?", "C\u2019est bien ça ?", "c\u2019est bien ça ?"];
+    for (const tp of terminalPhrases) {
+      const tpIdx = t.indexOf(tp);
+      if (tpIdx >= 30) {
+        const afterTp = tpIdx + tp.length;
+        const rest = norm(t.slice(afterTp));
+        if (rest.length >= 30) {
+          const firstPart = norm(t.slice(0, afterTp));
+          if (normFull(firstPart) === normFull(rest)) {
+            console.log("[DEDUP-TTS] Doublon détecté après 'C'est bien ça ?'");
+            return firstPart;
+          }
+        }
+      }
+    }
     // Détection rapide par indexOf : si un préfixe >= 40 chars réapparaît dans la seconde moitié du texte
     const probeLen = Math.min(80, Math.floor(t.length / 3));
     if (probeLen >= 40) {
@@ -4349,6 +4365,22 @@ But: être naturel et mettre le client en confiance.`,
             const normFull = (s) => norm(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
             const t = norm(text);
             if (t.length < 24) return text;
+            // Détection par phrase-terminale: "C'est bien ça ?" suivi de texte répété
+            const terminalPhrases = ["C'est bien ça ?", "c'est bien ça ?", "C\u2019est bien ça ?", "c\u2019est bien ça ?"];
+            for (const tp of terminalPhrases) {
+              const tpIdx = t.indexOf(tp);
+              if (tpIdx >= 30) {
+                const afterTp = tpIdx + tp.length;
+                const rest = norm(t.slice(afterTp));
+                if (rest.length >= 30) {
+                  const firstPart = norm(t.slice(0, afterTp));
+                  if (normFull(firstPart) === normFull(rest)) {
+                    console.log("[DEDUP] Doublon détecté après 'C'est bien ça ?'");
+                    return firstPart;
+                  }
+                }
+              }
+            }
             // Détection rapide par indexOf : si un préfixe >= 40 chars réapparaît dans la seconde moitié du texte
             const probeLen = Math.min(80, Math.floor(t.length / 3));
             if (probeLen >= 40) {
