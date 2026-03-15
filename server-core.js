@@ -6547,7 +6547,7 @@ But: être naturel et mettre le client en confiance.`,
                       const baseHello = isRestoCI
                         ? `Bonjour. ${assistantName} du ${placePart}.`
                         : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                      const consentText = (isRestoCI ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
+                      const consentText = "Cet appel est enregistré. " + CONSENT_MAIN;
                       greeting = [baseHello, consentText].filter(Boolean).join(" ");
                     } else if (isRestoCI) {
                       const rawN = String(garageName || "").trim();
@@ -6630,7 +6630,7 @@ But: être naturel et mettre le client en confiance.`,
                 const baseHello = isRestoFb
                   ? `Bonjour. ${assistantName} du ${placePart}.`
                   : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                const consentText = (isRestoFb ? "Cet appel est enregistré pour préparer votre réservation. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
+                const consentText = "Cet appel est enregistré. " + CONSENT_MAIN;
                 greeting = [baseHello, consentText].filter(Boolean).join(" ");
               } else if (isRestoFb) {
                 const rawN = String(garageName || "").trim();
