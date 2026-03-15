@@ -163,14 +163,17 @@ Le restaurant est FERMÉ en ce moment. Toutes les règles ci-dessous sont subord
     ? "- Terrasse/intérieur — NE JAMAIS INVERSER : \"terrasse\" → TERRASSE, \"intérieur\" → INTÉRIEUR. \"Peu importe\" → choisis (ex. intérieur), dis-le UNE FOIS. Confirmation ET récap = MÊME valeur (INTERDIT d'inverser). Après confirmation, passe au récap."
     : "PAS DE TERRASSE — Ne demande JAMAIS \"Terrasse ou intérieur ?\".";
   const terrasseInterditCollect = hasTerrace ? "jour, midi/soir, heure, nombre de personnes, terrasse/intérieur" : "jour, midi/soir, heure, nombre de personnes";
-  const terrasseSequenceStep = hasTerrace ? "4b. \"Terrasse ou intérieur ?\" — OBLIGATOIRE si non dit. Après sa réponse, confirmer à voix haute : \"Parfait, en terrasse.\" ou \"Parfait, à l'intérieur.\" selon le mot qu'il a dit (ne pas inverser). Puis récap.\n" : "";
+  const terrasseSequenceStep = hasTerrace ? "4. \"Vous serez combien ?\" — OBLIGATOIRE avant terrasse. 4b. \"Terrasse ou intérieur ?\" — APRÈS le nombre de personnes uniquement. Après sa réponse, confirmer : \"Parfait, en terrasse.\" ou \"Parfait, à l'intérieur.\" Puis récap.\n" : "";
   const recapContent = hasTerrace ? "jour, HEURE d'arrivée, terrasse ou intérieur, ET nombre de personnes" : "jour, HEURE d'arrivée, ET nombre de personnes";
   const recapExample = hasTerrace ? "Parfait, à l'intérieur. Je récapitule : demain, le lundi 16 mars, à 13h30, à l'intérieur, pour 4 personnes. C'est bien ça ?" : "Parfait. Je récapitule : demain, le lundi 16 mars, à 13h30, pour 4 personnes. C'est bien ça ?";
   const recapFinalExample = hasTerrace ? "le vendredi 7 mars à 20h30, en terrasse, pour 4 personnes (réservation enregistrée au numéro qui appelle)" : "le vendredi 7 mars à 20h30, pour 4 personnes (réservation enregistrée au numéro qui appelle)";
   const recapNoPlaceholdersRule = "RÉCAP — INTERDIT de prononcer des crochets/placeholders. Utilise les VRAIES valeurs uniquement. Si une info manque, demande-la AVANT le récap. ORDRE OBLIGATOIRE : d'abord « Je récapitule : » puis LES DÉTAILS (jour, heure, terrasse/intérieur, nombre), puis « C'est bien ça ? ». INTERDIT d'écrire les détails avant « Je récapitule : ». INTERDIT d'écrire « Je récapitule : c'est bien ça ? » — « Je récapitule » introduit les détails, pas la question.";
   const extractionTerrasse = hasTerrace ? " préférence terrasse/intérieur," : "";
   const flowTerrasse = hasTerrace ? " puis \"Vous serez combien ?\", \"Terrasse ou intérieur ?\"." : " puis \"Vous serez combien ?\".";
-  const orderTerrasse = hasTerrace ? " jour + heure + terrasse/intérieur + nombre de personnes." : " jour + heure + nombre de personnes.";
+  const orderTerrasse = hasTerrace ? " jour + heure + nombre de personnes + terrasse/intérieur." : " jour + heure + nombre de personnes.";
+  const orderQuestionsRule = hasTerrace
+    ? "\n⚠️ ORDRE IMPÉRATIF DES QUESTIONS (on ne saute jamais une étape) : 1) Jour (date) 2) Midi ou soir 3) Heure d'arrivée 4) « Vous serez combien ? » (nombre de personnes) 5) « Terrasse ou intérieur ? » 6) Récap. INTERDIT de demander « Terrasse ou intérieur ? » avant d'avoir posé « Vous serez combien ? » et obtenu la réponse. Si tu as le jour + midi/soir (ex. demain midi) mais pas l'heure → demande l'heure. Puis « Vous serez combien ? ». Puis « Terrasse ou intérieur ? ». Jamais l'inverse.\n"
+    : "\n⚠️ ORDRE IMPÉRATIF : 1) Jour 2) Midi ou soir 3) Heure 4) « Vous serez combien ? » 5) Récap.\n";
   const modificationTerrasse = hasTerrace ? ", \"C'est intérieur finalement\"" : "";
 
   const pasCompletRappel = !lunchFullToday && !dinnerFullToday
@@ -285,22 +288,22 @@ RÈGLE JOUR — NE REDEMANDE JAMAIS LE JOUR/CRÉNEAU SI DÉJÀ DIT :
 - Jour SANS heure ("vendredi", "samedi") : confirme la date, puis "Midi ou soir ?"
 - DÉJEUNER/DÎNER ≠ NOMBRE : "déjeuner" = midi (repas), "dîner" = soir. Ne confonds JAMAIS avec "neuf" (9 personnes). Ne redemande JAMAIS midi/soir après réponse du client.
 
-OBLIGATOIRE AVANT RÉCAP :
+OBLIGATOIRE AVANT RÉCAP (dans cet ordre) :
 - Heure : si déjà dite → ne pas redemander. Sinon → "À quelle heure prévoyez-vous d'arriver ?"
-- Nombre de personnes : si non dit → "Vous serez combien ?" Ne fais JAMAIS le récap sans.
-${hasTerrace ? "- Après que le client accepte une date que TU as proposée (« Je vous propose le [date]… » → client dit oui) : si tu n'as pas encore terrasse/intérieur, demande IMMÉDIATEMENT « Terrasse ou intérieur ? » avant de faire le récap. Ne saute jamais cette question.\n" : ""}${terrasseRule}
+- Nombre de personnes : si non dit → "Vous serez combien ?" EN PREMIER (avant terrasse/intérieur). Ne fais JAMAIS le récap sans.
+${hasTerrace ? "- Terrasse ou intérieur : UNIQUEMENT après avoir obtenu le nombre de personnes. Jamais avant.\n" : ""}${terrasseRule}
 
 INTERDIT de demander l'occasion (anniversaire, fête, etc.). Tu ne collectes que : ${terrasseInterditCollect}.
 
-NOUVELLE DATE (après refus/complet) : Inclus heure+nombre déjà connus dans ta proposition. Si le client accepte → ne redemande RIEN. ${hasTerrace ? "Demande \"Terrasse ou intérieur ?\" si pas encore dit, puis récap." : "Passe au récap."}
-
+NOUVELLE DATE (après refus/complet) : Inclus heure+nombre déjà connus dans ta proposition. Si le client accepte → ne redemande RIEN. ${hasTerrace ? "Demande \"Vous serez combien ?\" si pas encore dit, puis \"Terrasse ou intérieur ?\", puis récap." : "Passe au récap."}
+${orderQuestionsRule}
 Séquence (infos MANQUANTES uniquement) :
 1. Jour manquant → "C'est pour quel jour ?" Confirme avec date complète. Si c'est une date que TU as proposée et acceptée → ne reconfirme pas. UNE question par tour.
 2. Midi/soir manquant → "Plutôt midi ou soir ?" UNIQUEMENT si non dit ET les deux sont ouverts. Si heure donnée (20h30=soir) → SAUTE.
 3. Heure manquante → "À quelle heure ?" UNIQUEMENT si non dite et non incluse dans une proposition acceptée.
 4. Nombre manquant → "Vous serez combien ?" OBLIGATOIRE avant récap.
 ${terrasseSequenceStep}⚠️ CHECKPOINT AVANT RÉCAP — VÉRIFIE QUE TU AS TOUT (BLOQUANT) :
-Avant de faire le récap, vérifie que tu as TOUTES ces infos : jour, midi/soir, heure d'arrivée, nombre de personnes${hasTerrace ? ", terrasse/intérieur" : ""}. S'il te MANQUE une info (${hasTerrace ? "notamment terrasse/intérieur" : "notamment le nombre de personnes"}), tu DOIS la demander AVANT. INTERDIT de faire le récap avec une info manquante.${hasTerrace ? " Si tu n'as pas encore demandé \"Terrasse ou intérieur ?\", pose cette question MAINTENANT et attends la réponse AVANT de récapituler." : ""}
+Avant de faire le récap, vérifie que tu as TOUTES ces infos : jour, midi/soir, heure d'arrivée, nombre de personnes${hasTerrace ? ", terrasse/intérieur" : ""}. S'il manque le NOMBRE DE PERSONNES → "Vous serez combien ?" d'abord. S'il manque terrasse/intérieur (et que tu as déjà le nombre) → "Terrasse ou intérieur ?". INTERDIT de faire le récap sans nombre de personnes. INTERDIT de demander terrasse/intérieur avant "Vous serez combien ?".
 
 5. OBLIGATOIRE — Récapitule : ${recapContent}. ${recapNoPlaceholdersRule}
 ORDRE STRICT du récap (UNE SEULE réplique) : "[Parfait/Super], [à l'intérieur ou en terrasse]. Je récapitule : [jour], [heure], [terrasse/intérieur], [X personnes]. C'est bien ça ?" — puis STOP. Les DÉTAILS (jour, heure, lieu, nombre) doivent être APRÈS « Je récapitule : », jamais avant. INTERDIT : « …pour 4 personnes. Je récapitule : c'est bien ça ? » (faux). INTERDIT de répéter la même phrase deux fois. Exemple correct : "${recapExample}"
