@@ -3514,7 +3514,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
   function sendOutboundFrames(maxFrames = 1) {
     if (!twilioStreamSid) return;
-    const minBufferFrames = PREMIUM_TTS_PROVIDER === "cartesia" ? 0 : Number(process.env.OUTBOUND_MIN_BUFFER_FRAMES ?? "5");
+    const minBufferFrames = Number(process.env.OUTBOUND_MIN_BUFFER_FRAMES ?? "10");
     const backlogFrames = Math.floor(outboundQueuedBytes / 160);
     const wouldSkip = premiumTtsInFlight && minBufferFrames > 0 && backlogFrames < minBufferFrames && outboundQueue.length > 0;
     if (wouldSkip) return;
