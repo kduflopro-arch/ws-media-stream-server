@@ -2218,7 +2218,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       voice: { mode: "id", id: selectedVoiceId.trim() },
       output_format: { container: "raw", encoding: "pcm_mulaw", sample_rate: 8000 },
       language: CARTESIA_LANGUAGE,
-      ...(CARTESIA_SPEED !== 1.0 ? { speed: Math.max(0.5, Math.min(2.0, CARTESIA_SPEED)) } : {}),
+      generation_config: {
+        speed: Math.max(0.6, Math.min(1.5, CARTESIA_SPEED)),
+        volume: Math.max(0.5, Math.min(2.0, CARTESIA_VOLUME)),
+        emotion: "neutral",
+      },
     };
     try {
       if (CARTESIA_USE_BYTES_MODE) {
@@ -2237,8 +2241,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           throw new Error(`Cartesia /tts/bytes ${bytesResp.status}: ${errText.slice(0, 200)}`);
         }
         let fullBuf = Buffer.from(await bytesResp.arrayBuffer());
-        if (fullBuf.length >= 44 && fullBuf[0] === 0x52 && fullBuf[1] === 0x49 && fullBuf[2] === 0x46 && fullBuf[3] === 0x46) {
-          fullBuf = fullBuf.subarray(44);
+        // Strip WAV header en parsant dynamiquement le chunk "data"
+        // (mulaw WAV = 46 bytes, PCM WAV = 44 bytes — strip fixe à 44 corrompait l'audio mulaw)
+        if (fullBuf.length >= 12 && fullBuf.readUInt32BE(0) === 0x52494646) { // "RIFF"
+          let offset = 12;
+          while (offset + 8 <= fullBuf.length) {
+            const id = fullBuf.slice(offset, offset + 4).toString("ascii");
+            const size = fullBuf.readUInt32LE(offset + 4);
+            offset += 8;
+            if (id === "data") break;
+            offset += size;
+          }
+          fullBuf = fullBuf.subarray(offset);
         }
         const chunkSize = 160;
         for (let i = 0; i < fullBuf.length; i += chunkSize) {
