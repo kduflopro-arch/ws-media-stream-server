@@ -6,7 +6,7 @@ import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
-import { RESTAURANT_CALL_ANALYSIS_PROMPT, RESTAURANT_CALL_ANALYSIS_SCHEMA, buildRestaurantInstructions, buildReservationStateInstruction, extractReservationField } from "./config-restaurant.js";
+import { RESTAURANT_CALL_ANALYSIS_PROMPT, RESTAURANT_CALL_ANALYSIS_SCHEMA, buildRestaurantInstructions } from "./config-restaurant.js";
 
 const PORT = process.env.PORT || 8080;
 const ACCOUNT_SECTOR = process.env.ACCOUNT_SECTOR || "garage";
@@ -793,52 +793,6 @@ wss.on("connection", (ws, req) => {
     }
     console.log("👋 Post-consent greeting joué.", { hasClientName: !!clientInfo?.name, sector: effectiveSector });
   }
-  /** Pousse un session.update OpenAI avec l'instruction de la state machine restaurant. */
-  function pushRestaurantStateUpdate() {
-    if (effectiveSector !== "restaurant") return;
-    if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-    const stateInstruction = buildReservationStateInstruction(reservationState, { hasTerrace: restaurantHasTerrace });
-    const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
-    const todayDateLineRest = referenceDateLine && referenceTimeLine
-      ? `[Référence date/heure] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}${referenceWeekCalendar ? ` Calendrier: ${referenceWeekCalendar}.` : ""}`
-      : `[Référence] Aujourd'hui: ${restNow.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
-    const instr = buildRestaurantInstructions({
-      restaurantName: garageName,
-      assistantName,
-      menuText: String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")),
-      openingHoursText: garageHoursText || "Horaires non renseignés.",
-      lunchFullToday,
-      dinnerFullToday,
-      lunchPassedForToday,
-      dinnerPassedForToday,
-      lunchReservationEnd,
-      dinnerReservationEnd,
-      todayDateLine: todayDateLineRest,
-      allowTransfer,
-      consentRequired,
-      consentGiven,
-      clientInfo,
-      garageTone,
-      hasTerrace: restaurantHasTerrace,
-      restaurantClosedByDaySummary,
-      stateInstruction,
-    });
-    const restaurantTools = [
-      { type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires et informations du restaurant.", parameters: { type: "object", properties: {} } },
-      ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant.", parameters: { type: "object", properties: {} } }] : []),
-    ];
-    const toSend = instr.length > 16000 ? instr.slice(0, 15800) + "\n[RÈGLES: réservation naturelle, une question à la fois.]" : instr;
-    try {
-      openaiWs.send(JSON.stringify({
-        type: "session.update",
-        session: { type: "realtime", instructions: toSend, output_modalities: ["text"], tools: restaurantTools, tool_choice: "auto" },
-      }));
-      console.log(`🍽️ [SM] session.update restaurant — phase: ${reservationState.phase}`, { guests: reservationState.guests, date: reservationState.date, time: reservationState.time, seating: reservationState.seating });
-    } catch (e) {
-      console.error("❌ pushRestaurantStateUpdate error:", e);
-    }
-  }
-
   let appointmentMode = "request";
   let garageClosed = false;
   let garageClosedReason = "";
@@ -855,20 +809,6 @@ wss.on("connection", (ws, req) => {
   let referenceWeekCalendar = "";
   let restaurantHasTerrace = true; // Si false, l'IA ne demande pas terrasse/intérieur
   let restaurantClosedByDaySummary = ""; // Ex: "Fermé le midi: dimanche. Fermé le soir: lundi."
-  // State machine réservation restaurant
-  const reservationState = {
-    phase: "greeting",   // greeting | collecting | recap | confirmed | info_only | modification | annulation
-    guests: null,
-    date: null,
-    time: null,
-    seating: null,       // "terrasse" | "intérieur" | null
-    allergies: null,
-    extras: null,
-    confirmed: false,
-  };
-  let reservationAcceptedByClient = false;  // badge: réservation prise (restaurant)
-  let reservationModifiedByClient = false;  // badge: modification réservation (restaurant)
-  let reservationCancelledByClient = false; // badge: annulation réservation (restaurant)
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -1056,12 +996,8 @@ wss.on("connection", (ws, req) => {
       })();
       const assistantAskedForDayOrSlot = hasAskedDayOrSlot || ((lastIntentAtFinalize === "rdv") && /\b(quel\s*jour|matin|après-?midi|créneau|plutôt)\b/i.test(String(lastAssistantText || "")));
       const pureDevisFlow = devisAcceptedByClient && !assistantAskedForDayOrSlot;
-      const rdvRequestedFromWs = effectiveSector === "restaurant"
-        ? reservationAcceptedByClient
-        : (!pureDevisFlow && ((rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient)));
-      const callbackTypeFromWs = effectiveSector === "restaurant"
-        ? (reservationCancelledByClient ? "annulation" : reservationModifiedByClient ? "modification" : reservationAcceptedByClient ? "rdv" : "info")
-        : (callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info"));
+      const rdvRequestedFromWs = !pureDevisFlow && ((rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient));
+      const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
       console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, validation_devis: validationDevisByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage_status: transferToGarageStatus });
       console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, assistantAskedForDayOrSlot });
       const lastLow = (lastAssistantText || "").toLowerCase().trim();
@@ -1096,16 +1032,8 @@ wss.on("connection", (ws, req) => {
           rdv_accepted: rdvAcceptedByClient,
           rdv_requested: rdvRequestedFromWs,
           callback_type: callbackTypeFromWs,
-          modification_rdv: effectiveSector === "restaurant" ? reservationModifiedByClient : modificationRdvByClient,
-          annulation_rdv: effectiveSector === "restaurant" ? reservationCancelledByClient : annulationRdvByClient,
-          ...(effectiveSector === "restaurant" ? {
-            reservation_confirmed: reservationState.confirmed,
-            reservation_guests: reservationState.guests,
-            reservation_date: reservationState.date,
-            reservation_time: reservationState.time,
-            reservation_seating: reservationState.seating,
-            reservation_allergies: reservationState.allergies,
-          } : {}),
+          modification_rdv: modificationRdvByClient,
+          annulation_rdv: annulationRdvByClient,
           ...(transferTriggered ? { transfer_to_garage: true } : {}),
           ...(transferToGarageStatus ? { transfer_to_garage_status: transferToGarageStatus } : {}),
           plate_confirmed_by_client: plateConfirmedByClient,
@@ -1418,7 +1346,7 @@ wss.on("connection", (ws, req) => {
     if (letterRatio < 0.5 && stripped.length > 4) return true;
     if (/^(.)\1{4,}$/.test(stripped)) return true;
     const contextWords = ["parc", "plage", "mer", "montagne", "campagne", "ville", "rue", "avenue", "boulevard"];
-    const garageRelated = ["voiture", "véhicule", "garage", "problème", "panne", "rendez-vous", "rdv", "diagnostic", "frein", "batterie", "moteur", "réservation", "résa", "table", "couverts", "terrasse", "menu", "restaurant", "midi", "soir", "dîner", "déjeuner", "allergie", "personnes"];
+    const garageRelated = ["voiture", "véhicule", "garage", "problème", "panne", "rendez-vous", "rdv", "diagnostic", "frein", "batterie", "moteur"];
     if (contextWords.some(w => lower.includes(w)) && !garageRelated.some(w => lower.includes(w))) return true;
     return false;
   }
@@ -1709,13 +1637,9 @@ wss.on("connection", (ws, req) => {
       console.log("🎤 STT:", transcript);
       conversationHistory.push({ role: "user", content: transcript });
       conversationHistory = conversationHistory.slice(-HISTORY_MAX_TURNS * 2);
-      const systemGarage = `Tu es le standard téléphonique d'un garage. Français (France).
+      const system = `Tu es le standard téléphonique d'un garage. Français (France).
 Réponses très naturelles, chaleureuses, courtes, avec une intonation humaine (sans mentionner l'IA).
 Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel.`;
-      const systemRestaurant = `Tu es le standard téléphonique d'un restaurant. Français (France).
-Réponses courtes, chaleureuses, naturelles. Une seule question à la fois. Ne mentionne pas l'IA.
-Pour une réservation: demande nombre de personnes, date, heure${restaurantHasTerrace ? ", terrasse ou intérieur" : ""}. Une question à la fois.`;
-      const system = effectiveSector === "restaurant" ? systemRestaurant : systemGarage;
       const msgs = [
         { role: "system", content: system },
         ...conversationHistory.map((m) => ({ role: m.role, content: m.content })),
@@ -2438,7 +2362,6 @@ Pour une réservation: demande nombre de personnes, date, heure${restaurantHasTe
   const CONSENT_REFUSAL_MESSAGE = "Votre refus a été pris en compte. Bonne journée.";
   /** Garantit qu'une réponse d'explication de l'assistant se termine par une question (guidage client). */
   function ensureAssistantReplyEndsWithQuestion(text) {
-    if (effectiveSector === "restaurant") return text; // La state machine gère les questions restaurant
     const s = String(text || "").trim();
     if (!s) return s;
     if (s.slice(-1) === "?") return s;
@@ -2497,7 +2420,6 @@ Pour une réservation: demande nombre de personnes, date, heure${restaurantHasTe
   }
   /** Corrige tarif/horaires inventés par l'IA pour RDV. Retourne le texte corrigé ou l'original. */
   function applyPricingHoursGuard(text) {
-    if (effectiveSector === "restaurant") return text; // Pas de guard tarif pour les restaurants
     const t = String(text || "").trim();
     if (!t) return text;
     const noRecentGarageTool = !(lastGarageToolOutputAt > 0 && (nowMs() - lastGarageToolOutputAt) < 15000);
@@ -3500,6 +3422,7 @@ Pour une réservation: demande nombre de personnes, date, heure${restaurantHasTe
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     const now = nowMs();
     if (responseInProgress) {
+      try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:3374',message:'requestResponseCreate_skipped',data:{reason,why:'responseInProgress'},hypothesisId:'C',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
       return;
     }
     const isCommitTrigger = reason === "watchdog_after_commit" || reason === "after_response_done_pending_commit";
@@ -3509,6 +3432,7 @@ Pour une réservation: demande nombre de personnes, date, heure${restaurantHasTe
     }
     const skipDebounce = reason === "after_function_call_output";
     if (!skipDebounce && (now - lastResponseCreateRequestedAt) < RESPONSE_CREATE_DEBOUNCE_MS) {
+      try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:3378',message:'requestResponseCreate_skipped',data:{reason,why:'debounce',msSince:now-lastResponseCreateRequestedAt},hypothesisId:'C',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
       return;
     }
     lastResponseCreateRequestedAt = now;
@@ -3520,8 +3444,7 @@ Pour une réservation: demande nombre de personnes, date, heure${restaurantHasTe
     }
   }
   function cancelResponseForBargeIn() {
-    // Pour le restaurant: autoriser le barge-in sauf si on est en phase de récapitulatif
-    if (effectiveSector === "restaurant" && reservationState.phase === "recap") return;
+    if (effectiveSector === "restaurant") return; // pas de barge-in pour le restaurant
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     if (!responseInProgress) return;
     try {
@@ -4015,7 +3938,6 @@ ${compactPersona}`;
           garageTone,
           hasTerrace: restaurantHasTerrace,
           restaurantClosedByDaySummary,
-          stateInstruction: buildReservationStateInstruction(reservationState, { hasTerrace: restaurantHasTerrace }),
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
@@ -4084,7 +4006,6 @@ ${compactPersona}`;
               garageTone,
               hasTerrace: restaurantHasTerrace,
               restaurantClosedByDaySummary,
-              stateInstruction: buildReservationStateInstruction(reservationState, { hasTerrace: restaurantHasTerrace }),
             });
             let instructionsToSend = updatedRestaurantInstructions;
             if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
@@ -4181,7 +4102,6 @@ ${compactPersona}`;
               garageTone,
               hasTerrace: restaurantHasTerrace,
               restaurantClosedByDaySummary,
-              stateInstruction: buildReservationStateInstruction(reservationState, { hasTerrace: restaurantHasTerrace }),
             });
             const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS
               ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES: réservation naturelle, une question à la fois.]"
@@ -4764,6 +4684,14 @@ But: être naturel et mettre le client en confiance.`,
                 if (LOG_VERBOSE) console.log("ℹ️ Validation devis (IA dit mise en relation pour validation devis).", { text: doneText.substring(0, 80) });
               }
               const low = String(doneText || "").toLowerCase();
+              // #region agent log
+              if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur")) && typeof fetch === "function") {
+                fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:terrasseIntérieur", message: "AI said terrasse/intérieur", data: { hypothesisId: "H_terrasse", lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }, timestamp: Date.now() }) }).catch(() => {});
+              }
+              if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur"))) {
+                console.log("[DEBUG-terrasse]", JSON.stringify({ lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }));
+              }
+              // #endregion
               const mentionsPlate = low.includes("plaque") || low.includes("immatric");
               const iaSaysWillSendSms = (low.includes("vais vous envoyer") || low.includes("va vous envoyer") || low.includes("vous envoie ") || low.includes("vous envoyer ") || low.includes("je vais vous envoyer") || low.includes("on va vous envoyer")) && (low.includes("message") || low.includes("sms") || low.includes("texte"));
               const offersToSend = iaSaysWillSendSms;
@@ -5048,84 +4976,6 @@ But: être naturel et mettre le client en confiance.`,
                       plateConfirmedByClient = true;
                     }
                   }
-                  // ── State machine restaurant ──────────────────────────────
-                  if (effectiveSector === "restaurant" && consentGiven && userText && userText.trim()) {
-                    const ut = String(userText).toLowerCase().trim();
-                    const prevPhase = reservationState.phase;
-
-                    if (reservationState.phase === "greeting") {
-                      const intent = extractReservationField("intent", ut);
-                      if (intent === "reservation") {
-                        reservationState.phase = "collecting";
-                        reservationAcceptedByClient = true;
-                        console.log("🍽️ [SM] Intent: réservation détectée");
-                      } else if (intent === "modification") {
-                        reservationState.phase = "modification";
-                        reservationModifiedByClient = true;
-                        console.log("🍽️ [SM] Intent: modification réservation");
-                      } else if (intent === "annulation") {
-                        reservationState.phase = "annulation";
-                        reservationCancelledByClient = true;
-                        console.log("🍽️ [SM] Intent: annulation réservation");
-                      } else {
-                        reservationState.phase = "info_only";
-                        console.log("🍽️ [SM] Intent: demande d'info");
-                      }
-                    }
-
-                    if (reservationState.phase === "collecting") {
-                      if (!reservationState.guests) {
-                        const g = extractReservationField("guests", ut);
-                        if (g) { reservationState.guests = g; console.log("🍽️ [SM] guests:", g); }
-                      } else if (!reservationState.date) {
-                        const d = extractReservationField("date", ut);
-                        if (d) { reservationState.date = d; console.log("🍽️ [SM] date:", d); }
-                      } else if (!reservationState.time) {
-                        const ti = extractReservationField("time", ut);
-                        if (ti) { reservationState.time = ti; console.log("🍽️ [SM] time:", ti); }
-                      } else if (restaurantHasTerrace && !reservationState.seating) {
-                        const s = extractReservationField("seating", ut);
-                        if (s) { reservationState.seating = s; console.log("🍽️ [SM] seating:", s); }
-                      } else if (reservationState.allergies === null) {
-                        // Phase allergies/extras
-                        const al = extractReservationField("allergies", ut);
-                        if (al !== null) {
-                          reservationState.allergies = al;
-                          reservationState.extras = ut.length > 10 && al !== ut.slice(0, 120) ? ut.slice(0, 150) : null;
-                          reservationState.phase = "recap";
-                          console.log("🍽️ [SM] allergies:", al, "→ phase recap");
-                        }
-                      }
-                      // Si tout est rempli sans passer par allergies, aller en recap
-                      const allFilled = reservationState.guests && reservationState.date && reservationState.time &&
-                        (!restaurantHasTerrace || reservationState.seating);
-                      if (allFilled && reservationState.allergies === null && reservationState.phase === "collecting") {
-                        // Rester en collecting pour demander allergies
-                      }
-                    }
-
-                    if (reservationState.phase === "recap") {
-                      // Détecter confirmation client
-                      if (isAffirmativeFr(ut) || /\b(c'est\s+(bien\s+)?correct|c'est\s+ça|parfait|exactement|oui\s+c'est\s+ça)\b/i.test(ut)) {
-                        reservationState.confirmed = true;
-                        reservationState.phase = "confirmed";
-                        reservationAcceptedByClient = true;
-                        console.log("🍽️ [SM] Réservation confirmée par le client");
-                      } else if (isNegativeFr(ut)) {
-                        reservationState.phase = "collecting";
-                        reservationState.date = null;
-                        reservationState.time = null;
-                        reservationState.seating = null;
-                        console.log("🍽️ [SM] Client corrige la réservation → retour collecting");
-                      }
-                    }
-
-                    if (reservationState.phase !== prevPhase || reservationState.phase === "collecting") {
-                      pushRestaurantStateUpdate();
-                    }
-                  }
-                  // ── Fin state machine restaurant ──────────────────────────
-
                   if (userText && userText.trim() && consentGiven) {
                     const ut = String(userText).toLowerCase().trim().replace(/\s+/g, " ");
                     const isAffirmative = isAffirmativeFr(ut);
@@ -5344,6 +5194,14 @@ But: être naturel et mettre le client en confiance.`,
                 if (LOG_VERBOSE) console.log("ℹ️ Validation devis (IA dit mise en relation pour validation devis, output_text.done).", { text: doneText.substring(0, 80) });
               }
               const low = String(doneText || "").toLowerCase();
+              // #region agent log
+              if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur")) && typeof fetch === "function") {
+                fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:terrasseIntérieur_output_text", message: "AI said terrasse/intérieur (output_text)", data: { hypothesisId: "H_terrasse", lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }, timestamp: Date.now() }) }).catch(() => {});
+              }
+              if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur"))) {
+                console.log("[DEBUG-terrasse]", JSON.stringify({ lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }));
+              }
+              // #endregion
               if (effectiveSector !== "restaurant") {
                 const mentionsPlate = low.includes("plaque") || low.includes("immatric");
                 const iaSaysWillSendSms = (low.includes("vais vous envoyer") || low.includes("va vous envoyer") || low.includes("vous envoie ") || low.includes("vous envoyer ") || low.includes("je vais vous envoyer") || low.includes("on va vous envoyer")) && (low.includes("message") || low.includes("sms") || low.includes("texte"));
@@ -6429,9 +6287,6 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalDinnerPassedForToday === "string" && finalDinnerPassedForToday.trim()) dinnerPassedForToday = finalDinnerPassedForToday.trim().toLowerCase() === "true";
         if (typeof finalLunchReservationEnd === "string" && finalLunchReservationEnd.trim()) lunchReservationEnd = String(finalLunchReservationEnd).trim();
         if (typeof finalDinnerReservationEnd === "string" && finalDinnerReservationEnd.trim()) dinnerReservationEnd = String(finalDinnerReservationEnd).trim();
-        // Si le service soir n'existe pas (fermer), ne pas afficher "COMPLET ce soir"
-        if (dinnerReservationEnd.toLowerCase() === "fermer") dinnerFullToday = false;
-        if (lunchReservationEnd.toLowerCase() === "fermer") lunchFullToday = false;
         if (typeof finalReferenceDateLine === "string" && finalReferenceDateLine.trim()) referenceDateLine = String(finalReferenceDateLine).trim();
         if (typeof finalReferenceTimeLine === "string" && finalReferenceTimeLine.trim()) referenceTimeLine = String(finalReferenceTimeLine).trim();
         if (typeof finalReferenceTomorrowLine === "string" && finalReferenceTomorrowLine.trim()) referenceTomorrowLine = String(finalReferenceTomorrowLine).trim();
