@@ -2457,7 +2457,7 @@ Pour une réservation: demande nombre de personnes, date, heure${restaurantHasTe
     return s + " Depuis quand avez-vous remarqué ce problème ?";
   }
   function looksLikeAssistantResponseToRefusal(text) {
-    if (effectiveSector === "restaurant") return false; // Pas de raccroché sur refus pour restaurants
+    if (effectiveSector === "restaurant") return false;
     const t = String(text || "").toLowerCase();
     if (/\brappel(er|é)?\b/.test(t) || t.includes("être rappelé") || t.includes("pas de rappel")) return false;
     if (t.includes("pas enregistré") || t.includes("ne sera pas enregistré")) return true;
@@ -6547,7 +6547,7 @@ But: être naturel et mettre le client en confiance.`,
                       const baseHello = isRestoCI
                         ? `Bonjour. ${assistantName} du ${placePart}.`
                         : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                      const consentText = "Cet appel est enregistré. " + CONSENT_MAIN;
+                      const consentText = (isRestoCI ? "Cet appel est enregistré. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
                       greeting = [baseHello, consentText].filter(Boolean).join(" ");
                     } else if (isRestoCI) {
                       const rawN = String(garageName || "").trim();
@@ -6630,7 +6630,7 @@ But: être naturel et mettre le client en confiance.`,
                 const baseHello = isRestoFb
                   ? `Bonjour. ${assistantName} du ${placePart}.`
                   : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                const consentText = "Cet appel est enregistré. " + CONSENT_MAIN;
+                const consentText = (isRestoFb ? "Cet appel est enregistré. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
                 greeting = [baseHello, consentText].filter(Boolean).join(" ");
               } else if (isRestoFb) {
                 const rawN = String(garageName || "").trim();
