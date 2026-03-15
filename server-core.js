@@ -4629,9 +4629,13 @@ But: être naturel et mettre le client en confiance.`,
                         }
                       }, 350);
                     } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
-                      const fallbackPhrase = effectiveSector === "restaurant" ? "Un instant, s'il vous plaît." : "D'accord, je vous écoute.";
-                      console.log("🔄 Réponse vide après retry — fallback TTS pour éviter silence:", fallbackPhrase);
-                      enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_response_fallback", allowWithoutUser: true });
+                      if (effectiveSector === "restaurant") {
+                        console.log("ℹ️ Réponse vide après retry (restaurant) — pas de fallback TTS (anti-écho)");
+                      } else {
+                        const fallbackPhrase = "D'accord, je vous écoute.";
+                        console.log("🔄 Réponse vide après retry — fallback TTS pour éviter silence:", fallbackPhrase);
+                        enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_response_fallback", allowWithoutUser: true });
+                      }
                     }
                   } else {
                     console.warn("⚠️ Aucun texte extrait depuis response.output malgré hasOutputItems=true");
@@ -4653,9 +4657,13 @@ But: être naturel et mettre le client en confiance.`,
                         }
                       }, 350);
                     } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
-                      const fallbackPhrase = effectiveSector === "restaurant" ? "Un instant, s'il vous plaît." : "D'accord, je vous écoute.";
-                      console.log("🔄 Pas de texte extrait après retry — fallback TTS:", fallbackPhrase);
-                      enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_response_fallback", allowWithoutUser: true });
+                      if (effectiveSector === "restaurant") {
+                        console.log("ℹ️ Pas de texte extrait après retry (restaurant) — pas de fallback TTS (anti-écho)");
+                      } else {
+                        const fallbackPhrase = "D'accord, je vous écoute.";
+                        console.log("🔄 Pas de texte extrait après retry — fallback TTS:", fallbackPhrase);
+                        enqueuePremiumTts(fallbackPhrase, { interrupt: false, source: "empty_response_fallback", allowWithoutUser: true });
+                      }
                     }
                   }
                   const respStatus = msg.response?.status;
@@ -6221,12 +6229,9 @@ But: être naturel et mettre le client en confiance.`,
             const responseTextEmpty = !doneRid || !String(transcriptForDone).trim();
             const userSpokeRecently = lastCommitAt > 0 && (nowMs() - lastCommitAt) < 10000;
             if (effectiveSector === "restaurant" && (noTtsEnqueuedForThisResponse || responseTextEmpty) && userSpokeRecently) {
-              setTimeout(() => {
-                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
-                console.log("🔄 response.done: réponse vide ou sans TTS pour ce tour — fallback + retry response.create", { doneRid });
-                enqueuePremiumTts("Un instant, s'il vous plaît.", { interrupt: false, source: "empty_realtime_fallback", allowWithoutUser: true });
-                requestResponseCreate("empty_realtime_fallback");
-              }, 150);
+              // Ne PAS forcer de retry ni jouer "Un instant" — si OpenAI renvoie une réponse vide,
+              // c'est souvent du bruit/écho et le retry cause des réponses inventées.
+              console.log("ℹ️ response.done: réponse vide pour ce tour (restaurant) — pas de retry (anti-écho)", { doneRid });
             }
           }
           if (msg.type === "session.created" || msg.type === "session.updated") {
