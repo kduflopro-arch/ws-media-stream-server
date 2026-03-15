@@ -6082,10 +6082,12 @@ But: être naturel et mettre le client en confiance.`,
             const shouldIgnoreRestaurantWeak = effectiveSector === "restaurant" && lastInputAudioLevel < INPUT_SPEECH_THRESHOLD;
             if (shouldIgnoreLow) {
               console.log("🔇 Ignoré speech_started OpenAI (bruit évident, niveau:", lastInputAudioLevel, "<", SPEECH_STARTED_IGNORE_THRESHOLD + ")");
+              try { if (openaiWs && openaiWs.readyState === WebSocket.OPEN) openaiWs.send(JSON.stringify({ type: "input_audio_buffer.clear" })); } catch {}
               return;
             }
             if (shouldIgnoreRestaurantWeak) {
               console.log("🔇 Ignoré speech_started OpenAI (restaurant: niveau trop bas, parole incertaine)", { niveau: lastInputAudioLevel, seuil: INPUT_SPEECH_THRESHOLD });
+              try { if (openaiWs && openaiWs.readyState === WebSocket.OPEN) openaiWs.send(JSON.stringify({ type: "input_audio_buffer.clear" })); } catch {}
               return;
             }
             console.log("🟢 Le client a parlé (détection début parole OpenAI - speech_started)", { niveau: lastInputAudioLevel, seuil: INPUT_SPEECH_THRESHOLD });
