@@ -2218,11 +2218,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       voice: { mode: "id", id: selectedVoiceId.trim() },
       output_format: { container: "raw", encoding: "pcm_mulaw", sample_rate: 8000 },
       language: CARTESIA_LANGUAGE,
-      generation_config: {
-        speed: Math.max(0.6, Math.min(1.5, CARTESIA_SPEED)),
-        volume: Math.max(0.5, Math.min(2.0, CARTESIA_VOLUME)),
-        emotion: "neutral",
-      },
+      ...(CARTESIA_SPEED !== 1.0 ? { speed: Math.max(0.5, Math.min(2.0, CARTESIA_SPEED)) } : {}),
     };
     try {
       if (CARTESIA_USE_BYTES_MODE) {
@@ -3484,9 +3480,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
   function sendOutboundFrames(maxFrames = 1) {
     if (!twilioStreamSid) return;
-    const minBufferFrames = Number(process.env.OUTBOUND_MIN_BUFFER_FRAMES ?? "5");
+    const minBufferFrames = PREMIUM_TTS_PROVIDER === "cartesia" ? 0 : Number(process.env.OUTBOUND_MIN_BUFFER_FRAMES ?? "5");
     const backlogFrames = Math.floor(outboundQueuedBytes / 160);
-    const wouldSkip = premiumTtsInFlight && backlogFrames < minBufferFrames && outboundQueue.length > 0;
+    const wouldSkip = premiumTtsInFlight && minBufferFrames > 0 && backlogFrames < minBufferFrames && outboundQueue.length > 0;
     if (wouldSkip) return;
     let framesSent = 0;
     while (framesSent < maxFrames && outboundQueue.length > 0) {
