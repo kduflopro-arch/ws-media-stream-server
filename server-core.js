@@ -2597,7 +2597,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       return;
     }
-    const normalized = normalizeFrenchTtsText(rawTextStr);
+    let normalized = normalizeFrenchTtsText(rawTextStr);
+    // Restaurant : phrase de conclusion tronquée ("C'est not" au lieu de "C'est noté ! C'est une demande...")
+    const restaurantConclusionFull = "C'est noté ! C'est une demande de réservation, le restaurant vous confirmera par message. Bonne journée et à bientôt !";
+    if (effectiveSector === "restaurant" && normalized) {
+      const t = normalized.trim();
+      if (/^c'est not\s*$/i.test(t) || (t.length < 25 && /^c'est not/i.test(t))) {
+        if (LOG_TTS) console.log("[TTS-ENQUEUE] Restaurant: conclusion tronquée « C'est not » remplacée par phrase complète.");
+        normalized = restaurantConclusionFull;
+      }
+    }
     if (!normalized) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] SORTIE: texte vide après normalisation`);
@@ -4009,6 +4018,17 @@ ${compactPersona}`;
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : []),
         ];
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
+        // Restaurant sans référence date/heure : utiliser le fuseau du restaurant (Europe/Paris) pour éviter "aujourd'hui" = mauvais jour (ex. 00h40 Paris = lundi, serveur UTC = encore dimanche)
+        const restaurantTz = process.env.RESTAURANT_TIMEZONE || "Europe/Paris";
+        if (effectiveSector === "restaurant" && !referenceDateLine && !referenceTimeLine) {
+          const opts = { timeZone: restaurantTz, weekday: "long", day: "numeric", month: "long", year: "numeric" };
+          referenceDateLine = restNow.toLocaleDateString("fr-FR", opts);
+          const [h, m] = restNow.toLocaleTimeString("fr-FR", { timeZone: restaurantTz, hour: "2-digit", minute: "2-digit", hour12: false }).split(":");
+          referenceTimeLine = `${h || "0"}:${m || "0"}`;
+          const tomorrow = new Date(restNow.getTime() + 24 * 60 * 60 * 1000);
+          referenceTomorrowLine = tomorrow.toLocaleDateString("fr-FR", { ...opts, timeZone: restaurantTz });
+          if (LOG_VERBOSE) console.log("🍽️ [Restaurant] Référence date/heure fallback (fuseau " + restaurantTz + "):", { referenceDateLine, referenceTimeLine, referenceTomorrowLine });
+        }
         const todayDateLineRest = referenceDateLine && referenceTimeLine
           ? `[Référence date/heure — HORLOGE ET CALENDRIER AUTO-GURU] Aujourd'hui: ${referenceDateLine}. Heure actuelle: ${referenceTimeLine}.${referenceTomorrowLine ? ` Demain: ${referenceTomorrowLine}.` : ""}${referenceWeekCalendar ? ` Calendrier des 30 prochains jours (UTILISE CES DATES EXACTES, ne calcule jamais) : ${referenceWeekCalendar}.` : ""}`
           : `[Référence] Aujourd'hui: ${restNow.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
