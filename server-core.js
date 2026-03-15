@@ -6973,7 +6973,10 @@ But: être naturel et mettre le client en confiance.`,
               }
               const pcm24kBase64 = pcm24kBuffer.toString("base64");
               appendedBytes += pcm24kBuffer.length;
-              const gateOffForRestaurant = effectiveSector === "restaurant";
+              // Restaurant : envoyer l'audio à OpenAI UNIQUEMENT si le niveau dépasse un seuil minimum
+              // pour éviter que le bruit ambiant/silence soit interprété comme parole par semantic_vad.
+              const RESTAURANT_MIN_AUDIO_LEVEL = 200;
+              const gateOffForRestaurant = effectiveSector === "restaurant" && avgLocal > RESTAURANT_MIN_AUDIO_LEVEL;
               const bypassGate = gateOffForRestaurant || speechActive || userSpeakingNow;
               if (!INPUT_GATE_ENABLED || bypassGate) {
                 openaiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcm24kBase64 }));
