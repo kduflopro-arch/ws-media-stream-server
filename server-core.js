@@ -6543,11 +6543,17 @@ But: être naturel et mettre le client en confiance.`,
           const outboundIntervalMs = Math.max(10, Number(process.env.OUTBOUND_INTERVAL_MS ?? "20"));
           const outboundFramesPerTick = Number(process.env.OUTBOUND_FRAMES_PER_TICK ?? "1");
           let nextTickAt = Date.now() + outboundIntervalMs;
+          let lastTickAt = Date.now();
           const schedule = () => {
             const delay = Math.max(1, nextTickAt - Date.now());
             outboundTimer = setTimeout(() => {
               try {
-                sendOutboundFrames(outboundFramesPerTick >= 1 ? outboundFramesPerTick : 1);
+                const now = Date.now();
+                const elapsed = now - lastTickAt;
+                const catchup = Math.ceil(elapsed / outboundIntervalMs);
+                const frames = Math.min(Math.max(outboundFramesPerTick >= 1 ? outboundFramesPerTick : 1, catchup), 6);
+                lastTickAt = now;
+                sendOutboundFrames(frames);
               } catch { }
               nextTickAt += outboundIntervalMs;
               schedule();
