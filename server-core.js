@@ -2459,8 +2459,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   /** Supprime une phrase répétée en double (ex. "A. A." → "A." ou phrase entière en double) pour éviter envoi double à Minimax/TTS. */
   function dedupeRepeatedPhraseAtTts(text) {
     if (!text || typeof text !== "string") return text;
-    const norm = (s) => String(s).replace(/\s+/g, " ").trim();
-    const normApo = (s) => String(s).replace(/[\u2019\u2018\u0027]/g, "'");
+    const norm = (s) => String(s).normalize("NFC").replace(/\s+/g, " ").trim();
+    const normApo = (s) => String(s).normalize("NFC").replace(/[\u2019\u2018\u0027]/g, "'");
+    const normFull = (s) => norm(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     const t = norm(text);
     if (t.length < 24) return text;
     // Détection rapide par indexOf : si un préfixe >= 40 chars réapparaît dans la seconde moitié du texte
@@ -2516,6 +2517,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const idx = t.indexOf(prefix, 10);
         if (idx > 0 && idx < t.length * 0.6) return norm(t.slice(0, idx));
       }
+    }
+    // Dernier recours : comparaison agressive (sans accents, en minuscules) autour du milieu
+    const halfPos = Math.floor(t.length / 2);
+    for (let delta = -5; delta <= 5; delta++) {
+      const pos = halfPos + delta;
+      if (pos < 20 || pos >= t.length - 20) continue;
+      const a = normFull(t.slice(0, pos));
+      const b = normFull(t.slice(pos));
+      if (a === b && a.length >= 30) { console.log("[DEDUP-TTS] Doublon détecté (fallback agressif)"); return norm(t.slice(0, pos)); }
     }
     return text;
   }
@@ -4325,8 +4335,9 @@ But: être naturel et mettre le client en confiance.`,
           /** Évite de jouer deux fois la même phrase si l'API renvoie un doublon (ex. récap répété). */
           function dedupeRepeatedPhrase(text) {
             if (!text || typeof text !== "string") return text;
-            const norm = (s) => String(s).replace(/\s+/g, " ").trim();
-            const normApo = (s) => String(s).replace(/[\u2019\u2018\u0027]/g, "'");
+            const norm = (s) => String(s).normalize("NFC").replace(/\s+/g, " ").trim();
+            const normApo = (s) => String(s).normalize("NFC").replace(/[\u2019\u2018\u0027]/g, "'");
+            const normFull = (s) => norm(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
             const t = norm(text);
             if (t.length < 24) return text;
             // Détection rapide par indexOf : si un préfixe >= 40 chars réapparaît dans la seconde moitié du texte
@@ -4381,6 +4392,15 @@ But: être naturel et mettre le client en confiance.`,
                 const idx = t.indexOf(prefix, 10);
                 if (idx > 0 && idx < t.length * 0.6) return norm(t.slice(0, idx));
               }
+            }
+            // Dernier recours : comparaison agressive (sans accents, en minuscules) autour du milieu
+            const halfPos2 = Math.floor(t.length / 2);
+            for (let delta = -5; delta <= 5; delta++) {
+              const pos = halfPos2 + delta;
+              if (pos < 20 || pos >= t.length - 20) continue;
+              const a = normFull(t.slice(0, pos));
+              const b = normFull(t.slice(pos));
+              if (a === b && a.length >= 30) { console.log("[DEDUP] Doublon détecté (fallback agressif)"); return norm(t.slice(0, pos)); }
             }
             return text;
           }
