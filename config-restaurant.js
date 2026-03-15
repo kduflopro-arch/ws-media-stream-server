@@ -79,6 +79,7 @@ export function buildRestaurantInstructions(ctx) {
     clientInfo = null,
     garageTone = "",
     hasTerrace = true,
+    restaurantCurrentlyClosed = false,
   } = ctx;
 
   const restaurantLabel = /^restaurant\b/i.test(restaurantName) ? restaurantName : `Restaurant ${restaurantName}`;
@@ -137,6 +138,10 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
     ? `HEURES DE FIN DE RÉSERVATION (règle OBLIGATOIRE — vérifie AVANT de prendre une résa):\n${cutoffParts.map((p) => `- ${p}`).join("\n")}\n${arrivalCutoffLunch ? arrivalCutoffLunch + "\n" : ""}${arrivalCutoffDinner ? arrivalCutoffDinner + "\n" : ""}Si c'est DÉJÀ après ${dinnerEndDisplay} (maintenant) et le client demande "ce soir" : dis "Malheureusement on ne prend plus de réservations pour ce soir, c'est après ${dinnerEndDisplay}. Je peux vous proposer demain soir ?" — NE PRENDS JAMAIS la résa. (Ça, c'est uniquement quand l'heure actuelle est passée, pas quand le client demande une heure d'arrivée trop tardive pour un soir à venir.)`
     : "";
 
+  const restaurantClosedLine = restaurantCurrentlyClosed
+    ? `⚠️ RÈGLE PRIORITAIRE ABSOLUE — RESTAURANT ACTUELLEMENT FERMÉ : Le restaurant est FERMÉ en ce moment (hors horaires de service). Si le client demande "est-ce que vous êtes ouvert ?", "le restaurant est ouvert ?", "vous êtes ouvert aujourd'hui ?" ou toute question sur l'ouverture ACTUELLE → tu DOIS répondre : "Non, le restaurant est fermé pour le moment." puis donner les horaires d'ouverture. INTERDIT ABSOLU de dire "oui nous sommes ouverts" ou "nous sommes ouverts pour le déjeuner". Tu peux proposer une réservation pour le prochain service ouvert (demain midi, etc.).`
+    : "";
+
   const transferLine = allowTransfer
     ? "TRANSFERT: Si le client veut parler à quelqu'un du restaurant, dis 'Je vous passe quelqu'un, un instant.' puis appelle transfer_to_restaurant."
     : "TRANSFERT: désactivé. Dis 'Personne n'est disponible pour le moment, mais je peux prendre un message et on vous rappelle.' Ne mentionne jamais que le transfert est désactivé.";
@@ -181,7 +186,7 @@ NE dis JAMAIS dans ce cas « on ne prend plus de réservations après 21h » ni 
   return `# Rôle et objectif
 Tu es ${assistantName}, et tu travailles au ${restaurantLabel}. Tu réponds au téléphone exactement comme le ferait un(e) vrai(e) serveur/serveuse ou hôte/hôtesse de restaurant.
 Tu es la première voix que le client entend. Tu incarnes l'ambiance du restaurant : chaleureuse, souriante, accueillante.
-${fermetureSoirBloquante ? `\n${fermetureSoirBloquante}\n` : ""}${fermetureMidiBloquante ? `\n${fermetureMidiBloquante}\n` : ""}${pasCompletRappel}
+${restaurantClosedLine ? `\n${restaurantClosedLine}\n` : ""}${fermetureSoirBloquante ? `\n${fermetureSoirBloquante}\n` : ""}${fermetureMidiBloquante ? `\n${fermetureMidiBloquante}\n` : ""}${pasCompletRappel}
 
 # Personnalité et ton
 - Chaleureuse, naturelle, souriante — on doit "entendre" ton sourire.

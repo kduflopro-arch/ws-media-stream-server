@@ -2463,6 +2463,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const normApo = (s) => String(s).replace(/[\u2019\u2018\u0027]/g, "'");
     const t = norm(text);
     if (t.length < 24) return text;
+    // Détection rapide par indexOf : si un préfixe >= 40 chars réapparaît dans la seconde moitié du texte
+    const probeLen = Math.min(80, Math.floor(t.length / 3));
+    if (probeLen >= 40) {
+      const probe = t.slice(0, probeLen);
+      const repeatAt = t.indexOf(probe, probeLen);
+      if (repeatAt > 0 && repeatAt <= Math.ceil(t.length * 0.65)) {
+        const firstPart = norm(t.slice(0, repeatAt));
+        if (firstPart.length >= 30) return firstPart;
+      }
+    }
     // Récap répété (ex. "Parfait, en terrasse. Je récapitule :... C'est bien ça ?Parfait, en terrasse. Je récapitule...")
     const dupStart = /Parfait,\s*(en terrasse|à l'intérieur|à l'interieur|je récapitule)/i;
     const idx1 = t.search(dupStart);
@@ -3948,6 +3958,7 @@ ${compactPersona}`;
           garageTone,
           hasTerrace: restaurantHasTerrace,
           restaurantClosedByDaySummary,
+          restaurantCurrentlyClosed: garageClosed,
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
@@ -4016,6 +4027,7 @@ ${compactPersona}`;
               garageTone,
               hasTerrace: restaurantHasTerrace,
               restaurantClosedByDaySummary,
+              restaurantCurrentlyClosed: garageClosed,
             });
             let instructionsToSend = updatedRestaurantInstructions;
             if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
@@ -4112,6 +4124,7 @@ ${compactPersona}`;
               garageTone,
               hasTerrace: restaurantHasTerrace,
               restaurantClosedByDaySummary,
+              restaurantCurrentlyClosed: garageClosed,
             });
             const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS
               ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES: réservation naturelle, une question à la fois.]"
@@ -4316,6 +4329,16 @@ But: être naturel et mettre le client en confiance.`,
             const normApo = (s) => String(s).replace(/[\u2019\u2018\u0027]/g, "'");
             const t = norm(text);
             if (t.length < 24) return text;
+            // Détection rapide par indexOf : si un préfixe >= 40 chars réapparaît dans la seconde moitié du texte
+            const probeLen = Math.min(80, Math.floor(t.length / 3));
+            if (probeLen >= 40) {
+              const probe = t.slice(0, probeLen);
+              const repeatAt = t.indexOf(probe, probeLen);
+              if (repeatAt > 0 && repeatAt <= Math.ceil(t.length * 0.65)) {
+                const firstPart = norm(t.slice(0, repeatAt));
+                if (firstPart.length >= 30) return firstPart;
+              }
+            }
             // Récap répété (ex. "Parfait, en terrasse. Je récapitule :... C'est bien ça ?Parfait, en terrasse. Je récapitule...")
             const dupStart = /Parfait,\s*(en terrasse|à l'intérieur|à l'interieur|je récapitule)/i;
             const idx1 = t.search(dupStart);
@@ -6299,6 +6322,23 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalDinnerReservationEnd === "string" && finalDinnerReservationEnd.trim()) dinnerReservationEnd = String(finalDinnerReservationEnd).trim();
         if (typeof finalReferenceDateLine === "string" && finalReferenceDateLine.trim()) referenceDateLine = String(finalReferenceDateLine).trim();
         if (typeof finalReferenceTimeLine === "string" && finalReferenceTimeLine.trim()) referenceTimeLine = String(finalReferenceTimeLine).trim();
+        // Auto-corriger lunchPassedForToday/dinnerPassedForToday si le backend envoie false mais que l'heure est dépassée
+        if (referenceTimeLine && lunchReservationEnd && !/^ferm/i.test(lunchReservationEnd) && !lunchPassedForToday) {
+          const [curH, curM] = referenceTimeLine.split(":").map(Number);
+          const [endH, endM] = lunchReservationEnd.split(":").map(Number);
+          if (!isNaN(curH) && !isNaN(endH) && (curH * 60 + curM) >= (endH * 60 + endM)) {
+            lunchPassedForToday = true;
+            console.log(`[HORAIRES] lunchPassedForToday corrigé à true (${referenceTimeLine} >= ${lunchReservationEnd})`);
+          }
+        }
+        if (referenceTimeLine && dinnerReservationEnd && !/^ferm/i.test(dinnerReservationEnd) && !dinnerPassedForToday) {
+          const [curH, curM] = referenceTimeLine.split(":").map(Number);
+          const [endH, endM] = dinnerReservationEnd.split(":").map(Number);
+          if (!isNaN(curH) && !isNaN(endH) && (curH * 60 + curM) >= (endH * 60 + endM)) {
+            dinnerPassedForToday = true;
+            console.log(`[HORAIRES] dinnerPassedForToday corrigé à true (${referenceTimeLine} >= ${dinnerReservationEnd})`);
+          }
+        }
         if (typeof finalReferenceTomorrowLine === "string" && finalReferenceTomorrowLine.trim()) referenceTomorrowLine = String(finalReferenceTomorrowLine).trim();
         if (typeof finalReferenceWeekCalendar === "string" && finalReferenceWeekCalendar.trim()) referenceWeekCalendar = String(finalReferenceWeekCalendar).trim();
         if (typeof finalRestaurantHasTerrace === "string") restaurantHasTerrace = finalRestaurantHasTerrace.trim().toLowerCase() !== "false";
