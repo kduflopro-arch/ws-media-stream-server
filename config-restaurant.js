@@ -118,7 +118,7 @@ export function buildRestaurantInstructions({
     : "";
 
   const consentLine = consentRequired && !consentGiven
-    ? `\nCONSENTEMENT REQUIS: Avant toute collecte, demande si le client accepte l'enregistrement. Si refus → raccrocher poliment avec "Votre refus a été pris en compte. Bonne journée."`
+    ? `\nCONSENTEMENT REQUIS: Avant toute collecte, demande poliment si le client accepte que l'appel soit enregistré. En cas de refus, raccroche courtoisement.`
     : "";
 
   const transferLine = allowTransfer
@@ -136,6 +136,7 @@ ${dateLine}${hoursLine}${terraceLine}${fermetureLine}${availabilityLine}${menuLi
 RÈGLES:
 - Ne jamais inventer d'informations.
 - Pour les questions sur le menu ou les horaires: appeler get_restaurant_info.${transferLine}
+- Réservation: poser UNE SEULE question à la fois, dans l'ordre: 1) nb personnes, 2) date, 3) heure, 4) terrasse/intérieur. Ne jamais grouper plusieurs questions.
 - Demander allergies/messages spéciaux uniquement après avoir collecté date, heure, nombre de personnes.${stateBlock}`;
 }
 

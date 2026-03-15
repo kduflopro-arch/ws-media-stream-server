@@ -2457,6 +2457,7 @@ Pour une réservation: demande nombre de personnes, date, heure${restaurantHasTe
     return s + " Depuis quand avez-vous remarqué ce problème ?";
   }
   function looksLikeAssistantResponseToRefusal(text) {
+    if (effectiveSector === "restaurant") return false; // Pas de raccroché sur refus pour restaurants
     const t = String(text || "").toLowerCase();
     if (/\brappel(er|é)?\b/.test(t) || t.includes("être rappelé") || t.includes("pas de rappel")) return false;
     if (t.includes("pas enregistré") || t.includes("ne sera pas enregistré")) return true;
@@ -6428,6 +6429,9 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalDinnerPassedForToday === "string" && finalDinnerPassedForToday.trim()) dinnerPassedForToday = finalDinnerPassedForToday.trim().toLowerCase() === "true";
         if (typeof finalLunchReservationEnd === "string" && finalLunchReservationEnd.trim()) lunchReservationEnd = String(finalLunchReservationEnd).trim();
         if (typeof finalDinnerReservationEnd === "string" && finalDinnerReservationEnd.trim()) dinnerReservationEnd = String(finalDinnerReservationEnd).trim();
+        // Si le service soir n'existe pas (fermer), ne pas afficher "COMPLET ce soir"
+        if (dinnerReservationEnd.toLowerCase() === "fermer") dinnerFullToday = false;
+        if (lunchReservationEnd.toLowerCase() === "fermer") lunchFullToday = false;
         if (typeof finalReferenceDateLine === "string" && finalReferenceDateLine.trim()) referenceDateLine = String(finalReferenceDateLine).trim();
         if (typeof finalReferenceTimeLine === "string" && finalReferenceTimeLine.trim()) referenceTimeLine = String(finalReferenceTimeLine).trim();
         if (typeof finalReferenceTomorrowLine === "string" && finalReferenceTomorrowLine.trim()) referenceTomorrowLine = String(finalReferenceTomorrowLine).trim();
