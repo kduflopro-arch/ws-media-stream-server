@@ -6915,9 +6915,11 @@ But: être naturel et mettre le client en confiance.`,
                 assistantBacklogFrames >= INPUT_SUPPRESS_BACKLOG_FRAMES;
               // Pendant que Minimax/TTS lit (audio sort vers le HP du téléphone) : couper le micro SANS bypass.
               // Le HP déclencherait sinon le micro → l'IA interprète l'écho comme parole client.
+              // Aussi couper pendant un délai POST-TTS pour éviter l'écho résiduel.
               const premiumTtsPlaying = premiumTtsInFlight || outboundQueuedBytes > 0 || outboundQueue.length > 0;
+              const postTtsGuardActive = lastTtsEndAt > 0 && (Date.now() - lastTtsEndAt) < 800;
               const userSpeakingNow = avg > INPUT_SUPPRESS_BYPASS_THRESHOLD;
-              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && assistantIsReallyTalking && (premiumTtsPlaying ? true : (!speechActive && !userSpeakingNow));
+              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && (premiumTtsPlaying || postTtsGuardActive) && !userSpeakingNow;
               if (suppressInputNow) {
                 if (typeof ws.__suppressLogCount === "undefined") ws.__suppressLogCount = 0;
                 ws.__suppressLogCount = (ws.__suppressLogCount || 0) + 1;
@@ -6966,8 +6968,7 @@ But: être naturel et mettre le client en confiance.`,
               }
               const pcm24kBase64 = pcm24kBuffer.toString("base64");
               appendedBytes += pcm24kBuffer.length;
-              const gateOffForRestaurant = effectiveSector === "restaurant";
-              const bypassGate = gateOffForRestaurant || speechActive || userSpeakingNow;
+              const bypassGate = speechActive || userSpeakingNow;
               if (!INPUT_GATE_ENABLED || bypassGate) {
                 openaiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcm24kBase64 }));
               }
