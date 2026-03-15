@@ -6973,13 +6973,19 @@ But: être naturel et mettre le client en confiance.`,
               }
               const pcm24kBase64 = pcm24kBuffer.toString("base64");
               appendedBytes += pcm24kBuffer.length;
-              // Restaurant : envoyer l'audio à OpenAI UNIQUEMENT si le niveau dépasse un seuil minimum
-              // pour éviter que le bruit ambiant/silence soit interprété comme parole par semantic_vad.
-              const RESTAURANT_MIN_AUDIO_LEVEL = 200;
-              const gateOffForRestaurant = effectiveSector === "restaurant" && avgLocal > RESTAURANT_MIN_AUDIO_LEVEL;
+              // Restaurant : envoyer du silence à OpenAI quand le niveau est bas (bruit/écho)
+              // pour que semantic_vad ait un flux continu mais n'interprète pas le bruit comme parole.
+              const RESTAURANT_MIN_AUDIO_LEVEL = 150;
+              const gateOffForRestaurant = effectiveSector === "restaurant";
               const bypassGate = gateOffForRestaurant || speechActive || userSpeakingNow;
               if (!INPUT_GATE_ENABLED || bypassGate) {
-                openaiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcm24kBase64 }));
+                if (gateOffForRestaurant && avgLocal < RESTAURANT_MIN_AUDIO_LEVEL && !speechActive && !userSpeakingNow) {
+                  // Envoyer du silence (zéros) pour maintenir le flux audio continu
+                  const silentPcm = Buffer.alloc(pcm24kBuffer.length);
+                  openaiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: silentPcm.toString("base64") }));
+                } else {
+                  openaiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: pcm24kBase64 }));
+                }
               }
               if (INPUT_GATE_ENABLED && !bypassGate) {
                 const isSpeech = avgLocal > INPUT_SPEECH_THRESHOLD;
