@@ -2216,7 +2216,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       model_id: CARTESIA_MODEL_ID,
       transcript: textToSend,
       voice: { mode: "id", id: selectedVoiceId.trim() },
-      output_format: { container: "raw", encoding: "pcm_mulaw", sample_rate: 8000 },
+      output_format: { container: "raw", encoding: "pcm_s16le", sample_rate: 16000 },
       language: CARTESIA_LANGUAGE,
       generation_config: {
         speed: Math.max(0.6, Math.min(1.5, CARTESIA_SPEED)),
@@ -2254,12 +2254,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           }
           fullBuf = fullBuf.subarray(offset);
         }
-        const chunkSize = 160;
-        for (let i = 0; i < fullBuf.length; i += chunkSize) {
-          const chunk = fullBuf.subarray(i, Math.min(i + chunkSize, fullBuf.length));
-          if (chunk.length > 0) enqueueOutboundMulaw(chunk);
+        // PCM s16le 16kHz → mulaw 8kHz (même pipeline que ElevenLabs, sans saccades)
+        const pcm16kBlockSize = 640; // 640 bytes PCM16k = 20ms = 160 bytes mulaw
+        for (let i = 0; i + pcm16kBlockSize <= fullBuf.length; i += pcm16kBlockSize) {
+          const block = fullBuf.subarray(i, i + pcm16kBlockSize);
+          const mulawFrame = convertPcm16kBlockToMulaw(block);
+          enqueueOutboundMulaw(mulawFrame);
         }
-        if (LOG_TTS) console.log(`[TTS-CARTESIA] Bytes: ${fullBuf.length} octets enqueue (mode fluide).`);
+        if (LOG_TTS) console.log(`[TTS-CARTESIA] Bytes: ${fullBuf.length} octets PCM16k → mulaw enqueue.`);
         if (fullBuf.length === 0) console.warn("⚠️ Cartesia TTS: 0 octet. Vérifier CARTESIA_API_KEY et voice ID.");
         if (premiumTtsBypassUntilMs > 0) {
           premiumTtsBypassUntilMs = 0;
@@ -2297,8 +2299,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         cartesiaWs.on("open", () => { clearTimeout(t); resolve(); });
         cartesiaWs.on("error", (err) => { clearTimeout(t); reject(err); });
       });
-      const chunkSize = 160;
+      const pcm16kBlockSize = 640; // 640 bytes PCM16k = 20ms = 160 bytes mulaw
       let totalBytes = 0;
+      let pcmCarryOver = Buffer.alloc(0); // buffer pour les restes de chunks non alignés sur 640
       for (let si = 0; si < sentences.length && !premiumTtsAbort?.signal?.aborted; si++) {
         const seg = sentences[si];
         const isFirst = si === 0;
@@ -2324,10 +2327,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           const buf = Buffer.from(msg.data, "base64");
           if (buf.length > 0) {
             totalBytes += buf.length;
-            for (let i = 0; i < buf.length; i += chunkSize) {
-              const chunk = buf.subarray(i, Math.min(i + chunkSize, buf.length));
-              if (chunk.length > 0) enqueueOutboundMulaw(chunk);
+            // PCM s16le 16kHz → mulaw 8kHz (même pipeline que ElevenLabs)
+            let pcmBuf = pcmCarryOver.length > 0 ? Buffer.concat([pcmCarryOver, buf]) : buf;
+            pcmCarryOver = Buffer.alloc(0);
+            while (pcmBuf.length >= pcm16kBlockSize) {
+              const block = pcmBuf.subarray(0, pcm16kBlockSize);
+              pcmBuf = pcmBuf.subarray(pcm16kBlockSize);
+              const mulawFrame = convertPcm16kBlockToMulaw(block);
+              enqueueOutboundMulaw(mulawFrame);
             }
+            if (pcmBuf.length > 0) pcmCarryOver = Buffer.from(pcmBuf);
           }
         }
         if (msg.type === "error") {
