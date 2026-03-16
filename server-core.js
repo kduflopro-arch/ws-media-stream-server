@@ -2656,6 +2656,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     const assistantReplySources = ["conversation.item.done", "response.output_text.done", "response.done", "response.output_item.done", "legacy_elevenlabs"];
     let textToSpeak = assistantReplySources.includes(source) ? ensureAssistantReplyEndsWithQuestion(clean) : clean;
+    // Restaurant: tant que le consentement n'est pas donné, ne jamais jouer une réponse métier (ex. "Puis-je vous aider ?") — uniquement le rappel consentement.
+    if (assistantReplySources.includes(source) && consentRequired && !consentGiven) {
+      textToSpeak = CONSENT_REMINDER;
+      if (LOG_TTS) console.log("[TTS-ENQUEUE] Consentement non donné: rappel joué à la place de la réponse IA.");
+    }
     if (assistantReplySources.includes(source)) {
       const noRecentGarageTool = !(lastGarageToolOutputAt > 0 && (nowMs() - lastGarageToolOutputAt) < 15000), talksAboutPriceAndHours = /\b(tarif|prix|euros?)\b/i.test(textToSpeak) && /\b(horaires?|ouvert|heures?)\b/i.test(textToSpeak), talksAboutRdv = /\b(rendez-?vous|rdv)\b/i.test(textToSpeak) || /\bquel jour vous conviendrait le mieux\b/i.test(textToSpeak);
       if (noRecentGarageTool && talksAboutPriceAndHours && talksAboutRdv) {

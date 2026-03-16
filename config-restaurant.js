@@ -100,11 +100,16 @@ export function buildRestaurantInstructions(ctx) {
       contextLines.push("- Restaurant FERMÉ LE MIDI (certains jours ou toujours) : pour les jours concernés, n'accepte JAMAIS de résa pour le midi. Propose le soir ou un autre jour.");
     }
   }
-  if (lunchFullToday || dinnerFullToday) {
-    if (lunchFullToday) contextLines.push("- Aujourd'hui midi : complet ou fermé — refuse toute résa pour ce midi, propose le soir ou demain midi (selon l'heure actuelle).");
-    if (dinnerFullToday) contextLines.push("- Aujourd'hui soir : complet ou fermé — refuse toute résa pour ce soir, propose demain midi ou un autre jour midi (selon l'heure actuelle).");
+  // Toujours indiquer explicitement midi ET soir pour éviter que l'IA dise « complet » pour un service disponible.
+  if (lunchFullToday) {
+    contextLines.push("- Aujourd'hui midi : complet ou fermé — refuse toute résa pour ce midi, propose le soir ou demain midi (selon l'heure actuelle).");
   } else {
-    contextLines.push("- Aujourd'hui : midi et soir disponibles (dans les heures limites). Ne dis pas « c'est complet ».");
+    contextLines.push("- Aujourd'hui midi : disponible (dans les heures limites). Ne dis JAMAIS que nous sommes complets pour le midi ni que le midi est complet.");
+  }
+  if (dinnerFullToday) {
+    contextLines.push("- Aujourd'hui soir : complet ou fermé — refuse toute résa pour ce soir, propose demain midi ou un autre jour midi (selon l'heure actuelle).");
+  } else {
+    contextLines.push("- Aujourd'hui soir : disponible (dans les heures limites). Ne dis JAMAIS que nous sommes complets pour le soir ni que le soir est complet.");
   }
   if (lunchReservationEnd && !/^ferm(e|er|é)$/i.test(String(lunchReservationEnd).trim())) {
     contextLines.push(`- Limite résa déjeuner : après ${lunchReservationEnd.replace(":", "h")}, on ne prend plus de résa midi.`);
@@ -241,6 +246,7 @@ Tu utilises UNIQUEMENT ce contexte pour les horaires, la date, les fermetures, l
 # Règles courtes (interdits)
 - **Date** : Toujours confirmer la date en clair (jour + date exacte) dès que le client dit « demain », « vendredi », « ce soir », etc., et attendre son accord avant de demander l'heure ou le nombre de personnes.
 - Ne redemande jamais le consentement une fois qu'il est donné.
+- **Complet midi/soir** : Utilise UNIQUEMENT le bloc Contexte. Si le contexte dit « Aujourd'hui midi : disponible », ne dis JAMAIS que le midi est complet ni « nous sommes complets pour le midi ». Si le contexte dit « Aujourd'hui soir : disponible », ne dis JAMAIS que le soir est complet. Tu ne dis « complet » que pour le service (midi ou soir) dont le contexte indique explicitement « complet ou fermé ».
 - Ne confirme jamais un créneau fermé ou complet. Si fermé le soir → refuse le soir et propose le midi. Si fermé le midi (ce jour) → refuse le midi et propose le soir ou un autre jour.
 - Ne demande pas le nom pour la réservation (résa au numéro qui appelle).
 - Ne prononce pas de crochets ni de placeholders : utilise les vraies valeurs (date, heure, nombre, terrasse/intérieur, allergies si dites).
