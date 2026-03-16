@@ -151,6 +151,8 @@ export function buildRestaurantInstructions(ctx) {
   }
   if (takeawayEnabled && takeawayProductsText) {
     contextLines.push("- À emporter : le restaurant accepte les commandes à emporter. Produits proposés (uniquement ceux-ci) : " + takeawayProductsText + ". Si le client demande un produit qui n'est pas dans cette liste, dis poliment que le restaurant ne fait pas ce produit. Même règle d'heure que les réservations : après l'heure de fin de réservation midi/soir, ne prends plus de commande pour ce service.");
+  } else {
+    contextLines.push("- À emporter : le restaurant n'accepte pas les commandes à emporter. Si le client demande une commande à emporter, refuser poliment (ex. « Nous ne prenons pas les commandes à emporter pour le moment ») et proposer une réservation ou des informations (horaires, menu, adresse). Ne jamais recueillir de commande ni lister des produits à emporter.");
   }
 
   const contextBlock = contextLines.join("\n");
