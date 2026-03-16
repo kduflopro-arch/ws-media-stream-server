@@ -750,7 +750,7 @@ wss.on("connection", (ws, req) => {
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   // Restaurant : message informatif (opt-out) — pas d'attente de « oui », le client peut raccrocher s'il refuse.
-  const CONSENT_RESTAURANT = "Cet appel est enregistré. Pour préparer votre réservation, vous pouvez raccrocher si vous refusez.";
+  const CONSENT_RESTAURANT = "Cet appel est enregistré Pour préparer votre réservation, vous pouvez raccrocher si vous refusez.";
   function playPostConsentGreeting() {
     if (ws.__postConsentGreetingPlayed || !PREMIUM_TTS_ENABLED) return;
     const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
