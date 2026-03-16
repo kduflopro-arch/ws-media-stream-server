@@ -3085,7 +3085,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bcinquante\s+et\s+un\b/gi, "cinquante-et-un");
     t = t.replace(/\bsoixante\s+et\s+un\b/gi, "soixante-et-un");
     t = t.replace(/\bsoixante\s+et\s+onze\b/gi, "soixante-et-onze");
-    // Collages fréquents LLM (mots soudés sans espace) : après|proposer|avant|vers + vingt|trente|...
+    // Collages fréquents LLM (mots soudés sans espace) : après|proposer|avant|vers + vingt|trente|heures...
+    t = t.replace(/(après)(quatorze|quinze|seize|treize|douze|onze|dix|neuf|huit|sept|six|cinq|quatre|trois|deux|une|midi|minuit|heures?)/gi, "$1 $2");
+    t = t.replace(/(après)(\d{1,2})(?=[hH\s]|$)/gi, "$1 $2");
+    t = t.replace(/(avant)(quatorze|quinze|seize|treize|douze|onze|dix|neuf|huit|sept|six|cinq|quatre|trois|deux|une|midi|minuit|heures?)/gi, "$1 $2");
+    t = t.replace(/(avant)(\d{1,2})(?=[hH\s]|$)/gi, "$1 $2");
     t = t.replace(/(après)(vingt)/gi, "$1 $2");
     t = t.replace(/(proposer)(vingt)/gi, "$1 $2");
     t = t.replace(/(avant)(vingt)/gi, "$1 $2");
@@ -3098,6 +3102,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/(proposer)(vingt-et-un)/gi, "$1 $2");
     t = t.replace(/(après)(vingt-et-une)/gi, "$1 $2");
     t = t.replace(/(proposer)(vingt-et-une)/gi, "$1 $2");
+    // "à13h00" / "à 13h" → "à 13 h" pour TTS
+    t = t.replace(/\bà(\d{1,2})[hH](\d{0,2})\b/gi, (_, h, m) => (m ? `à ${h} h ${m}` : `à ${h} h`));
+    t = t.replace(/\bà(\d{1,2})(?=[\s\.,;:!?]|$|[hH])/gi, "à $1 ");
     t = t.replace(/,([a-zàâæçéèêëîïôùûü0-9])/gi, ", $1");
     t = t.replace(/\bpour(\d{1,2})(?=\s|$|h|heures?)/gi, "pour $1");
     t = t.replace(/(^|[\s\.,;:!?])le(\d{1,2})(?=[\s\.,;:!?]|$|[a-zàâæçéèêëîïôùûü])/gi, (_, before, num) => (before || "") + "le " + num);
@@ -3530,8 +3537,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "5500");
   // Seuil niveau audio pour considérer "client a parlé" en restaurant (plus élevé = moins de faux positifs bruit/écho)
   const RESTAURANT_INPUT_SPEECH_THRESHOLD = Number(process.env.RESTAURANT_INPUT_SPEECH_THRESHOLD ?? "800");
-  // En restaurant : ne répondre après un commit que si le client a vraiment parlé récemment (speech_started dans les N ms). Évite que l'IA réponde au silence / improvise.
-  const RESTAURANT_COMMIT_SPEECH_WINDOW_MS = Number(process.env.RESTAURANT_COMMIT_SPEECH_WINDOW_MS ?? "5000");
+  // En restaurant : ne répondre après un commit que si le client a vraiment parlé récemment (speech_started dans les N ms). Évite que l'IA réponde au silence / improvise. 6,5 s pour laisser le temps au TTS de finir avant de considérer "parole récente".
+  const RESTAURANT_COMMIT_SPEECH_WINDOW_MS = Number(process.env.RESTAURANT_COMMIT_SPEECH_WINDOW_MS ?? "6500");
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     const now = nowMs();
@@ -4089,7 +4096,8 @@ ${compactPersona}`;
               input: {
                 turn_detection: {
                   type: "semantic_vad",
-                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || "medium"), // medium = laisser finir la phrase ; high = coupe tôt ; low = attend plus
+                  // Restaurant: "low" = laisser le client finir sa phrase avant commit (meilleure compréhension). Garage: "medium" par défaut.
+                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || (effectiveSector === "restaurant" ? "low" : "medium")),
                 },
               },
             },
@@ -6264,7 +6272,7 @@ But: être naturel et mettre le client en confiance.`,
             }
             if (shouldIgnoreRestaurantWeak) {
               console.log("🔇 Ignoré speech_started OpenAI (restaurant: niveau trop bas, parole incertaine)", { niveau: lastInputAudioLevel, seuil: restaurantSpeechThreshold });
-              try { if (openaiWs && openaiWs.readyState === WebSocket.OPEN) openaiWs.send(JSON.stringify({ type: "input_audio_buffer.clear" })); } catch {}
+              // Ne pas clear le buffer : l'audio reste envoyé au modèle, on évite de couper la parole du client. Seul le flag lastSpeechTs n'est pas mis à jour.
               return;
             }
             console.log("🟢 Le client a parlé (détection début parole OpenAI - speech_started)", { niveau: lastInputAudioLevel, seuil: restaurantSpeechThreshold });
