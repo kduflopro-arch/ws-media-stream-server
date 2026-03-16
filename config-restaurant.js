@@ -121,7 +121,7 @@ export function buildRestaurantInstructions(ctx) {
   if (dinnerPassedForToday) contextLines.push("- MAINTENANT : heure limite dîner dépassée pour aujourd'hui — refuse toute résa ce soir.");
   if (menuText) contextLines.push(`- Carte / menu : ${menuText}`);
   contextLines.push(`- Terrasse : ${hasTerrace ? "oui — demande terrasse ou intérieur pour chaque résa." : "non — ne pose pas la question."}`);
-  contextLines.push(`- Consentement enregistrement : ${consentRequired ? (consentGiven ? "déjà donné. Ne jamais redemander." : "requis en début d'appel. Demande une seule fois, attends oui ou refus.") : "non requis."}`);
+  contextLines.push(`- Consentement enregistrement : ${consentRequired ? (consentGiven ? "déjà donné. INTERDICTION : ne jamais redemander le consentement ni dire « êtes-vous d'accord pour enregistrer » ou « j'ai besoin de votre consentement ». Enchaîne directement avec la suite (ex. « Que puis-je faire pour vous ? »)." : "requis en début d'appel. Demande une seule fois, attends oui ou refus.") : "non requis."}`);
   if (allowTransfer) {
     contextLines.push("- Transfert : si le client veut parler à quelqu'un du restaurant, appelle l'outil transfer_to_restaurant.");
   }

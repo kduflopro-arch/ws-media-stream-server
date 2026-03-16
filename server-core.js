@@ -6668,7 +6668,10 @@ But: être naturel et mettre le client en confiance.`,
                         : `Bonjour. Ici ${assistantName} du ${placePart}.`;
                       const consentText = isRestoCI ? CONSENT_RESTAURANT : ("Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN);
                       greeting = [baseHello, consentText].filter(Boolean).join(" ");
-                      if (isRestoCI) consentGiven = true; // Restaurant : opt-out, pas d'attente de « oui »
+                      if (isRestoCI) {
+                        consentGiven = true; // Restaurant : opt-out, pas d'attente de « oui »
+                        setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 100);
+                      }
                     } else if (isRestoCI) {
                       const rawN = String(garageName || "").trim();
                       const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
@@ -6752,7 +6755,11 @@ But: être naturel et mettre le client en confiance.`,
                   : `Bonjour. Ici ${assistantName} du ${placePart}.`;
                 const consentText = isRestoFb ? CONSENT_RESTAURANT : ("Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN);
                 greeting = [baseHello, consentText].filter(Boolean).join(" ");
-                if (isRestoFb) consentGiven = true; // Restaurant : opt-out, pas d'attente de « oui »
+                if (isRestoFb) {
+                  consentGiven = true; // Restaurant : opt-out, pas d'attente de « oui »
+                  setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 100);
+                  setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 1500);
+                }
               } else if (isRestoFb) {
                 const rawN = String(garageName || "").trim();
                 const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
