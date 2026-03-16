@@ -2084,10 +2084,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
     }
     try {
+      const elevenV3OrFlash = /eleven_v3|eleven_flash/i.test(String(ELEVENLABS_MODEL_ID || ""));
       const url =
         `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(selectedVoiceId)}/stream` +
         `?output_format=${encodeURIComponent(ELEVENLABS_OUTPUT_FORMAT)}` +
-        `&optimize_streaming_latency=${encodeURIComponent(String(ELEVENLABS_OPTIMIZE_STREAMING_LATENCY))}`;
+        (elevenV3OrFlash ? "" : `&optimize_streaming_latency=${encodeURIComponent(String(ELEVENLABS_OPTIMIZE_STREAMING_LATENCY))}`);
       const resp = await fetch(url, {
         method: "POST",
         signal: premiumTtsAbort.signal,
