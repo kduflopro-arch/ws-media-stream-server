@@ -170,7 +170,7 @@ async function handleRunAnalysis(callId, res) {
   }
   const model = process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
   const analysisPrompt = isRestaurant ? RESTAURANT_CALL_ANALYSIS_PROMPT : CALL_ANALYSIS_PROMPT;
-  const analysisSchema = isRestaurant ? RESTAURANT_CALL_ANALYSIS_SCHEMA : CALL_ANALYSIS_SCHEMA;
+  const analysisSchema = JSON.parse(JSON.stringify(isRestaurant ? RESTAURANT_CALL_ANALYSIS_SCHEMA : CALL_ANALYSIS_SCHEMA));
   const userInput = isRestaurant
     ? `Transcription: ${transcript}\n${callDateIso ? `Date de l'appel: ${callDateIso}\n` : ""}`
     : `Transcription: ${transcript}\nSymptômes déclarés: ${(call.symptom_summary ?? "non précisé")}\n${callDateIso ? `Date de l'appel (utilise cette année pour les dates du type "mercredi 11 février"): ${callDateIso}\n` : ""}`;
@@ -524,6 +524,20 @@ function convertPcm32kToMulaw(pcm32k) {
   }
   return mulaw;
 }
+/** Resample PCM Int16 to 8 kHz (linear interpolation). Used for Minimax 44.1 kHz → Twilio 8 kHz. */
+function resamplePcmTo8k(pcm, fromSampleRate) {
+  const outSampleCount = Math.floor((pcm.length * 8000) / fromSampleRate);
+  const out = new Int16Array(outSampleCount);
+  for (let i = 0; i < outSampleCount; i++) {
+    const srcIdx = (i * fromSampleRate) / 8000;
+    const i0 = Math.floor(srcIdx);
+    const i1 = Math.min(i0 + 1, pcm.length - 1);
+    const frac = srcIdx - i0;
+    const sample = pcm[i0] * (1 - frac) + pcm[i1] * frac;
+    out[i] = Math.round(clamp16(sample));
+  }
+  return out;
+}
 function convertPcm8kToMulaw(pcm8k) {
   const mulaw = new Uint8Array(pcm8k.length);
   const outputGain = Number(process.env.OUTPUT_GAIN ?? "1.0");
@@ -695,10 +709,14 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1");
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0");
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0");
-  // emotion: fluent = fluide/naturel, happy = chaleureux, calm = posé
-  const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION ?? "fluent";
+  // emotion: fluent = fluide/naturel, calm = posé. Vide ou "auto" = laisser le modèle choisir (recommandé doc pour ton le plus naturel). speech-2.8 ne supporte pas "whisper".
+  const MINIMAX_EMOTION_RAW = String(process.env.MINIMAX_EMOTION ?? "fluent").trim().toLowerCase();
+  const MINIMAX_EMOTION_AUTO = MINIMAX_EMOTION_RAW === "" || MINIMAX_EMOTION_RAW === "auto";
   const MINIMAX_LANGUAGE_BOOST = process.env.MINIMAX_LANGUAGE_BOOST ?? "French";
   const MINIMAX_TEXT_NORMALIZATION = (process.env.MINIMAX_TEXT_NORMALIZATION ?? "false").toLowerCase() === "true";
+  // sample_rate: 32000 (défaut) ou 44100 pour qualité maximale (resample vers 8k pour Twilio). Doc: 8000, 16000, 22050, 24000, 32000, 44100.
+  const MINIMAX_SAMPLE_RATE = Math.min(44100, Math.max(8000, Number(process.env.MINIMAX_SAMPLE_RATE || "32000") || 32000));
+  const MINIMAX_SAMPLE_RATE_VALID = [8000, 16000, 22050, 24000, 32000, 44100].includes(MINIMAX_SAMPLE_RATE) ? MINIMAX_SAMPLE_RATE : 32000;
   // voice_modify (pitch, intensity, timbre) n'est pas compatible avec format PCM — uniquement MP3/WAV/FLAC (doc Minimax)
   const MINIMAX_VOICE_MODIFY_PITCH = process.env.MINIMAX_VOICE_MODIFY_PITCH !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_PITCH) : 0;
   const MINIMAX_VOICE_MODIFY_INTENSITY = process.env.MINIMAX_VOICE_MODIFY_INTENSITY !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_INTENSITY) : 0;
@@ -1907,23 +1925,28 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const connectedMsg = await waitForMessage("connected_success");
       if (LOG_VERBOSE) console.log("🔊 Minimax: connected_success ok");
       if (LOG_MINIMAX_EVENTS) console.log("✅ Minimax WebSocket connecté:", connectedMsg);
-      const emotionVal = ["calm", "fluent", "happy", "sad", "angry", "fearful", "disgusted", "surprised", "whisper"].includes(String(MINIMAX_EMOTION || "").toLowerCase()) ? String(MINIMAX_EMOTION).toLowerCase() : "calm";
-      // voice_modify (pitch, intensity, timbre, sound_effects) n'est PAS compatible avec format PCM (doc Minimax: mp3/wav/flac uniquement)
-      // On utilise PCM pour le pipeline Twilio, donc on n'envoie jamais voice_modify
+      // speech-2.8-hd/turbo ne supportent pas "whisper" (doc Minimax). Pour ton le plus naturel: emotion vide ou "auto" = modèle choisit automatiquement.
+      const isSpeech28 = String(MINIMAX_MODEL || "").includes("speech-2.8");
+      const allowedEmotions = isSpeech28
+        ? ["calm", "fluent", "happy", "sad", "angry", "fearful", "disgusted", "surprised"]
+        : ["calm", "fluent", "happy", "sad", "angry", "fearful", "disgusted", "surprised", "whisper"];
+      const emotionVal = allowedEmotions.includes(MINIMAX_EMOTION_RAW) ? MINIMAX_EMOTION_RAW : "calm";
+      const voiceSetting = {
+        voice_id: selectedVoiceId,
+        speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 1)),
+        vol: Math.max(0.01, Math.min(10, MINIMAX_VOLUME || 1)),
+        pitch: Math.max(-12, Math.min(12, MINIMAX_PITCH || 0)),
+        english_normalization: false,
+        text_normalization: MINIMAX_TEXT_NORMALIZATION,
+      };
+      if (!MINIMAX_EMOTION_AUTO) voiceSetting.emotion = emotionVal;
+      // voice_modify (pitch, intensity, timbre) n'est PAS compatible avec format PCM (doc Minimax: mp3/wav/flac uniquement)
       const taskStartMsg = {
         event: "task_start",
         model: MINIMAX_MODEL || "speech-2.8-hd",
-        voice_setting: {
-          voice_id: selectedVoiceId,
-          speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 1)),
-          vol: Math.max(0.01, Math.min(10, MINIMAX_VOLUME || 1)),
-          pitch: Math.max(-12, Math.min(12, MINIMAX_PITCH || 0)),
-          emotion: emotionVal,
-          english_normalization: false,
-          text_normalization: MINIMAX_TEXT_NORMALIZATION,
-        },
+        voice_setting: voiceSetting,
         audio_setting: {
-          sample_rate: 32000,
+          sample_rate: MINIMAX_SAMPLE_RATE_VALID,
           bitrate: 128000,
           format: "pcm",
           channel: 1,
@@ -2008,19 +2031,21 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                 audioData.byteOffset,
                 audioData.length / 2,
               );
-              const expectedSampleRate = (pcmRaw.length > 20000) ? 32000 : 8000;
+              const sampleRate = MINIMAX_SAMPLE_RATE_VALID;
               if (LOG_MINIMAX_EVENTS) {
-                console.log(`🎵 PCM reçu: ${pcmRaw.length} samples (détecté: ${expectedSampleRate}Hz)`);
+                console.log(`🎵 PCM reçu: ${pcmRaw.length} samples @ ${sampleRate}Hz`);
               }
               let mulaw;
-              if (expectedSampleRate === 32000) {
+              if (sampleRate === 32000) {
                 mulaw = convertPcm32kToMulaw(pcmRaw);
-                if (LOG_MINIMAX_EVENTS) {
-                  console.log(`🎵 Downsampled: ${pcmRaw.length} samples @ 32kHz → ${mulaw.length} samples @ 8kHz`);
-                }
-              } else {
+                if (LOG_MINIMAX_EVENTS) console.log(`🎵 32kHz → 8kHz μ-law: ${mulaw.length} bytes`);
+              } else if (sampleRate === 8000) {
                 mulaw = convertPcm8kToMulaw(pcmRaw);
-                console.log(`🎵 Converti: ${pcmRaw.length} samples @ 8kHz → ${mulaw.length} samples μ-law`);
+                if (LOG_MINIMAX_EVENTS) console.log(`🎵 8kHz → μ-law: ${mulaw.length} bytes`);
+              } else {
+                const pcm8k = resamplePcmTo8k(pcmRaw, sampleRate);
+                mulaw = convertPcm8kToMulaw(pcm8k);
+                if (LOG_MINIMAX_EVENTS) console.log(`🎵 ${sampleRate}Hz → 8kHz (resample) → μ-law: ${mulaw.length} bytes`);
               }
               const chunkSize = 160;
               for (let i = 0; i < mulaw.length; i += chunkSize) {
@@ -3812,7 +3837,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             const { createDeepgramLiveSession } = await import("./deepgram-client.js");
             deepgramSession = createDeepgramLiveSession({
               language: (process.env.STT_LANGUAGE || "fr").trim(),
-              model: process.env.DEEPGRAM_MODEL || "nova-2",
+              model: process.env.DEEPGRAM_MODEL || "nova-3",
             });
             if (deepgramSession) {
               deepgramSession.onTranscript((text, isFinal) => {

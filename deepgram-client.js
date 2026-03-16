@@ -34,7 +34,7 @@ const DEEPGRAM_API_KEY = (process.env.DEEPGRAM_API_KEY ?? "").trim();
  * Crée une session de transcription live Deepgram.
  * @param {Object} options
  * @param {string} [options.language='fr']
- * @param {string} [options.model='nova-2']
+ * @param {string} [options.model='nova-3']
  * @param {string[]} [options.keywords] - Mots à privilégier (noms, pizzas, etc.)
  * @param {boolean} [options.interimResults=true]
  * @param {boolean} [options.smartFormat=true]
@@ -52,7 +52,7 @@ export function createDeepgramLiveSession(options = {}) {
 
   const {
     language = "fr",
-    model = process.env.DEEPGRAM_MODEL ?? "nova-2",
+    model = process.env.DEEPGRAM_MODEL ?? "nova-3",
     keywords = [],
     interimResults = true,
     smartFormat = true,

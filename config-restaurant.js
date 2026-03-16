@@ -53,8 +53,12 @@ export const RESTAURANT_CALL_ANALYSIS_SCHEMA = {
           type: "array",
           items: {
             type: "object",
-            properties: { product: { type: "string" }, supplements: { type: "string" }, remove: { type: "string" } },
-            required: ["product"],
+            properties: {
+              product: { type: "string" },
+              supplements: { type: "string" },
+              remove: { type: "string" },
+            },
+            required: ["product", "supplements", "remove"],
             additionalProperties: false,
           },
         },

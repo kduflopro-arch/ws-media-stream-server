@@ -64,7 +64,7 @@ Les paramètres `input_audio_format=pcm16` et `output_audio_format=pcm16` sont d
 | `TURN_DETECTION_EAGERNESS` | Réactivité de la détection de fin de parole | `high` (défaut) pour réponses plus rapides |
 | `DEEPGRAM_API_KEY` | Clé API Deepgram (optionnel) | Clé pour activer le STT Deepgram à la place du STT Realtime |
 | `USE_DEEPGRAM_STT` | Activer le STT Deepgram | `true` pour pipeline STT Deepgram → LLM → TTS (à brancher dans le code) |
-| `DEEPGRAM_MODEL` | Modèle Deepgram | `nova-2` par défaut |
+| `DEEPGRAM_MODEL` | Modèle Deepgram | `nova-3` par défaut |
 
 ## STT optionnel : Deepgram
 
@@ -72,7 +72,29 @@ Le module **Deepgram** est préparé pour un futur pipeline **STT Deepgram → L
 
 - **Prérequis** : `npm install` (dépendance `@deepgram/sdk`), variable d’environnement `DEEPGRAM_API_KEY`.
 - **Activation** : définir `USE_DEEPGRAM_STT=true` et `DEEPGRAM_API_KEY`. Le flux est alors : audio mulaw 8 kHz → Deepgram → transcript final → `conversation.item.create` (user) + `response.create` → Realtime LLM → TTS (ElevenLabs/Minimax/Cartesia).
-- **Format** : audio μ-law 8 kHz (Twilio), modèle `nova-2`, langue `fr`, `interim_results` et `smart_format` activés. Voir `deepgram-client.js` et [Live Streaming Audio](https://developers.deepgram.com/docs/live-streaming-audio).
+- **Format** : audio μ-law 8 kHz (Twilio), modèle `nova-3`, langue `fr`, `interim_results` et `smart_format` activés. Voir `deepgram-client.js` et [Live Streaming Audio](https://developers.deepgram.com/docs/live-streaming-audio).
+
+## Minimax TTS : meilleur rendu et qualité (speech-2.8)
+
+- **Twilio** : Media Streams impose **8 kHz μ-law** en entrée/sortie. On ne peut pas envoyer plus que 8 kHz côté appel ; la qualité perçue dépend donc du **rendu Minimax** et du **resampling** (32 kHz ou 44,1 kHz → 8 kHz).
+- **Recommandations (doc Minimax + forums)** :
+  - **Modèle** : `speech-2.8-hd` pour le meilleur rendu (tonalités, timbre).
+  - **Émotion** : laisser le modèle choisir = ton le plus naturel. Mettre `MINIMAX_EMOTION=` (vide) ou `MINIMAX_EMOTION=auto` pour ne pas envoyer d’émotion. Sinon `fluent` ou `calm` pour un ton fluide/posé. **speech-2.8 ne supporte pas `whisper`** (ignoré côté code).
+  - **Vitesse** : `MINIMAX_SPEED=1` à `1.1` (1 = rythme normal, légèrement au-dessus peut sonner plus naturel selon la voix).
+  - **Langue** : `MINIMAX_LANGUAGE_BOOST=French` (défaut).
+  - **Qualité source** : `MINIMAX_SAMPLE_RATE=44100` pour la meilleure qualité avant resampling (le serveur resample en 8 kHz pour Twilio). Défaut : `32000`.
+- **Voix françaises (liste système)** : `French_Female_News Anchor`, `French_CasualMan`, `French_MovieLeadFemale`, `French_FemaleAnchor`, `French_MaleNarrator`, `French_Male_Speech_New`.
+- **Chunking** : `REALTIME_ELEVEN_CHUNK_MAX_CHARS=360` (ou plus) pour des phrases plus longues en une seule synthèse, prosodie plus naturelle.
+- **voice_modify** (pitch, intensity, timbre) n’est pas disponible avec le format PCM (uniquement MP3/WAV/FLAC en doc Minimax).
+
+| Variable | Rôle | Recommandation qualité |
+|----------|------|-------------------------|
+| `MINIMAX_MODEL` | Modèle TTS | `speech-2.8-hd` |
+| `MINIMAX_EMOTION` | Émotion | vide ou `auto` (naturel) ; ou `fluent` / `calm` |
+| `MINIMAX_SPEED` | Vitesse | `1` à `1.1` |
+| `MINIMAX_SAMPLE_RATE` | Fréquence source | `32000` (défaut) ou `44100` (meilleure qualité) |
+| `MINIMAX_LANGUAGE_BOOST` | Langue | `French` |
+| `REALTIME_ELEVEN_CHUNK_MAX_CHARS` | Taille max des chunks TTS | `360` ou plus |
 
 ## Mode `stt_llm_tts` (sans Realtime)
 
