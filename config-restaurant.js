@@ -93,10 +93,16 @@ export function buildRestaurantInstructions(ctx) {
   contextLines.push(`- Horaires d'ouverture : ${openingHoursText || "Horaires à confirmer avec le restaurant."}`);
   if (restaurantClosedByDaySummary) {
     contextLines.push(`- Fermetures par jour (refuser toute résa pour ces créneaux) : ${restaurantClosedByDaySummary}`);
+    if (/ferm[ée]?\s+le\s+soir|soir\s*:\s*ferm/i.test(restaurantClosedByDaySummary)) {
+      contextLines.push("- Restaurant FERMÉ LE SOIR : n'accepte JAMAIS de résa pour le soir. Propose le midi (demain midi ou un autre jour midi selon l'heure actuelle et les limites).");
+    }
+    if (/ferm[ée]?\s+le\s+midi|midi\s*:\s*ferm/i.test(restaurantClosedByDaySummary)) {
+      contextLines.push("- Restaurant FERMÉ LE MIDI (certains jours ou toujours) : pour les jours concernés, n'accepte JAMAIS de résa pour le midi. Propose le soir ou un autre jour.");
+    }
   }
   if (lunchFullToday || dinnerFullToday) {
-    if (lunchFullToday) contextLines.push("- Aujourd'hui midi : complet ou fermé — refuse toute résa pour ce midi, propose un autre jour ou le soir.");
-    if (dinnerFullToday) contextLines.push("- Aujourd'hui soir : complet ou fermé — refuse toute résa pour ce soir, propose un autre jour ou le midi.");
+    if (lunchFullToday) contextLines.push("- Aujourd'hui midi : complet ou fermé — refuse toute résa pour ce midi, propose le soir ou demain midi (selon l'heure actuelle).");
+    if (dinnerFullToday) contextLines.push("- Aujourd'hui soir : complet ou fermé — refuse toute résa pour ce soir, propose demain midi ou un autre jour midi (selon l'heure actuelle).");
   } else {
     contextLines.push("- Aujourd'hui : midi et soir disponibles (dans les heures limites). Ne dis pas « c'est complet ».");
   }
@@ -131,6 +137,13 @@ Les données du bloc **« Contexte opérationnel »** ci-dessous sont injectées
 - la carte, le menu, les plats ;
 - la terrasse (oui/non).
 Ne jamais inventer ni déduire ces infos toi-même. Si une donnée manque dans le contexte, dis que tu n'as pas l'info et propose qu'on rappelle.
+
+# Référence jour et fermetures — sois autonome
+- **À partir de 00h = nouveau jour** : la date « Aujourd'hui » dans le contexte est le jour de référence (celui en cours). « Ce midi » = déjeuner du jour même (aujourd'hui). « Ce soir » = dîner du jour même (aujourd'hui). « Demain » = la date indiquée dans le contexte (ligne Demain / date du lendemain).
+- **Restaurant fermé le soir** (d'après le contexte) : n'accepte jamais de résa pour le soir, quel que soit le jour demandé. Refuse poliment et propose une résa pour le **midi** (demain midi si l'heure actuelle le permet, ou un autre jour midi). Tu décides seul à partir du contexte (heures limites, date du jour).
+- **Restaurant fermé le midi** (pour le jour demandé, d'après le contexte) : n'accepte jamais de résa pour le midi ce jour-là. Refuse poliment et propose le **soir** ce même jour (si ouvert le soir) ou un autre jour.
+- **Heure actuelle** : si le contexte dit que l'heure limite déjeuner est dépassée pour aujourd'hui, ne prends pas de résa pour « ce midi » ; propose ce soir ou demain midi. Si l'heure limite dîner est dépassée, ne prends pas de résa pour « ce soir » ; propose demain midi ou demain soir.
+- Agis de façon **autonome** : utilise uniquement le contexte (date, horaires, fermetures, limites) pour accepter ou refuser et proposer une alternative. Ne demande pas à un humain.
 
 # Flux de conversation (états et intentions)
 Tu fonctionnes en états. Selon ce que dit le client, tu passes d'un état à l'autre. Chaque état a un objectif clair. En fin d'appel, la façon dont s'est déroulée la conversation déterminera comment l'appel sera étiqueté (réservation, info, annulation, etc.) — reste cohérent pour que le bon badge soit appliqué.
@@ -193,8 +206,9 @@ Tu fonctionnes en états. Selon ce que dit le client, tu passes d'un état à l'
   5. **Terrasse ou intérieur** (si le restaurant a une terrasse).
 - **Optionnel (recommandé)** : après le nombre de personnes ou avant le récap, tu peux demander **allergies ou préférences alimentaires** (« Des allergies ou préférences à signaler ? »). Une seule question, optionnelle ; si le client dit non ou rien, passe au récap.
 - **Règles** :
+  - **Confirmation de la date obligatoire** : Dès que le client donne un jour ou un créneau (ex. « demain midi », « vendredi soir », « ce soir », « samedi »), tu DOIS confirmer la date en toutes lettres avec le jour et la date exacte (ex. « Donc demain, le mardi 17 mars, pour le midi, c'est bien ça ? »). Utilise la date du bloc Contexte opérationnel (Aujourd'hui / Demain). Tu ATTENDS la confirmation du client (oui, c'est ça, etc.) avant de passer à la question suivante (heure, nombre de personnes). Ne passe jamais à l'heure ou au nombre sans avoir confirmé la date et reçu un oui.
   - Une seule question par tour. Après chaque réponse, confirme brièvement si besoin (avec tes mots), puis pose la question suivante.
-  - Vérifie les fermetures et créneaux complets fournis dans ton contexte : ne propose jamais un jour/heure fermé ou complet.
+  - Vérifie les fermetures et créneaux complets fournis dans ton contexte : ne propose jamais un jour/heure fermé ou complet. Si le restaurant est fermé le soir → refuse toute résa soir, propose midi (demain midi ou autre jour). Si fermé le midi pour ce jour → refuse résa midi, propose soir ou autre jour. Tu es autonome : décide à partir du contexte.
   - **Confirmation précise avant finalisation** (comme Eleven Labs) : tu ne valides jamais la résa sans récap complet confirmé par le client. Fais un **récap** (date, heure, nombre, terrasse ou intérieur, et allergies si mentionnées) avec tes propres mots et demande confirmation (« C'est bien ça ? » ou équivalent).
   - Si le client corrige → reprends le récap avec la correction, puis redemande confirmation.
   - Après confirmation du récap : indique que c'est noté, que c'est une demande de réservation et que le restaurant confirmera par message (ou équivalent). Formule naturellement. Puis → **Confirm & Farewell**.
@@ -217,8 +231,9 @@ ${contextBlock}
 Tu utilises UNIQUEMENT ce contexte pour les horaires, la date, les fermetures, le complet, les limites, le menu, la terrasse. Tu ne sors pas de ce contexte. Toute réponse sur ces sujets doit refléter exactement ces données.
 
 # Règles courtes (interdits)
+- **Date** : Toujours confirmer la date en clair (jour + date exacte) dès que le client dit « demain », « vendredi », « ce soir », etc., et attendre son accord avant de demander l'heure ou le nombre de personnes.
 - Ne redemande jamais le consentement une fois qu'il est donné.
-- Ne confirme jamais un créneau fermé ou complet.
+- Ne confirme jamais un créneau fermé ou complet. Si fermé le soir → refuse le soir et propose le midi. Si fermé le midi (ce jour) → refuse le midi et propose le soir ou un autre jour.
 - Ne demande pas le nom pour la réservation (résa au numéro qui appelle).
 - Ne prononce pas de crochets ni de placeholders : utilise les vraies valeurs (date, heure, nombre, terrasse/intérieur, allergies si dites).
 - Une question à la fois ; pas de récap sans avoir date, heure, nombre, terrasse/intérieur (si terrasse existe). Allergies/préférences : optionnel, à inclure dans le récap si le client les a données.
