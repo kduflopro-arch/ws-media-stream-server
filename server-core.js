@@ -2656,10 +2656,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     const assistantReplySources = ["conversation.item.done", "response.output_text.done", "response.done", "response.output_item.done", "legacy_elevenlabs"];
     let textToSpeak = assistantReplySources.includes(source) ? ensureAssistantReplyEndsWithQuestion(clean) : clean;
-    // Restaurant: tant que le consentement n'est pas donné, ne jamais jouer une réponse métier (ex. "Puis-je vous aider ?") — uniquement le rappel consentement.
+    // Restaurant: tant que le consentement n'est pas donné, ne jouer que le rappel — sauf si la réponse IA est clairement post-consentement (le client vient d'accepter, conversation.item.done user peut arriver après response.done).
     if (assistantReplySources.includes(source) && consentRequired && !consentGiven) {
-      textToSpeak = CONSENT_REMINDER;
-      if (LOG_TTS) console.log("[TTS-ENQUEUE] Consentement non donné: rappel joué à la place de la réponse IA.");
+      const lowClean = (clean || "").toLowerCase().trim();
+      const looksLikePostConsentReply = /\b(en quoi puis-je vous aider|que puis-je faire pour vous|puis-je vous aider|bienvenue au|bienvenue au restaurant)\b/i.test(lowClean)
+        || /\bmerci\b.*\b(puis-je vous aider|que puis-je)\b/i.test(lowClean)
+        || /^bonjour!?\s*(vous êtes bien|bienvenue)/i.test(lowClean);
+      if (looksLikePostConsentReply) {
+        consentGiven = true;
+        if (LOG_TTS) console.log("[TTS-ENQUEUE] Réponse post-consentement détectée → consentement considéré donné, lecture de la réponse IA.");
+      } else {
+        textToSpeak = CONSENT_REMINDER;
+        if (LOG_TTS) console.log("[TTS-ENQUEUE] Consentement non donné: rappel joué à la place de la réponse IA.");
+      }
     }
     if (assistantReplySources.includes(source)) {
       const noRecentGarageTool = !(lastGarageToolOutputAt > 0 && (nowMs() - lastGarageToolOutputAt) < 15000), talksAboutPriceAndHours = /\b(tarif|prix|euros?)\b/i.test(textToSpeak) && /\b(horaires?|ouvert|heures?)\b/i.test(textToSpeak), talksAboutRdv = /\b(rendez-?vous|rdv)\b/i.test(textToSpeak) || /\bquel jour vous conviendrait le mieux\b/i.test(textToSpeak);
@@ -4705,7 +4714,12 @@ But: être naturel et mettre le client en confiance.`,
                   } else if (outputEmpty) {
                     if (LOG_VERBOSE) console.log("📋 response.done: output vide");
                     const now = nowMs();
-                    if (pendingGaragePricingResponseAt > 0 && (now - pendingGaragePricingResponseAt) < 20000 && !pendingGaragePricingRetryDone) {
+                    // Restaurant + consentement : le modèle peut renvoyer vide après « oui je suis d'accord » (instruction « ne dis rien »). Jouer le greeting post-consent pour ne pas laisser le client sans réponse.
+                    if (effectiveSector === "restaurant" && consentRequired && !consentGiven && lastCommitAt > 0 && (now - lastCommitAt) < 12000) {
+                      console.log("👋 Restaurant: réponse vide après parole client (phase consentement) → jouer greeting post-consent.");
+                      consentGiven = true;
+                      playPostConsentGreeting();
+                    } else if (pendingGaragePricingResponseAt > 0 && (now - pendingGaragePricingResponseAt) < 20000 && !pendingGaragePricingRetryDone) {
                       pendingGaragePricingRetryDone = true;
                       pendingGaragePricingResponseAt = 0;
                       if (lastGaragePricingFallbackPhrase && lastGaragePricingFallbackPhrase.trim()) {
