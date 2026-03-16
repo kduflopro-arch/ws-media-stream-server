@@ -1651,7 +1651,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       let answer = "";
       try {
         llmInFlight = true;
-        if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED) {
+        if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED && effectiveSector !== "restaurant") {
           const now = nowMs();
           const canPlay = (now - lastBackchannelAt) >= BACKCHANNEL_MIN_INTERVAL_MS;
           if (canPlay) {
@@ -3551,10 +3551,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
   const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "240");
   const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "1200");
-  // Après la fin du TTS, ignorer speech_started pendant ce délai (écho haut-parleur → micro) — restaurant. 4,5 s pour limiter réponses sans parole.
-  const RESTAURANT_POST_TTS_SPEECH_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_SPEECH_GUARD_MS ?? "4500");
-  // Délai après la fin du TTS pendant lequel on n'envoie pas response.create — laisser le client répondre, éviter réponses à l'écho.
-  const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "7000");
+  // Après la fin du TTS, ignorer speech_started pendant ce délai (écho haut-parleur → micro) — restaurant. Réduit pour plus de fluidité.
+  const RESTAURANT_POST_TTS_SPEECH_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_SPEECH_GUARD_MS ?? "2500");
+  // Délai après la fin du TTS pendant lequel on n'envoie pas response.create — laisser le client répondre. Réduit pour moins de blancs.
+  const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "4000");
   // Seuil niveau audio pour considérer "client a parlé" en restaurant (plus élevé = moins de faux positifs bruit/écho). 2200 ≈ parole claire.
   const RESTAURANT_INPUT_SPEECH_THRESHOLD = Number(process.env.RESTAURANT_INPUT_SPEECH_THRESHOLD ?? "2200");
   // En restaurant : ne répondre après un commit que si le client a vraiment parlé récemment (speech_started dans les N ms). Évite que l'IA réponde au silence / improvise. 6,5 s pour laisser le temps au TTS de finir avant de considérer "parole récente".
@@ -6908,7 +6908,7 @@ But: être naturel et mettre le client en confiance.`,
             sttSpeechFrames = 0;
             sttSilenceFrames = 0;
             if (durMs >= STT_MIN_AUDIO_MS) {
-              if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED && !sttInFlight) {
+              if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED && !sttInFlight && effectiveSector !== "restaurant") {
                 const now = nowMs();
                 const canPlay = (now - lastBackchannelAt) >= BACKCHANNEL_MIN_INTERVAL_MS;
                 if (canPlay) {
