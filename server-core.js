@@ -6719,6 +6719,22 @@ But: être naturel et mettre le client en confiance.`,
                       hasSentInitialGreeting = true;
                       enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
                       if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+                      if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+                        try {
+                          const normalizedGreeting = normalizeFrenchTtsText(greeting);
+                          openaiWs.send(JSON.stringify({
+                            type: "conversation.item.create",
+                            item: {
+                              type: "message",
+                              role: "assistant",
+                              content: [{ type: "output_text", text: normalizedGreeting }],
+                            },
+                          }));
+                          console.log("👋 Greeting restaurant (client-info) injecté dans la conversation OpenAI.");
+                        } catch (e) {
+                          console.error("❌ Erreur injection greeting client-info assistant:", e);
+                        }
+                      }
                       console.log("👋 Greeting restaurant joué (IA ouvre la conversation).", { callSid });
                     } else {
                       const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
@@ -6800,6 +6816,22 @@ But: être naturel et mettre le client en confiance.`,
                 hasSentInitialGreeting = true;
                 enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
                 if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+                if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+                  try {
+                    const normalizedGreeting = normalizeFrenchTtsText(greeting);
+                    openaiWs.send(JSON.stringify({
+                      type: "conversation.item.create",
+                      item: {
+                        type: "message",
+                        role: "assistant",
+                        content: [{ type: "output_text", text: normalizedGreeting }],
+                      },
+                    }));
+                    console.log("👋 Greeting restaurant (fallback) injecté dans la conversation OpenAI.");
+                  } catch (e) {
+                    console.error("❌ Erreur injection greeting fallback assistant:", e);
+                  }
+                }
                 console.log("👋 Greeting restaurant (fallback) joué — IA ouvre la conversation.", { callSid });
                 ws.__greetingFallbackTimer = null;
                 return;
