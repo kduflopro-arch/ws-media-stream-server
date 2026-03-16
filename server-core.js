@@ -1425,7 +1425,7 @@ wss.on("connection", (ws, req) => {
   let backchannelTimer = null;
   let lastBackchannelAt = 0;
   let llmInFlight = false;
-  const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "500");
+  const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "300");
   const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "50"); // plus court = réactivité (déclenche response.create plus vite après committed)
   let sttSpeechFrames = 0;
   let sttSilenceFrames = 0;
@@ -2507,7 +2507,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           console.log("[DEDUP-TTS] Doublon phrase?phrase (même phrase deux fois)");
           return beforeQ;
         }
-        if (afterQ.startsWith(beforeQ.slice(0, 30)) || normFull(afterQ.slice(0, Math.min(50, afterQ.length))) === normFull(beforeQ.slice(0, Math.min(50, beforeQ.length)))) {
+        const minMatchLen = 45;
+        if (beforeQ.length >= minMatchLen && afterQ.length >= minMatchLen && (afterQ.startsWith(beforeQ.slice(0, minMatchLen)) || normFull(afterQ.slice(0, Math.min(60, afterQ.length))) === normFull(beforeQ.slice(0, Math.min(60, beforeQ.length))))) {
           console.log("[DEDUP-TTS] Doublon phrase?phrase (début identique)");
           return beforeQ;
         }
@@ -3552,10 +3553,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
   const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "240");
   const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "1200");
-  // Après la fin du TTS, ignorer speech_started pendant ce délai (écho haut-parleur → micro) — restaurant. Réduit pour plus de fluidité.
-  const RESTAURANT_POST_TTS_SPEECH_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_SPEECH_GUARD_MS ?? "2500");
-  // Délai après la fin du TTS pendant lequel on n'envoie pas response.create — laisser le client répondre. Réduit pour moins de blancs.
-  const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "4000");
+  // Après la fin du TTS, ignorer speech_started pendant ce délai (écho) — plus court = réactivité, le client peut répondre plus tôt.
+  const RESTAURANT_POST_TTS_SPEECH_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_SPEECH_GUARD_MS ?? "1500");
+  // Délai après TTS pendant lequel on bloque response.create (anti-écho). Plus court = réponses plus rapides quand le client parle.
+  const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "2000");
   // Seuil niveau audio pour considérer "client a parlé" en restaurant (plus élevé = moins de faux positifs bruit/écho). 2200 ≈ parole claire.
   const RESTAURANT_INPUT_SPEECH_THRESHOLD = Number(process.env.RESTAURANT_INPUT_SPEECH_THRESHOLD ?? "1800");
   // En restaurant : ne répondre après un commit que si le client a vraiment parlé récemment (speech_started dans les N ms). Évite que l'IA réponde au silence / improvise. 6,5 s pour laisser le temps au TTS de finir avant de considérer "parole récente".

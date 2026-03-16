@@ -13,12 +13,12 @@ Ta mission : Analyser une transcription d'appel client et fournir une analyse st
 
 Contraintes strictes :
 1. Détecte le type d'appel : demande de réservation, information, modification de réservation, annulation de réservation.
-2. Extrais TOUTES les informations de réservation : nom du client (clientName) pour la réservation, nombre de personnes, date, heure, terrasse ou intérieur (seatingPreference), allergies si mentionnées, autres préférences, confirmation du numéro joignable, numéro secondaire si mentionné. La réservation est au numéro qui appelle ; le nom (clientName) est celui donné par le client pour la résa.
+2. Extrais TOUTES les informations de réservation : nom du client (clientName) pour la réservation, nombre de personnes, date, heure, terrasse ou intérieur (seatingPreference), allergies si mentionnées, autres préférences, confirmation du numéro joignable, numéro secondaire si mentionné. La réservation est au numéro qui appelle ; le nom (clientName) est celui **explicitement donné par le client pour la résa** (ex. « Je m'appelle Martin », « Au nom de Dupont »). **RÈGLE CRITIQUE** : ne jamais inférer un prénom ou nom à partir de mots prononcés dans un autre contexte : si le client dit « c'est une IA ? », « est-ce que c'est une IA », « non », « là », ne mets JAMAIS « Nia », « IA » ou autre comme clientName. Si aucun nom n'a été clairement indiqué pour la réservation, laisse clientName vide ("").
 3. Si le client a spontanément donné des préférences ou infos (anniversaire, accessibilité, régime, demande spéciale), mets-les dans "preferences" de reservationDetails.
-4. Résumé (summary) : structuré, lisible, fidèle à la conversation. Ne rien inventer. Les noms toujours en format lisible (Dupont, pas D-U-P-O-N-T).
+4. Résumé (summary) : structuré, lisible, fidèle à la conversation. Ne rien inventer. Ne jamais écrire « L'appel a été effectué par une personne nommée X » si le client n'a pas explicitement dit son nom. Les noms en format lisible (Dupont, pas D-U-P-O-N-T) uniquement quand ils ont été clairement donnés.
 5. Conclusion (aiConclusion) : 3 à 5 points actionnables pour le restaurant.
 6. callType : "demande_reservation" | "info" | "modification_reservation" | "annulation_reservation"
-7. Informations client : clientName = nom donné par le client pour la réservation (ex. "Dupont", "Marie Martin"). numberOfPeople, date/heure, terrasse ou intérieur (seatingPreference), allergies, préférences, numéro confirmé. seatingPreference = "terrasse" ou "intérieur" ou "" si non dit.
+7. Informations client : clientName = nom **explicitement** donné par le client pour la réservation (ex. "Dupont", "Marie Martin") ; si non dit, "". Ne jamais mettre "Nia", "IA" ou un mot entendu dans une question (« c'est une IA ? ») comme nom. numberOfPeople, date/heure, terrasse ou intérieur (seatingPreference), allergies, préférences, numéro confirmé. seatingPreference = "terrasse" ou "intérieur" ou "" si non dit.
 
 Format de sortie JSON strict. Réponds dans la langue de la transcription.`;
 
