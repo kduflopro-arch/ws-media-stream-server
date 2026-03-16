@@ -4294,8 +4294,12 @@ ${compactPersona}`;
                 console.log("👋 Greeting ignoré (déjà joué pour ce CallSid).", { callSid });
                 return;
               }
+              // Ne jamais demander à OpenAI un 2e greeting quand on joue l'accueil via Minimax/Eleven/Cartesia (évite "sans parler il y a des réponses")
               if (PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN) {
                 return;
+              }
+              if (effectiveSector === "restaurant" && PREMIUM_TTS_ENABLED) {
+                return; // Restaurant : accueil joué par TTS premium, pas de conversation.item.create + response.create
               }
               if (initialAssistantGreetingText) {
                 const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : PREMIUM_TTS_PROVIDER === "cartesia" ? "Cartesia" : "ElevenLabs";
@@ -6278,7 +6282,8 @@ But: être naturel et mettre le client en confiance.`,
               if (LOG_VERBOSE) console.log("🔇 Restaurant: commit sans parole récente — pas de response.create (évite improvisation)", { timeSinceSpeech: nowMs() - lastSpeechTs, windowMs: RESTAURANT_COMMIT_SPEECH_WINDOW_MS });
             }
             const canRequest = (commitTs - lastResponseAt) > 300;
-            const restaurantSkipCommitWithoutSpeech = effectiveSector === "restaurant" && (!hasRealSpeech || !restaurantHasRecentSpeech);
+            // Restaurant : ne jamais répondre après un commit si le client n'a jamais parlé (évite réponses sans parole / bruit)
+            const restaurantSkipCommitWithoutSpeech = effectiveSector === "restaurant" && (!hasRealSpeech || !restaurantHasRecentSpeech || !userHasSpoken);
             if (canRequest && !restaurantSkipCommitWithoutSpeech) {
               lastResponseAt = commitTs;
               awaitingUserResponse = false;
@@ -6307,7 +6312,7 @@ But: être naturel et mettre le client en confiance.`,
             responseInProgress = false;
             activeResponseId = null;
             const commitAfterResponse = lastCommitAt > lastResponseCreatedAt;
-            const restaurantSkipPendingCommit = effectiveSector === "restaurant" && (lastSpeechTs <= 0 || (nowMs() - lastSpeechTs) > RESTAURANT_COMMIT_SPEECH_WINDOW_MS);
+            const restaurantSkipPendingCommit = effectiveSector === "restaurant" && (!userHasSpoken || lastSpeechTs <= 0 || (nowMs() - lastSpeechTs) > RESTAURANT_COMMIT_SPEECH_WINDOW_MS);
             if (commitAfterResponse && openaiWs && openaiWs.readyState === WebSocket.OPEN && !restaurantSkipPendingCommit) {
               setTimeout(() => {
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
