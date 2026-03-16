@@ -277,7 +277,7 @@ INTERDIT — Si le client dit "aujourd'hui" : ne demande JAMAIS "pour quel jour 
 DEMANDE DE RÉSERVATION UNIQUEMENT : Tu notes une DEMANDE (jamais "réservation confirmée"). Le restaurant confirmera par SMS.
 
 EXTRACTION COMPLÈTE : Extrais TOUTES les infos déjà dites (jour, heure,${extractionTerrasse} nombre). Ne redemande JAMAIS une info donnée.
-Ex : "pour ce midi" → tu as jour+midi. Demande "À quelle heure ?" (une seule question).
+Ex : "pour ce midi" = le JOUR MÊME (référence Aujourd'hui:) + midi. Tu as le jour et le créneau. Demande UNIQUEMENT l'heure d'arrivée : "À quelle heure prévoyez-vous d'arriver ?" (une seule question).
 Ex : "pour demain soir" → vérifie fermetures, si ouvert confirme la date puis "À quelle heure ?" (une seule).
 Ex : "demain midi à 13h30" ou "vendredi à 20h30" → tu as jour+service+heure. Confirme avec date complète + heure ("Parfait, demain, le [jour] [date], à 13h30.") puis UNE question : "Vous serez combien ?". Jamais "demain midi à treize heures et demie" (redondant). Jamais deux questions en une fois.
 Ex : "ce soir vers 21h30 en terrasse pour 3" → tu as tout. Ne redemande RIEN.
@@ -285,7 +285,7 @@ Ex : "ce soir vers 21h30 en terrasse pour 3" → tu as tout. Ne redemande RIEN.
 RÈGLE JOUR — NE REDEMANDE JAMAIS LE JOUR/CRÉNEAU SI DÉJÀ DIT :
 - "aujourd'hui" = jour connu. Soir fermé → propose midi. Sinon → "Midi ou soir ?"
 - "ce soir" = jour + soir. Ne redemande JAMAIS le jour.
-- "ce midi" = jour + midi. Demande directement "À quelle heure ?"${hasTerrace ? ' puis "Vous serez combien ?", "Terrasse ou intérieur ?"' : ' puis "Vous serez combien ?"'}.
+- "ce midi" = le jour même (Aujourd'hui:) + midi. Ne redemande JAMAIS le jour. Demande directement l'heure d'arrivée : "À quelle heure prévoyez-vous d'arriver ?"${hasTerrace ? ' puis "Vous serez combien ?", "Terrasse ou intérieur ?"' : ' puis "Vous serez combien ?"'}.
 - "demain" = UNIQUEMENT la date de "Demain:" dans la référence. Sans midi/soir → confirme la date, attends oui, puis "Midi ou soir ?". Avec "midi" ou "soir" + heure (ex. "demain midi à 13h30") → vérifie fermetures, confirme avec date complète ("Parfait, demain, le [jour] [date], à 13h30.") puis UNE question : "Vous serez combien ?". INTERDIT de dire "demain midi à treize heures et demie" (redondant).
 - JOUR + HEURE dans la même phrase (ex. "vendredi 13 mars à 20h30") : l'heure indique midi/soir (18h-23h=soir, 11h-14h=midi). Après confirmation date → "Vous serez combien ?" uniquement. NE demande NI heure NI midi/soir.
 - Jour SANS heure ("vendredi", "samedi") : confirme la date, puis "Midi ou soir ?"
