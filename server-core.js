@@ -3511,6 +3511,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "5500");
   // Seuil niveau audio pour considérer "client a parlé" en restaurant (plus élevé = moins de faux positifs bruit/écho)
   const RESTAURANT_INPUT_SPEECH_THRESHOLD = Number(process.env.RESTAURANT_INPUT_SPEECH_THRESHOLD ?? "800");
+  // En restaurant : ne répondre après un commit que si le client a vraiment parlé récemment (speech_started dans les N ms). Évite que l'IA réponde au silence / improvise.
+  const RESTAURANT_COMMIT_SPEECH_WINDOW_MS = Number(process.env.RESTAURANT_COMMIT_SPEECH_WINDOW_MS ?? "5000");
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     const now = nowMs();
@@ -4068,7 +4070,7 @@ ${compactPersona}`;
               input: {
                 turn_detection: {
                   type: "semantic_vad",
-                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || "high"), // high = chunks ASAP (réactivité), medium=4s, low=8s
+                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || "medium"), // medium = laisser finir la phrase ; high = coupe tôt ; low = attend plus
                 },
               },
             },
@@ -6259,6 +6261,8 @@ But: être naturel et mettre le client en confiance.`,
             appendedBytes = 0;
             const COMMIT_SPEECH_WINDOW_MS = Number(process.env.COMMIT_SPEECH_WINDOW_MS ?? "15000");
             const hasRealSpeech = speechActive || (nowMs() - lastSpeechTs) < COMMIT_SPEECH_WINDOW_MS;
+            // Restaurant : exiger un speech_started récent (sinon = silence/bruit → ne pas faire répondre l'IA pour éviter improvisation)
+            const restaurantHasRecentSpeech = effectiveSector !== "restaurant" || (lastSpeechTs > 0 && (nowMs() - lastSpeechTs) <= RESTAURANT_COMMIT_SPEECH_WINDOW_MS);
             const commitTs = nowMs();
             lastCommitAt = commitTs;
             if (hasRealSpeech) {
@@ -6270,8 +6274,11 @@ But: être naturel et mettre le client en confiance.`,
             } else {
               if (LOG_VERBOSE) console.log("⚠️ OpenAI buffer committed (sans speech_started récent, on envoie quand même response.create si délai ok):", { item_id: msg.item_id, timeSinceSpeech: nowMs() - lastSpeechTs });
             }
+            if (effectiveSector === "restaurant" && hasRealSpeech && !restaurantHasRecentSpeech) {
+              if (LOG_VERBOSE) console.log("🔇 Restaurant: commit sans parole récente — pas de response.create (évite improvisation)", { timeSinceSpeech: nowMs() - lastSpeechTs, windowMs: RESTAURANT_COMMIT_SPEECH_WINDOW_MS });
+            }
             const canRequest = (commitTs - lastResponseAt) > 300;
-            const restaurantSkipCommitWithoutSpeech = effectiveSector === "restaurant" && !hasRealSpeech;
+            const restaurantSkipCommitWithoutSpeech = effectiveSector === "restaurant" && (!hasRealSpeech || !restaurantHasRecentSpeech);
             if (canRequest && !restaurantSkipCommitWithoutSpeech) {
               lastResponseAt = commitTs;
               awaitingUserResponse = false;
@@ -6300,12 +6307,15 @@ But: être naturel et mettre le client en confiance.`,
             responseInProgress = false;
             activeResponseId = null;
             const commitAfterResponse = lastCommitAt > lastResponseCreatedAt;
-            if (commitAfterResponse && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+            const restaurantSkipPendingCommit = effectiveSector === "restaurant" && (lastSpeechTs <= 0 || (nowMs() - lastSpeechTs) > RESTAURANT_COMMIT_SPEECH_WINDOW_MS);
+            if (commitAfterResponse && openaiWs && openaiWs.readyState === WebSocket.OPEN && !restaurantSkipPendingCommit) {
               setTimeout(() => {
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
                 console.log("🔄 response.done: commit en attente détecté, envoi response.create pour ne pas manquer la réplique client.");
                 requestResponseCreate("after_response_done_pending_commit");
               }, 100);
+            } else if (commitAfterResponse && restaurantSkipPendingCommit && LOG_VERBOSE) {
+              console.log("🔇 Restaurant: pas de response.create pour commit en attente (parole pas récente, évite improvisation)", { timeSinceSpeech: lastSpeechTs > 0 ? nowMs() - lastSpeechTs : -1 });
             }
             const noTtsEnqueuedForThisResponse = doneRid && ws.__lastEnqueuedResponseIdForTts !== doneRid;
             const transcriptForDone = (ws.__premiumTranscriptByResponseId && ws.__premiumTranscriptByResponseId.get && ws.__premiumTranscriptByResponseId.get(doneRid)) || "";
