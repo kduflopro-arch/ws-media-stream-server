@@ -335,6 +335,30 @@ async function handleRunAnalysis(callId, res) {
           }).catch((e) => console.warn("[run-analysis] create-restaurant-client erreur:", e.message));
         }
       }
+      // Commande à emporter : créer l'entrée takeaway_orders pour que le restaurant puisse accepter/refuser
+      if (analysis.callType === "demande_commande" && analysis.orderDetails && typeof analysis.orderDetails === "object" && call.garage_id && call.from_number) {
+        const od = analysis.orderDetails;
+        const items = Array.isArray(od.items) ? od.items.map((i) => ({ product: String(i?.product ?? "").trim(), supplements: i?.supplements ? String(i.supplements).trim() : undefined, remove: i?.remove ? String(i.remove).trim() : undefined })).filter((i) => i.product) : [];
+        if (items.length > 0) {
+          const { error: orderErr } = await supabase.schema("autoguru").from("takeaway_orders").insert({
+            garage_id: call.garage_id,
+            call_id: callId,
+            phone_number: String(call.from_number).trim(),
+            client_name: (od.clientName && String(od.clientName).trim()) || null,
+            items,
+            pickup_time_desired: (od.pickupTimeDesired && String(od.pickupTimeDesired).trim()) || null,
+            status: "pending",
+            notes: null,
+            confirmed_pickup_time: null,
+            accepted_at: null,
+            sms_sent_at: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+          if (orderErr) console.error("[run-analysis] Création takeaway_order:", orderErr);
+          else console.log("[run-analysis] takeaway_order créée pour appel:", callId);
+        }
+      }
     }
     return send(200, { ok: true, callId, status: "done" });
   } catch (err) {
@@ -813,6 +837,8 @@ wss.on("connection", (ws, req) => {
   let referenceWeekCalendar = "";
   let restaurantHasTerrace = true; // Si false, l'IA ne demande pas terrasse/intérieur
   let restaurantClosedByDaySummary = ""; // Ex: "Fermé le midi: dimanche. Fermé le soir: lundi."
+  let takeawayEnabled = false;
+  let takeawayProductsText = "";
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -4111,6 +4137,8 @@ ${compactPersona}`;
           hasTerrace: restaurantHasTerrace,
           restaurantClosedByDaySummary,
           restaurantCurrentlyClosed: garageClosed,
+          takeawayEnabled,
+          takeawayProductsText,
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
@@ -4181,6 +4209,8 @@ ${compactPersona}`;
               hasTerrace: restaurantHasTerrace,
               restaurantClosedByDaySummary,
               restaurantCurrentlyClosed: garageClosed,
+              takeawayEnabled,
+              takeawayProductsText,
             });
             let instructionsToSend = updatedRestaurantInstructions;
             if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
@@ -4278,6 +4308,8 @@ ${compactPersona}`;
               hasTerrace: restaurantHasTerrace,
               restaurantClosedByDaySummary,
               restaurantCurrentlyClosed: garageClosed,
+              takeawayEnabled,
+              takeawayProductsText,
             });
             const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS
               ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES: réservation naturelle, une question à la fois.]"
@@ -6500,6 +6532,8 @@ But: être naturel et mettre le client en confiance.`,
         const finalReferenceWeekCalendar = startParams.referenceWeekCalendar || "";
         const finalRestaurantHasTerrace = startParams.restaurantHasTerrace || "";
         const finalRestaurantClosedByDaySummary = startParams.restaurantClosedByDaySummary || "";
+        const finalTakeawayEnabled = startParams.takeawayEnabled || "";
+        const finalTakeawayProductsText = startParams.takeawayProductsText || "";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
         if (finalGarageType === "restaurant") effectiveSector = "restaurant";
         console.log("🏷️ Secteur effectif:", effectiveSector, "(garageType reçu:", finalGarageType || "non fourni", ")");
@@ -6569,6 +6603,8 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalReferenceWeekCalendar === "string" && finalReferenceWeekCalendar.trim()) referenceWeekCalendar = String(finalReferenceWeekCalendar).trim();
         if (typeof finalRestaurantHasTerrace === "string") restaurantHasTerrace = finalRestaurantHasTerrace.trim().toLowerCase() !== "false";
         if (typeof finalRestaurantClosedByDaySummary === "string" && finalRestaurantClosedByDaySummary.trim()) restaurantClosedByDaySummary = String(finalRestaurantClosedByDaySummary).trim();
+        if (typeof finalTakeawayEnabled === "string") takeawayEnabled = finalTakeawayEnabled.trim().toLowerCase() === "true";
+        if (typeof finalTakeawayProductsText === "string" && finalTakeawayProductsText.trim()) takeawayProductsText = String(finalTakeawayProductsText).trim();
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";

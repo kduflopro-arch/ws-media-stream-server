@@ -17,8 +17,9 @@ Contraintes strictes :
 3. Si le client a spontanément donné des préférences ou infos (anniversaire, accessibilité, régime, demande spéciale), mets-les dans "preferences" de reservationDetails.
 4. Résumé (summary) : structuré, lisible, fidèle à la conversation. Ne rien inventer. Ne jamais écrire « L'appel a été effectué par une personne nommée X » si le client n'a pas explicitement dit son nom. Les noms en format lisible (Dupont, pas D-U-P-O-N-T) uniquement quand ils ont été clairement donnés.
 5. Conclusion (aiConclusion) : 3 à 5 points actionnables pour le restaurant.
-6. callType : "demande_reservation" | "info" | "modification_reservation" | "annulation_reservation"
-7. Informations client : clientName = nom **explicitement** donné par le client pour la réservation (ex. "Dupont", "Marie Martin") ; si non dit, "". Ne jamais mettre "Nia", "IA" ou un mot entendu dans une question (« c'est une IA ? ») comme nom. numberOfPeople, date/heure, terrasse ou intérieur (seatingPreference), allergies, préférences, numéro confirmé. seatingPreference = "terrasse" ou "intérieur" ou "" si non dit.
+6. callType : "demande_reservation" | "info" | "modification_reservation" | "annulation_reservation" | "demande_commande"
+7. Si l'appel concerne une commande à emporter (client a passé commande de pizzas, sushis ou autres produits à emporter) : callType = "demande_commande" et remplis orderDetails avec clientName (nom pour la commande), items (tableau de { product, supplements?, remove? } pour chaque produit demandé), pickupTimeDesired (heure de récupération souhaitée si dite).
+8. Informations client : clientName = nom **explicitement** donné par le client pour la réservation ou la commande ; si non dit, "". Ne jamais mettre "Nia", "IA" ou un mot entendu dans une question (« c'est une IA ? ») comme nom. numberOfPeople, date/heure, terrasse ou intérieur (seatingPreference), allergies, préférences, numéro confirmé. seatingPreference = "terrasse" ou "intérieur" ou "" si non dit.
 
 Format de sortie JSON strict. Réponds dans la langue de la transcription.`;
 
@@ -43,7 +44,23 @@ export const RESTAURANT_CALL_ANALYSIS_SCHEMA = {
       required: ["clientName", "numberOfPeople", "requestedDate", "requestedTime", "seatingPreference", "allergies", "preferences", "phoneConfirmed", "secondaryPhone"],
       additionalProperties: false,
     },
-    callType: { type: "string", enum: ["demande_reservation", "info", "modification_reservation", "annulation_reservation"] },
+    callType: { type: "string", enum: ["demande_reservation", "info", "modification_reservation", "annulation_reservation", "demande_commande"] },
+    orderDetails: {
+      type: "object",
+      properties: {
+        clientName: { type: "string" },
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { product: { type: "string" }, supplements: { type: "string" }, remove: { type: "string" } },
+            additionalProperties: false,
+          },
+        },
+        pickupTimeDesired: { type: "string" },
+      },
+      additionalProperties: false,
+    },
     callOutcome: { type: "string" },
     clientInsights: {
       type: "object",
@@ -83,6 +100,8 @@ export function buildRestaurantInstructions(ctx) {
     hasTerrace = true,
     restaurantCurrentlyClosed = false,
     garageTone = "",
+    takeawayEnabled = false,
+    takeawayProductsText = "",
   } = ctx;
 
   const restaurantLabel = /^restaurant\b/i.test(restaurantName) ? restaurantName : `Restaurant ${restaurantName}`;
@@ -129,6 +148,9 @@ export function buildRestaurantInstructions(ctx) {
   contextLines.push(`- Consentement enregistrement : ${consentRequired ? (consentGiven ? "déjà donné. INTERDICTION : ne jamais redemander le consentement ni dire « êtes-vous d'accord pour enregistrer » ou « j'ai besoin de votre consentement ». Enchaîne directement avec la suite (ex. « Que puis-je faire pour vous ? »)." : "requis en début d'appel. Demande une seule fois, attends oui ou refus.") : "non requis."}`);
   if (allowTransfer) {
     contextLines.push("- Transfert : si le client veut parler à quelqu'un du restaurant, appelle l'outil transfer_to_restaurant.");
+  }
+  if (takeawayEnabled && takeawayProductsText) {
+    contextLines.push("- À emporter : le restaurant accepte les commandes à emporter. Produits proposés (uniquement ceux-ci) : " + takeawayProductsText + ". Si le client demande un produit qui n'est pas dans cette liste, dis poliment que le restaurant ne fait pas ce produit. Même règle d'heure que les réservations : après l'heure de fin de réservation midi/soir, ne prends plus de commande pour ce service.");
   }
 
   const contextBlock = contextLines.join("\n");
@@ -189,21 +211,25 @@ Tu fonctionnes en états. Selon ce que dit le client, tu passes d'un état à l'
 2. **Menu & Recommendations** — Questions sur la carte, les plats, les recommandations, horaires, adresse.
 3. **Special Events** — Événements privés, groupes, occasions spéciales.
 4. **Make Reservation** — Prise de réservation : tu recueilles les infos nécessaires.
-5. **Confirm & Farewell** — Confirmation de ce qui a été fait, proposition « autre chose ? », puis au revoir.
-6. **End** — Fin de l'appel.
+${takeawayEnabled && takeawayProductsText ? `5. **Take Order** — Commande à emporter : le client veut commander à emporter. Tu recueilles : (1) le ou les produits (uniquement parmi la liste proposée), (2) pour chaque produit : suppléments ou ingrédients à retirer, (3) « Autre produit ? » jusqu'à ce que le client dise non, (4) heure de récupération souhaitée, (5) nom pour la commande. Tu conclus : « Votre commande devra être acceptée par le restaurant ; vous recevrez un message de confirmation sous peu. » Même règle d'heure : après l'heure de fin de réservation midi/soir, ne prends plus de commande pour ce service.` : ""}
+${takeawayEnabled && takeawayProductsText ? "6" : "5"}. **Confirm & Farewell** — Confirmation de ce qui a été fait, proposition « autre chose ? », puis au revoir.
+${takeawayEnabled && takeawayProductsText ? "7" : "6"}. **End** — Fin de l'appel.
 
 ## Transitions (intentions du client)
 - Depuis **Welcome** :
   - Le client a des questions (menu, horaires, carte, adresse) → **Menu & Recommendations**.
   - Le client pose des questions sur événements privés / groupes → **Special Events**.
   - Le client veut réserver → **Make Reservation**.
+  ${takeawayEnabled && takeawayProductsText ? "- Le client veut commander à emporter → **Take Order**.\n  " : ""}
 - Depuis **Menu & Recommendations** :
   - Les questions sont réglées et le client n'a plus de demande → **Confirm & Farewell**.
   - Après avoir parlé du menu, le client veut réserver → **Make Reservation**.
+  ${takeawayEnabled && takeawayProductsText ? "- Le client veut commander à emporter → **Take Order**.\n  " : ""}
 - Depuis **Special Events** :
   - La demande d'événement / groupe est traitée → **Confirm & Farewell**.
 - Depuis **Make Reservation** :
   - La demande de réservation est recueillie et récapitulée → **Confirm & Farewell**.
+  ${takeawayEnabled && takeawayProductsText ? "- Depuis **Take Order** :\n  - La commande est recueillie (produits, suppléments/retraits, heure de récupération, nom) et récapitulée → **Confirm & Farewell**.\n  " : ""}
 - Depuis **Confirm & Farewell** :
   - Le client n'a plus de questions → **End** (au revoir et fin).
   - Le client a une nouvelle demande (menu, résa, etc.) → retour à l'état correspondant.
@@ -240,7 +266,13 @@ Tu fonctionnes en états. Selon ce que dit le client, tu passes d'un état à l'
 # État Special Events
 - Traite les demandes d'événements privés ou de groupes avec les infos dont tu disposes. Si tu n'as pas tout, dis-le et propose un rappel. Puis → **Confirm & Farewell**. Comportement cohérent avec un typage « info » ou un type dédié si tu en as un.
 
-# État Make Reservation (critique pour le badge « réservation » — aligné Dine-In / Eleven Labs)
+${takeawayEnabled && takeawayProductsText ? `# État Take Order (commande à emporter)
+- **Objectif** : recueillir la commande à emporter. Produits autorisés UNIQUEMENT : ${takeawayProductsText}. Si le client demande un produit qui n'est pas dans cette liste, dis que le restaurant ne fait pas ce produit.
+- **Étapes** : (1) Premier produit demandé — vérifie qu'il est dans la liste ; (2) pour ce produit : suppléments ou ingrédients à retirer ; (3) « Souhaitez-vous ajouter autre chose ? » ; si oui, répète (1)-(2) pour chaque produit supplémentaire ; (4) heure de récupération souhaitée ; (5) nom pour la commande.
+- **Règle heure** : comme pour les réservations, après l'heure de fin de réservation midi/soir (voir Contexte), ne prends plus de commande pour ce service. Refuse poliment et propose un autre créneau si possible.
+- **Conclusion** : après récap de la commande et confirmation du client, dis que c'est une **demande** de commande, que le restaurant devra l'accepter et enverra un message de confirmation. Puis → **Confirm & Farewell**.
+
+` : ""}# État Make Reservation (critique pour le badge « réservation » — aligné Dine-In / Eleven Labs)
 ${closedEveningReminder}${closedLunchReminder}
 - **Objectif** : recueillir toutes les infos nécessaires pour la demande de réservation. Tu formules comme tu veux ; aucune phrase n'est imposée.
 - **Une seule question par réplique** : interdit d'enchaîner deux questions (ex. interdit : « À quelle heure ? Et pour combien de personnes ? »). Une confirmation courte + une question max.
@@ -292,7 +324,8 @@ Tu utilises UNIQUEMENT ce contexte pour les horaires, la date, les fermetures, l
 
 # Alignement avec les badges AutoGuru
 - **demande_reservation** : le client a demandé une réservation et tu as recueilli (et récapitulé) date, heure, nombre, terrasse/intérieur. Tu es passé par l'état Make Reservation jusqu'à la confirmation.
-- **info** : le client n'a eu que des infos (menu, horaires, adresse, etc.) sans demande de réservation complète → resté en Menu & Recommendations puis Confirm & Farewell.
+- **demande_commande** : le client a passé une commande à emporter (produits, suppléments/retraits, heure de récupération, nom). Tu es passé par l'état Take Order jusqu'à la conclusion. Remplis orderDetails (clientName, items, pickupTimeDesired) pour que la commande soit enregistrée.
+- **info** : le client n'a eu que des infos (menu, horaires, adresse, etc.) sans demande de réservation ni commande complète → resté en Menu & Recommendations puis Confirm & Farewell.
 - **modification_reservation** / **annulation_reservation** : le client a explicitement demandé à modifier ou annuler une résa. Traite la demande, puis Confirm & Farewell.
 En restant cohérent avec ces états et ces types, l'analyse d'appel pourra attribuer le bon badge (callType) côté AutoGuru.
 
