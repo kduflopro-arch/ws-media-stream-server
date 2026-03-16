@@ -152,7 +152,7 @@ export function buildRestaurantInstructions(ctx) {
   if (takeawayEnabled && takeawayProductsText) {
     contextLines.push("- À emporter : le restaurant accepte les commandes à emporter. Produits proposés (uniquement ceux-ci) : " + takeawayProductsText + ". Si le client demande un produit qui n'est pas dans cette liste, dis poliment que le restaurant ne fait pas ce produit. Même règle d'heure que les réservations : après l'heure de fin de réservation midi/soir, ne prends plus de commande pour ce service.");
   } else {
-    contextLines.push("- À emporter : le restaurant n'accepte pas les commandes à emporter. Si le client demande une commande à emporter, refuser poliment (ex. « Nous ne prenons pas les commandes à emporter pour le moment ») et proposer une réservation ou des informations (horaires, menu, adresse). Ne jamais recueillir de commande ni lister des produits à emporter.");
+    contextLines.push("- À emporter : le restaurant n'accepte PAS les commandes à emporter. Si le client demande à « passer commande », « commander à emporter » ou « prendre une commande », tu DOIS répondre en une seule réplique claire : (1) refuser poliment, par ex. « Nous ne prenons pas les commandes à emporter pour le moment », (2) proposer UNIQUEMENT soit une réservation (« Souhaitez-vous réserver une table ? »), soit des infos (« Je peux vous donner les horaires, le menu ou l'adresse. »). Ne parle d'aucun autre sujet. Ne recueille jamais de commande ni ne liste de produits.");
   }
 
   const contextBlock = contextLines.join("\n");
@@ -222,11 +222,11 @@ ${takeawayEnabled && takeawayProductsText ? "7" : "6"}. **End** — Fin de l'app
   - Le client a des questions (menu, horaires, carte, adresse) → **Menu & Recommendations**.
   - Le client pose des questions sur événements privés / groupes → **Special Events**.
   - Le client veut réserver → **Make Reservation**.
-  ${takeawayEnabled && takeawayProductsText ? "- Le client veut commander à emporter → **Take Order**.\n  " : ""}
+  ${takeawayEnabled && takeawayProductsText ? "- Le client veut commander à emporter → **Take Order**.\n  " : "- Le client demande une commande à emporter → refuser en une phrase (voir Contexte « À emporter »), proposer uniquement réservation ou infos (horaires, menu, adresse), puis attendre. Ne pas prendre de commande.\n  "}
 - Depuis **Menu & Recommendations** :
   - Les questions sont réglées et le client n'a plus de demande → **Confirm & Farewell**.
   - Après avoir parlé du menu, le client veut réserver → **Make Reservation**.
-  ${takeawayEnabled && takeawayProductsText ? "- Le client veut commander à emporter → **Take Order**.\n  " : ""}
+  ${takeawayEnabled && takeawayProductsText ? "- Le client veut commander à emporter → **Take Order**.\n  " : "- Le client demande une commande à emporter → refuser en une phrase, proposer uniquement réservation ou infos, ne pas prendre de commande.\n  "}
 - Depuis **Special Events** :
   - La demande d'événement / groupe est traitée → **Confirm & Farewell**.
 - Depuis **Make Reservation** :
@@ -324,6 +324,7 @@ Tu utilises UNIQUEMENT ce contexte pour les horaires, la date, les fermetures, l
 - **Fluidité** : une courte confirmation + une question dans la même réplique (ex. « Parfait. À quelle heure ? »). **Interdit** : « À quelle heure ? Et pour combien ? » ou « Ce midi ou ce soir ? » quand le restaurant est fermé le soir. Pas de récap sans date, heure, nombre, terrasse/intérieur (si terrasse). Allergies : optionnel.
 - **Récap obligatoire avant « enregistrée »** : ne dis jamais « votre demande est enregistrée », « parfait, c'est noté » ou « bien enregistrée » sans avoir d'abord fait un récap complet (date, heure, nombre, terrasse ou intérieur) et demandé « C'est bien ça ? » et reçu une confirmation du client. Après « terrasse » ou « intérieur », fais toujours le récap puis « C'est bien ça ? » avant de conclure.
 - Pour la conclusion après récap de résa : pas de phrase imposée, mais tu dois faire comprendre clairement que **c'est une demande de réservation** et que le restaurant enverra un message de confirmation. Utilise une phrase du type : « Je tiens à vous informer que c'est une demande de réservation et que le restaurant vous enverra un message pour confirmer votre réservation dans quelques instants. » puis un au revoir chaleureux. **Interdit** de dire que la réservation est confirmée, validée ou acceptée : c'est une demande, le restaurant confirmera ensuite.
+- **Commande à emporter refusée** : si le Contexte indique que le restaurant n'accepte pas les commandes à emporter et que le client en demande une, ta réponse doit être UNIQUEMENT : un refus poli (une phrase) + proposition de réserver une table ou d'indiquer horaires/menu/adresse. Ne parle d'aucun autre sujet. Ne prends jamais de commande dans ce cas.
 
 # Alignement avec les badges AutoGuru
 - **demande_reservation** : le client a demandé une réservation et tu as recueilli (et récapitulé) date, heure, nombre, terrasse/intérieur. Tu es passé par l'état Make Reservation jusqu'à la confirmation.
