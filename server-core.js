@@ -749,6 +749,8 @@ wss.on("connection", (ws, req) => {
   const userSpeakItemIds = new Set(); // Éviter double comptage du même item
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
+  // Restaurant : message informatif (opt-out) — pas d'attente de « oui », le client peut raccrocher s'il refuse.
+  const CONSENT_RESTAURANT = "Cet appel est enregistré. Pour préparer votre réservation, vous pouvez raccrocher si vous refusez.";
   function playPostConsentGreeting() {
     if (ws.__postConsentGreetingPlayed || !PREMIUM_TTS_ENABLED) return;
     const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
@@ -6664,8 +6666,9 @@ But: être naturel et mettre le client en confiance.`,
                       const baseHello = isRestoCI
                         ? `Bonjour. ${assistantName} du ${placePart}.`
                         : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                      const consentText = (isRestoCI ? "Cet appel est enregistré. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
+                      const consentText = isRestoCI ? CONSENT_RESTAURANT : ("Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN);
                       greeting = [baseHello, consentText].filter(Boolean).join(" ");
+                      if (isRestoCI) consentGiven = true; // Restaurant : opt-out, pas d'attente de « oui »
                     } else if (isRestoCI) {
                       const rawN = String(garageName || "").trim();
                       const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
@@ -6747,8 +6750,9 @@ But: être naturel et mettre le client en confiance.`,
                 const baseHello = isRestoFb
                   ? `Bonjour. ${assistantName} du ${placePart}.`
                   : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                const consentText = (isRestoFb ? "Cet appel est enregistré. " : "Cet appel est enregistré pour préparer votre arrivée au garage. ") + CONSENT_MAIN;
+                const consentText = isRestoFb ? CONSENT_RESTAURANT : ("Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN);
                 greeting = [baseHello, consentText].filter(Boolean).join(" ");
+                if (isRestoFb) consentGiven = true; // Restaurant : opt-out, pas d'attente de « oui »
               } else if (isRestoFb) {
                 const rawN = String(garageName || "").trim();
                 const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
