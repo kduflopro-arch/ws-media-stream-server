@@ -418,6 +418,11 @@ const INIT_DELAY_MS = Number(process.env.RENDER_INIT_DELAY_MS ?? "5000");
 server.listen(PORT, HOST, () => {
   console.log(`WS Media Stream server listening on ${HOST}:${PORT}`);
   console.log(`[Render] Health check: GET http://0.0.0.0:${PORT}/health (init dans ${INIT_DELAY_MS}ms)`);
+  import("./deepgram-client.js").then((m) => {
+    if (m.isDeepgramAvailable()) {
+      console.log("Deepgram STT disponible (USE_DEEPGRAM_STT=true pour activer le pipeline STT Deepgram)");
+    }
+  }).catch(() => {});
   setTimeout(runRest, INIT_DELAY_MS);
 });
 function runRest() {
@@ -2540,7 +2545,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           return beforeQ;
         }
         const minMatchLen = 45;
-        if (beforeQ.length >= minMatchLen && afterQ.length >= minMatchLen && (afterQ.startsWith(beforeQ.slice(0, minMatchLen)) || normFull(afterQ.slice(0, Math.min(60, afterQ.length))) === normFull(beforeQ.slice(0, Math.min(60, beforeQ.length))))) {
+        const lengthDiff = Math.abs(afterQ.length - beforeQ.length);
+        if (beforeQ.length >= minMatchLen && afterQ.length >= minMatchLen && lengthDiff <= 5 && (afterQ.startsWith(beforeQ.slice(0, minMatchLen)) || normFull(afterQ.slice(0, Math.min(60, afterQ.length))) === normFull(beforeQ.slice(0, Math.min(60, beforeQ.length))))) {
           console.log("[DEDUP-TTS] Doublon phrase?phrase (début identique)");
           return beforeQ;
         }
