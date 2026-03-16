@@ -2062,8 +2062,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       console.error("❌ PREMIUM_TTS activé mais ELEVENLABS_API_KEY/ELEVENLABS_VOICE_ID manquants.");
       return;
     }
-    const clean = normalizeFrenchTtsText((text || "").trim());
+    const original = String(text || "").trim();
+    const clean = normalizeFrenchTtsText(original);
     if (!clean) return;
+    if (LOG_TTS) {
+      console.log("[TTS] ElevenLabs model_id utilisé:", ELEVENLABS_MODEL_ID);
+      console.log("[TTS] Texte avant normalisation (avec tags potentiels):", original.substring(0, 200));
+      console.log("[TTS] Texte après normalisation (envoyé à ElevenLabs):", clean.substring(0, 200));
+    }
     if (interrupt) {
       try { premiumTtsAbort?.abort?.(); } catch { /* ignore */ }
       premiumTtsAbort = new AbortController();
