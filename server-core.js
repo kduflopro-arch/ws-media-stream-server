@@ -5686,7 +5686,7 @@ But: être naturel et mettre le client en confiance.`,
                 const recentMs = 15000;
                 const alreadySaidUnInstant = (premiumTtsLastText && /un\s+instant|instant\s+s'il\s+vous/i.test(premiumTtsLastText))
                   || recentAssistantTexts.some((t) => (Date.now() - t.ts) <= recentMs && /un\s+instant|instant\s+s'il\s+vous/i.test(t.text));
-                if (!alreadySaidUnInstant) {
+                if (!alreadySaidUnInstant && effectiveSector !== "restaurant") {
                   enqueuePremiumTts("D'accord, un instant s'il vous plaît.", { interrupt: false, source: "function_call_fallback", allowWithoutUser: true });
                 }
               }
@@ -5784,7 +5784,6 @@ But: être naturel et mettre le client en confiance.`,
                   if (baseUrl && token && callSid && garageId) {
                     transferOutputDeferred = true;
                     transferTriggered = true;
-                    enqueuePremiumTts("Transfert vers le restaurant, un instant.", { interrupt: true, source: "transfer_to_restaurant", allowWithoutUser: true });
                     const waitForOutboundDrain = () => {
                       if (outboundQueuedBytes === 0 && outboundQueue.length === 0) {
                         fetch(`${baseUrl}/api/twilio/call-transfer`, {
