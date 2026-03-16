@@ -6664,50 +6664,35 @@ But: être naturel et mettre le client en confiance.`,
                   }
                   if (!transferFailed && !hasGreetedRecently(callSid) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
                     const isRestoCI = effectiveSector === "restaurant";
-                    const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
-                    let greeting;
-                    if (consentRequired && !consentGiven) {
-                      const baseHello = isRestoCI
-                        ? `Bonjour. ${assistantName} du ${placePart}.`
-                        : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                      const consentText = isRestoCI
-                        ? (RESTAURANT_SKIP_CONSENT_PHRASE ? "" : CONSENT_RESTAURANT)
-                        : ("Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN);
-                      greeting = isRestoCI && RESTAURANT_SKIP_CONSENT_PHRASE
-                        ? `${baseHello} Que puis-je faire pour vous ?`
-                        : [baseHello, consentText].filter(Boolean).join(" ");
-                      if (isRestoCI) {
-                        consentGiven = true; // Restaurant : pas d'attente de « oui » (opt-out ou pas de phrase consentement)
-                        setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 100);
-                      }
-                    } else if (isRestoCI) {
-                      const rawN = String(garageName || "").trim();
-                      const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
-                      if (clientInfo.name) {
-                        const nameParts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
-                        const lastName = clientInfo.last_name?.trim() || nameParts[nameParts.length - 1] || clientInfo.name;
-                        const title = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
-                        const salutation = title ? `${title} ${lastName}` : lastName;
-                        greeting = `Bonjour ${salutation}. ${assistantName} du ${lbl}, je vous écoute.`;
-                      } else {
-                        greeting = `${lbl}, ${assistantName} à l'appareil. Je vous écoute.`;
-                      }
+                    if (isRestoCI) {
+                      consentGiven = true;
+                      setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 100);
+                      if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+                      console.log("👋 Greeting désactivé (restaurant) — pas de message d'accueil, l'IA répondra à la première parole du client.");
                     } else {
-                      const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                      greeting = clientInfo.name ? (() => {
-                        const nameParts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
-                        const lastName = clientInfo.last_name?.trim() || nameParts[nameParts.length - 1] || clientInfo.name;
-                        const title = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
-                        const salutation = title ? `${title} ${lastName}` : lastName;
-                        return `Bonjour ${salutation}. Ici ${assistantName} du ${placePart}. En quoi puis-je vous aider ?`;
-                      })() : baseHello + " En quoi puis-je vous aider ?";
+                      const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
+                      let greeting;
+                      if (consentRequired && !consentGiven) {
+                        const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
+                        const consentText = "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN;
+                        greeting = [baseHello, consentText].filter(Boolean).join(" ");
+                      } else {
+                        const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
+                        greeting = clientInfo.name ? (() => {
+                          const nameParts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
+                          const lastName = clientInfo.last_name?.trim() || nameParts[nameParts.length - 1] || clientInfo.name;
+                          const title = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
+                          const salutation = title ? `${title} ${lastName}` : lastName;
+                          return `Bonjour ${salutation}. Ici ${assistantName} du ${placePart}. En quoi puis-je vous aider ?`;
+                        })() : baseHello + " En quoi puis-je vous aider ?";
+                      }
+                      initialAssistantGreetingText = greeting;
+                      hasSentInitialGreeting = true;
+                      enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+                      const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : PREMIUM_TTS_PROVIDER === "cartesia" ? "Cartesia" : "ElevenLabs";
+                      console.log(`👋 Greeting joué via ${providerName}.`, { callSid, consentRequired });
+                      if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
                     }
-                    initialAssistantGreetingText = greeting;
-                    hasSentInitialGreeting = true;
-                    enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
-                    const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : PREMIUM_TTS_PROVIDER === "cartesia" ? "Cartesia" : "ElevenLabs";
-                    console.log(`👋 Greeting ${consentRequired && !consentGiven ? "générique (consent)" : "post-consent avec nom"} joué via ${providerName}.`, { callSid, consentRequired });
-                    if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
                   } else if (!transferFailed && !rdvNotificationFollowupPlayed && (initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
                     const appointments = clientInfo.appointments || [];
                     if (appointments.length > 0) {
@@ -6754,28 +6739,13 @@ But: être naturel et mettre le client en confiance.`,
           if (!transferFailed && (!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
             ws.__greetingFallbackTimer = setTimeout(() => {
               if (initialAssistantGreetingText || clientInfo) return;
-              const isRestoFb = effectiveSector === "restaurant";
+              if (effectiveSector === "restaurant") return; // Pas de greeting fallback en restaurant
               const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
               let greeting;
               if (consentRequired && !consentGiven) {
-                const baseHello = isRestoFb
-                  ? `Bonjour. ${assistantName} du ${placePart}.`
-                  : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                const consentText = isRestoFb
-                  ? (RESTAURANT_SKIP_CONSENT_PHRASE ? "" : CONSENT_RESTAURANT)
-                  : ("Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN);
-                greeting = isRestoFb && RESTAURANT_SKIP_CONSENT_PHRASE
-                  ? `${baseHello} Que puis-je faire pour vous ?`
-                  : [baseHello, consentText].filter(Boolean).join(" ");
-                if (isRestoFb) {
-                  consentGiven = true; // Restaurant : pas d'attente de « oui »
-                  setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 100);
-                  setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 1500);
-                }
-              } else if (isRestoFb) {
-                const rawN = String(garageName || "").trim();
-                const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
-                greeting = `${lbl}, ${assistantName} à l'appareil. Je vous écoute.`;
+                const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
+                const consentText = "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN;
+                greeting = [baseHello, consentText].filter(Boolean).join(" ");
               } else {
                 const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
                 const question = ["Qu'est-ce qui vous amène ?", "Dites-moi ce qui se passe.", "Je vous écoute."][Math.floor(Math.random() * 3)];
@@ -6800,23 +6770,15 @@ But: être naturel et mettre le client en confiance.`,
           if (!transferFailed && (!greetOncePerCall || !hasGreetedRecently(callSid))) {
             const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "150");
             setTimeout(() => {
+              if (effectiveSector === "restaurant") return; // Pas de greeting en restaurant
               const rawName = String(garageName || "AutoGuru").trim();
-              const label = effectiveSector === "restaurant"
-                ? (/^restaurant\b/i.test(rawName) ? rawName : `Restaurant ${rawName}`)
-                : (/^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`);
-              const variations = effectiveSector === "restaurant"
-                ? [
-                    `${label}, ${assistantName} à l'appareil. Je vous écoute.`,
-                    `Bonjour, ${label}, ${assistantName}. Qu'est-ce que je peux faire pour vous ?`,
-                    `${label} bonjour, ${assistantName} à l'appareil. Je vous écoute.`,
-                    `Bonjour, ici ${label}. ${assistantName}, je vous écoute.`,
-                  ]
-                : [
-                    `Oui allô, bonjour. Ici ${label}. Je vous écoute.`,
-                    `Bonjour. ${label}. Dites-moi ce qui se passe.`,
-                    `Oui bonjour, ${label}. Qu'est-ce qui vous amène ?`,
-                    `Bonjour, vous êtes bien chez ${label}. Alors, c'est pour la voiture ?`,
-                  ];
+              const label = (/^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`);
+              const variations = [
+                `Oui allô, bonjour. Ici ${label}. Je vous écoute.`,
+                `Bonjour. ${label}. Dites-moi ce qui se passe.`,
+                `Oui bonjour, ${label}. Qu'est-ce qui vous amène ?`,
+                `Bonjour, vous êtes bien chez ${label}. Alors, c'est pour la voiture ?`,
+              ];
               const greeting = variations[Math.floor(Math.random() * variations.length)];
               enqueueElevenLabsTts(
                 greeting,
