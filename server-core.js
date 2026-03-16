@@ -648,9 +648,10 @@ wss.on("connection", (ws, req) => {
   const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
   const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT ?? "pcm_16000";
   const ELEVENLABS_OPTIMIZE_STREAMING_LATENCY = Number(process.env.ELEVENLABS_OPTIMIZE_STREAMING_LATENCY ?? "3"); // 0..4
-  const ELEVENLABS_STABILITY = Number(process.env.ELEVENLABS_STABILITY ?? "0.55"); // 0..1
-  const ELEVENLABS_SIMILARITY_BOOST = Number(process.env.ELEVENLABS_SIMILARITY_BOOST ?? "0.85"); // 0..1
-  const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE ?? "0.35"); // 0..1
+  // Voix plus humaine : stabilité plus basse = plus de variation naturelle ; style plus haut = plus d'expressivité (Render: ELEVENLABS_STABILITY=0.4, ELEVENLABS_STYLE=0.5)
+  const ELEVENLABS_STABILITY = Number(process.env.ELEVENLABS_STABILITY ?? "0.42"); // 0..1 — plus bas = moins robotique
+  const ELEVENLABS_SIMILARITY_BOOST = Number(process.env.ELEVENLABS_SIMILARITY_BOOST ?? "0.82"); // 0..1 — clarté de la voix
+  const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE ?? "0.5"); // 0..1 — plus haut = plus expressif (modèles qui le supportent)
   const ELEVENLABS_USE_SPEAKER_BOOST = (process.env.ELEVENLABS_USE_SPEAKER_BOOST ?? "true").toLowerCase() === "true";
   const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY ?? "";
   const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID ?? "";
