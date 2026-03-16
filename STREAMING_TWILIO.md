@@ -71,7 +71,7 @@ Les paramètres `input_audio_format=pcm16` et `output_audio_format=pcm16` sont d
 Le module **Deepgram** est préparé pour un futur pipeline **STT Deepgram → LLM → TTS** (sans OpenAI Realtime pour le STT). Avantages : reconnaissance de qualité, réactivité, moins de tokens OpenAI, barge-in plus simple, vocabulaire personnalisé (noms, pizzas).
 
 - **Prérequis** : `npm install` (dépendance `@deepgram/sdk`), variable d’environnement `DEEPGRAM_API_KEY`.
-- **Activation** : définir `USE_DEEPGRAM_STT=true` (le branchement dans `server-core.js` reste à faire : envoyer l’audio mulaw 8 kHz à Deepgram, utiliser le transcript pour le LLM au lieu d’envoyer l’audio à Realtime).
+- **Activation** : définir `USE_DEEPGRAM_STT=true` et `DEEPGRAM_API_KEY`. Le flux est alors : audio mulaw 8 kHz → Deepgram → transcript final → `conversation.item.create` (user) + `response.create` → Realtime LLM → TTS (ElevenLabs/Minimax/Cartesia).
 - **Format** : audio μ-law 8 kHz (Twilio), modèle `nova-2`, langue `fr`, `interim_results` et `smart_format` activés. Voir `deepgram-client.js` et [Live Streaming Audio](https://developers.deepgram.com/docs/live-streaming-audio).
 
 ## Mode `stt_llm_tts` (sans Realtime)

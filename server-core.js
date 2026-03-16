@@ -414,6 +414,7 @@ const PIPELINE_MODE =
     : PIPELINE_MODE_RAW.includes("realtime")
       ? "realtime"
       : "realtime";
+const USE_DEEPGRAM_STT = (process.env.USE_DEEPGRAM_STT ?? "false").toLowerCase() === "true";
 const INIT_DELAY_MS = Number(process.env.RENDER_INIT_DELAY_MS ?? "5000");
 server.listen(PORT, HOST, () => {
   console.log(`WS Media Stream server listening on ${HOST}:${PORT}`);
@@ -624,6 +625,7 @@ wss.on("connection", (ws, req) => {
   let lastSpokenCommitAt = 0;
   let preOpenFrames = []; // Array<{ audioBase64: string, mulawLen: number, ts: number }>
   let preOpenBytes = 0;
+  let deepgramSession = null; // Session Deepgram STT (quand USE_DEEPGRAM_STT=true)
   let outboundQueue = []; // Array<Buffer>
   let outboundQueuedBytes = 0;
   let hasSentInitialGreeting = false;
@@ -3800,11 +3802,42 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         });
         console.log("🔊 Streaming Twilio:", {
           output_modalities: REALTIME_OUTPUT_MODALITIES,
-          stt: "streaming (input_audio_buffer.append)",
+          stt: USE_DEEPGRAM_STT ? "Deepgram (transcript → Realtime)" : "streaming (input_audio_buffer.append)",
           llm: "streaming (Realtime)",
           tts: REALTIME_USE_ELEVEN ? "streaming (ElevenLabs/Minimax/Cartesia + chunking)" : "streaming (OpenAI audio delta → Twilio)",
           eleven_chunking: REALTIME_USE_ELEVEN ? REALTIME_ELEVEN_CHUNKING_ENABLED : "n/a",
         });
+        if (USE_DEEPGRAM_STT && PIPELINE_MODE === "realtime") {
+          try {
+            const { createDeepgramLiveSession } = await import("./deepgram-client.js");
+            deepgramSession = createDeepgramLiveSession({
+              language: (process.env.STT_LANGUAGE || "fr").trim(),
+              model: process.env.DEEPGRAM_MODEL || "nova-2",
+            });
+            if (deepgramSession) {
+              deepgramSession.onTranscript((text, isFinal) => {
+                if (!isFinal || !text || !text.trim()) return;
+                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+                try {
+                  openaiWs.send(JSON.stringify({
+                    type: "conversation.item.create",
+                    item: {
+                      type: "message",
+                      role: "user",
+                      content: [{ type: "input_text", text: text.trim() }],
+                    },
+                  }));
+                  requestResponseCreate("deepgram_final");
+                } catch (e) {
+                  console.error("[Deepgram] Erreur envoi transcript → Realtime:", e?.message ?? e);
+                }
+              });
+              console.log("🎤 Deepgram STT actif (transcript final → Realtime LLM)");
+            }
+          } catch (e) {
+            console.error("[Deepgram] Échec création session:", e?.message ?? e);
+          }
+        }
         if (REALTIME_USE_ELEVEN) {
           if (nowMs() < premiumTtsBypassUntilMs) {
             const remainingMinutes = Math.ceil((premiumTtsBypassUntilMs - nowMs()) / 60000);
@@ -4432,23 +4465,30 @@ But: être naturel et mettre le client en confiance.`,
         }
         if (preOpenFrames.length > 0) {
           const flushedBytes = preOpenBytes;
-          console.log("⏩ Flush pre-open frames -> OpenAI:", {
-            frames: preOpenFrames.length,
-            bytes: flushedBytes,
-            fmt: "pcm16",
-          });
-          for (const f of preOpenFrames) {
-            const mulawBuffer = Buffer.from(f.audioBase64, "base64");
-            const pcm24k = convertMulawToPcm24k(mulawBuffer);
-            const pcm24kBuffer = Buffer.allocUnsafe(pcm24k.length * 2);
-            for (let i = 0; i < pcm24k.length; i++) {
-              pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
+          if (USE_DEEPGRAM_STT && deepgramSession) {
+            console.log("⏩ Flush pre-open frames -> Deepgram:", { frames: preOpenFrames.length, bytes: flushedBytes });
+            for (const f of preOpenFrames) {
+              deepgramSession.sendAudio(Buffer.from(f.audioBase64, "base64"));
             }
-            openaiWs.send(JSON.stringify({
-              type: "input_audio_buffer.append",
-              audio: pcm24kBuffer.toString("base64"),
-            }));
-            appendedBytes += pcm24kBuffer.length;
+          } else {
+            console.log("⏩ Flush pre-open frames -> OpenAI:", {
+              frames: preOpenFrames.length,
+              bytes: flushedBytes,
+              fmt: "pcm16",
+            });
+            for (const f of preOpenFrames) {
+              const mulawBuffer = Buffer.from(f.audioBase64, "base64");
+              const pcm24k = convertMulawToPcm24k(mulawBuffer);
+              const pcm24kBuffer = Buffer.allocUnsafe(pcm24k.length * 2);
+              for (let i = 0; i < pcm24k.length; i++) {
+                pcm24kBuffer.writeInt16LE(pcm24k[i], i * 2);
+              }
+              openaiWs.send(JSON.stringify({
+                type: "input_audio_buffer.append",
+                audio: pcm24kBuffer.toString("base64"),
+              }));
+              appendedBytes += pcm24kBuffer.length;
+            }
           }
           preOpenFrames = [];
           preOpenBytes = 0;
@@ -6471,6 +6511,10 @@ But: être naturel et mettre le client en confiance.`,
           clearTimeout(connectionTimeout);
           connectionTimeout = null;
         }
+        if (deepgramSession) {
+          try { deepgramSession.close(); } catch (_) {}
+          deepgramSession = null;
+        }
         console.log("🔌 OpenAI WS fermé", { code, reason: reason?.toString() });
         if (code !== 1000) {
           const msg = code === 1006
@@ -7167,6 +7211,10 @@ But: être naturel et mettre le client en confiance.`,
                 inputSilenceFrames = 0;
                 return;
               }
+              if (USE_DEEPGRAM_STT && deepgramSession) {
+                deepgramSession.sendAudio(mulawBuffer);
+                return;
+              }
               if (mediaCount <= 3) {
                 console.log(`🔊 Frame ${mediaCount} audio (μ-law):`, {
                   mulawLength: mulawBuffer.length,
@@ -7279,6 +7327,10 @@ But: être naturel et mettre le client en confiance.`,
         }
       } else if (msg.event === "stop") {
         console.log("🛑 Stream stop");
+        if (deepgramSession) {
+          try { deepgramSession.close(); } catch (_) {}
+          deepgramSession = null;
+        }
         // #region agent log
         try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:6740',message:'stream_stop',data:{mediaCount,lastCommitAt,lastSpeechTs:lastSpeechTs||0,responseInProgress},hypothesisId:'E',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
         // #endregion
@@ -7397,6 +7449,10 @@ But: être naturel et mettre le client en confiance.`,
   });
   ws.on("close", () => {
     console.log("🔌 Closed, frames:", mediaCount);
+    if (deepgramSession) {
+      try { deepgramSession.close(); } catch (_) {}
+      deepgramSession = null;
+    }
     if (plateConfirmedByClient) plateSmsSendOnFinalize = false;
     if (plateSmsSendOnFinalize) {
       const shouldSend = plateSmsSendOnFinalize;
