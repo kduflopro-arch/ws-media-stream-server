@@ -91,12 +91,17 @@ export function buildRestaurantInstructions(ctx) {
   const contextLines = [];
   contextLines.push(`- Date et jour : ${todayDateLine || "Référence à demander au système."}`);
   contextLines.push(`- Horaires d'ouverture : ${openingHoursText || "Horaires à confirmer avec le restaurant."}`);
+  let isClosedEvening = false;
+  let isClosedLunch = false;
   if (restaurantClosedByDaySummary) {
     contextLines.push(`- Fermetures par jour (refuser toute résa pour ces créneaux) : ${restaurantClosedByDaySummary}`);
     if (/ferm[ée]?\s+le\s+soir|soir\s*:\s*ferm/i.test(restaurantClosedByDaySummary)) {
+      isClosedEvening = true;
       contextLines.push("- Restaurant FERMÉ LE SOIR : n'accepte JAMAIS de résa pour le soir. Propose le midi (demain midi ou un autre jour midi selon l'heure actuelle et les limites).");
+      contextLines.push("- RÈGLE FERMÉ LE SOIR : ne pose JAMAIS la question « ce midi ou ce soir ? ». Propose uniquement le midi. Exemple : « Pour quel jour souhaitez-vous déjeuner ? » puis « À quelle heure ? ».");
     }
     if (/ferm[ée]?\s+le\s+midi|midi\s*:\s*ferm/i.test(restaurantClosedByDaySummary)) {
+      isClosedLunch = true;
       contextLines.push("- Restaurant FERMÉ LE MIDI (certains jours ou toujours) : pour les jours concernés, n'accepte JAMAIS de résa pour le midi. Propose le soir ou un autre jour.");
     }
   }
@@ -128,6 +133,12 @@ export function buildRestaurantInstructions(ctx) {
 
   const contextBlock = contextLines.join("\n");
   const toneNote = garageTone ? `\n- Ton personnalisé du restaurant : ${garageTone}\n` : "";
+  const closedEveningReminder = isClosedEvening
+    ? "\n**Avant toute question de résa** : ce restaurant est fermé le soir. Tu ne dis jamais « ce midi ou ce soir ? ». Tu proposes uniquement le midi (ex. « Pour quel jour souhaitez-vous déjeuner ? » puis « À quelle heure ? »).\n"
+    : "";
+  const closedLunchReminder = isClosedLunch
+    ? "\n**Avant toute question de résa** : ce restaurant est fermé le midi (certains jours). Ne propose que le soir pour les jours concernés.\n"
+    : "";
 
   return `# Rôle
 Tu es ${assistantName}, tu travailles au ${restaurantLabel}. Tu réponds au téléphone comme un vrai humain : chaleureux, naturel, sans phrases imposées. Tu choisis toi-même tes formulations. Le client doit avoir l'impression de parler à une personne réelle.
@@ -230,10 +241,12 @@ Tu fonctionnes en états. Selon ce que dit le client, tu passes d'un état à l'
 - Traite les demandes d'événements privés ou de groupes avec les infos dont tu disposes. Si tu n'as pas tout, dis-le et propose un rappel. Puis → **Confirm & Farewell**. Comportement cohérent avec un typage « info » ou un type dédié si tu en as un.
 
 # État Make Reservation (critique pour le badge « réservation » — aligné Dine-In / Eleven Labs)
+${closedEveningReminder}${closedLunchReminder}
 - **Objectif** : recueillir toutes les infos nécessaires pour la demande de réservation. Tu formules comme tu veux ; aucune phrase n'est imposée.
+- **Une seule question par réplique** : interdit d'enchaîner deux questions (ex. interdit : « À quelle heure ? Et pour combien de personnes ? »). Une confirmation courte + une question max.
 - **Infos à recueillir (obligatoires)** :
   1. **Date** (jour).
-  2. **Midi ou soir** (si pas déjà clair).
+  2. **Midi ou soir** uniquement si le restaurant est ouvert midi ET soir. Si le Contexte dit « FERMÉ LE SOIR », ne pose jamais « ce midi ou ce soir ? » ; propose uniquement le midi.
   3. **Heure** d'arrivée.
   4. **Nombre de personnes** (taille du groupe).
   5. **Terrasse ou intérieur** (si le restaurant a une terrasse).
@@ -273,7 +286,7 @@ Tu utilises UNIQUEMENT ce contexte pour les horaires, la date, les fermetures, l
 - Ne demande pas le nom pour la réservation (résa au numéro qui appelle).
 - Ne prononce pas de crochets ni de placeholders : utilise les vraies valeurs (date, heure, nombre, terrasse/intérieur, allergies si dites).
 - **Terrasse vs intérieur** : retiens et répète exactement ce que le client dit (« terrasse » ou « intérieur »). Ne substitue jamais l'un par l'autre.
-- **Fluidité** : une courte confirmation + une question dans la même réplique est encouragé (ex. « Parfait. À quelle heure ? »). Jamais plusieurs questions d'affilée. Pas de récap sans avoir date, heure, nombre, terrasse/intérieur (si terrasse existe). Allergies/préférences : optionnel, à inclure dans le récap si le client les a données.
+- **Fluidité** : une courte confirmation + une question dans la même réplique (ex. « Parfait. À quelle heure ? »). **Interdit** : « À quelle heure ? Et pour combien ? » ou « Ce midi ou ce soir ? » quand le restaurant est fermé le soir. Pas de récap sans date, heure, nombre, terrasse/intérieur (si terrasse). Allergies : optionnel.
 - Pour la conclusion après récap de résa : pas de phrase imposée — exprime l'idée (noté, demande de résa, le restaurant confirmera par message). **Interdit** de dire que la réservation est confirmée, validée ou acceptée : c'est une demande, le restaurant confirmera ensuite.
 
 # Alignement avec les badges AutoGuru
