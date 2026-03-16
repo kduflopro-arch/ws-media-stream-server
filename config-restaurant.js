@@ -136,12 +136,11 @@ Ne dis JAMAIS « après l'heure limite » — soit FERMÉ, soit COMPLET. Si le c
     : "";
 
   const restaurantClosedLine = restaurantCurrentlyClosed
-    ? `⚠️ RESTAURANT ACTUELLEMENT FERMÉ (PRIORITÉ ABSOLUE) :
-Le restaurant est FERMÉ en ce moment (ex. nuit). Les règles ci-dessous sont subordonnées.
-1. "Vous êtes ouvert ?" → "Non, le restaurant est fermé pour le moment." + prochains horaires. INTERDIT de dire "oui nous sommes ouverts".
-2. RÉSA "AUJOURD'HUI À [HEURE]" : Si le client dit "aujourd'hui à 13h30", "ce midi à 13h30", "pour aujourd'hui midi" avec une heure = il veut le midi du JOUR de la référence (Aujourd'hui:). Vérifie FERMETURES PAR JOUR pour ce jour. Si le midi est OUVERT ce jour-là → ACCEPTE la résa, confirme ("Parfait, aujourd'hui, le [jour] [date], à 13h30. Vous serez combien ?"). NE dis PAS "nous sommes fermés pour aujourd'hui". Si le midi est fermé ce jour-là → refuse et propose demain.
-3. "Aujourd'hui" / "ce midi" / "ce soir" SANS heure précise et sans vouloir réserver pour plus tard → tu peux proposer demain avec la date exacte : "demain, le [jour] [date]".
-4. Tu PEUX proposer DEMAIN ou un jour futur. Dis TOUJOURS la date exacte.`
+    ? `⚠️ RESTAURANT FERMÉ EN CE MOMENT (ex. nuit, heure d'ouverture passée) — RÈGLES STRICTES :
+- INTERDIT d'annoncer spontanément que le restaurant est fermé. Après le consentement, la salutation est jouée automatiquement ; ÉCOUTE le client ou dis uniquement "Comment puis-je vous aider ?" puis STOP. NE dis JAMAIS "Le restaurant est actuellement fermé" ou "Nous ouvrons demain" sans que le client ait posé une question (ex. "Vous êtes ouverts ?").
+- Si le client demande "Vous êtes ouverts ?" / "C'est ouvert ?" → alors seulement : "Non, pour le moment nous sommes fermés. Nous ouvrons [demain] midi à partir de 12h. Je peux vous aider pour une réservation ?"
+- RÉSA "AUJOURD'HUI À MIDI" / "AUJOURD'HUI 13H30" : Dès qu'il est 00h passé, "aujourd'hui" = le jour de la référence (Aujourd'hui:). Si le client dit "je voudrais réserver pour aujourd'hui à midi", "aujourd'hui à 13h30", "ce midi à 13h30" → il veut le midi du JOUR de la référence. Vérifie FERMETURES PAR JOUR pour ce jour. Si le midi est OUVERT ce jour-là → PRENDS la résa : confirme ("Parfait, aujourd'hui, le [jour] [date], à 13h30. Vous serez combien ?"). NE dis PAS "nous sommes fermés pour aujourd'hui". Si le midi est fermé ce jour-là → refuse et propose demain.
+- "Aujourd'hui" / "ce midi" sans heure : tu peux proposer "Plutôt midi ou soir ?" pour aujourd'hui (référence) ou proposer demain avec la date exacte.`
     : "";
 
   const transferLine = allowTransfer
