@@ -749,8 +749,9 @@ wss.on("connection", (ws, req) => {
   const userSpeakItemIds = new Set(); // Éviter double comptage du même item
   const CONSENT_MAIN = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
   const CONSENT_REMINDER = "Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
-  // Restaurant : message informatif (opt-out) — pas d'attente de « oui », le client peut raccrocher s'il refuse.
+  // Restaurant : message informatif (opt-out) — utilisé seulement si RESTAURANT_SKIP_CONSENT_PHRASE=false (ex. si vous enregistrez l'appel).
   const CONSENT_RESTAURANT = "Cet appel est enregistré Pour préparer votre réservation, vous pouvez raccrocher si vous refusez.";
+  const RESTAURANT_SKIP_CONSENT_PHRASE = (process.env.RESTAURANT_SKIP_CONSENT_PHRASE ?? "true").toLowerCase() === "true";
   function playPostConsentGreeting() {
     if (ws.__postConsentGreetingPlayed || !PREMIUM_TTS_ENABLED) return;
     const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
@@ -6669,10 +6670,14 @@ But: être naturel et mettre le client en confiance.`,
                       const baseHello = isRestoCI
                         ? `Bonjour. ${assistantName} du ${placePart}.`
                         : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                      const consentText = isRestoCI ? CONSENT_RESTAURANT : ("Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN);
-                      greeting = [baseHello, consentText].filter(Boolean).join(" ");
+                      const consentText = isRestoCI
+                        ? (RESTAURANT_SKIP_CONSENT_PHRASE ? "" : CONSENT_RESTAURANT)
+                        : ("Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN);
+                      greeting = isRestoCI && RESTAURANT_SKIP_CONSENT_PHRASE
+                        ? `${baseHello} Que puis-je faire pour vous ?`
+                        : [baseHello, consentText].filter(Boolean).join(" ");
                       if (isRestoCI) {
-                        consentGiven = true; // Restaurant : opt-out, pas d'attente de « oui »
+                        consentGiven = true; // Restaurant : pas d'attente de « oui » (opt-out ou pas de phrase consentement)
                         setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 100);
                       }
                     } else if (isRestoCI) {
@@ -6756,10 +6761,14 @@ But: être naturel et mettre le client en confiance.`,
                 const baseHello = isRestoFb
                   ? `Bonjour. ${assistantName} du ${placePart}.`
                   : `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                const consentText = isRestoFb ? CONSENT_RESTAURANT : ("Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN);
-                greeting = [baseHello, consentText].filter(Boolean).join(" ");
+                const consentText = isRestoFb
+                  ? (RESTAURANT_SKIP_CONSENT_PHRASE ? "" : CONSENT_RESTAURANT)
+                  : ("Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN);
+                greeting = isRestoFb && RESTAURANT_SKIP_CONSENT_PHRASE
+                  ? `${baseHello} Que puis-je faire pour vous ?`
+                  : [baseHello, consentText].filter(Boolean).join(" ");
                 if (isRestoFb) {
-                  consentGiven = true; // Restaurant : opt-out, pas d'attente de « oui »
+                  consentGiven = true; // Restaurant : pas d'attente de « oui »
                   setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 100);
                   setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 1500);
                 }
