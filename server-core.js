@@ -648,10 +648,10 @@ wss.on("connection", (ws, req) => {
   const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
   const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT ?? "pcm_16000";
   const ELEVENLABS_OPTIMIZE_STREAMING_LATENCY = Number(process.env.ELEVENLABS_OPTIMIZE_STREAMING_LATENCY ?? "3"); // 0..4
-  // Voix plus humaine : stabilité plus basse = plus de variation naturelle ; style plus haut = plus d'expressivité (Render: ELEVENLABS_STABILITY=0.4, ELEVENLABS_STYLE=0.5)
-  const ELEVENLABS_STABILITY = Number(process.env.ELEVENLABS_STABILITY ?? "0.42"); // 0..1 — plus bas = moins robotique
-  const ELEVENLABS_SIMILARITY_BOOST = Number(process.env.ELEVENLABS_SIMILARITY_BOOST ?? "0.82"); // 0..1 — clarté de la voix
-  const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE ?? "0.5"); // 0..1 — plus haut = plus expressif (modèles qui le supportent)
+  // Voix plus humaine : stabilité plus basse = plus de variation naturelle ; style plus haut = plus d'expressivité (Render: ELEVENLABS_STABILITY=0.35, ELEVENLABS_STYLE=0.55)
+  const ELEVENLABS_STABILITY = Number(process.env.ELEVENLABS_STABILITY ?? "0.35"); // 0..1 — plus bas = moins robotique
+  const ELEVENLABS_SIMILARITY_BOOST = Number(process.env.ELEVENLABS_SIMILARITY_BOOST ?? "0.78"); // 0..1 — clarté sans trop de rigidité
+  const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE ?? "0.55"); // 0..1 — plus haut = plus expressif (modèles qui le supportent)
   const ELEVENLABS_USE_SPEAKER_BOOST = (process.env.ELEVENLABS_USE_SPEAKER_BOOST ?? "true").toLowerCase() === "true";
   const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY ?? "";
   const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID ?? "";
@@ -2488,6 +2488,24 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const normFull = (s) => norm(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     t = norm(t);
     if (t.length < 24) return t;
+    // Doublon "phrase?phrase" ou "phrase?phrase?" (même phrase enchaînée sans espace après le ?)
+    const firstQ = t.indexOf("?");
+    if (firstQ >= 25 && firstQ < t.length - 25) {
+      const beforeQ = t.slice(0, firstQ + 1);
+      const afterQ = norm(t.slice(firstQ + 1).replace(/^\s+/, ""));
+      const beforeQNoPunct = normApo(beforeQ.slice(0, -1));
+      if (afterQ.length >= 25) {
+        const afterQNoPunct = normApo(afterQ.endsWith("?") ? afterQ.slice(0, -1) : afterQ);
+        if (beforeQNoPunct === afterQNoPunct || normFull(beforeQNoPunct) === normFull(afterQNoPunct)) {
+          console.log("[DEDUP-TTS] Doublon phrase?phrase (même phrase deux fois)");
+          return beforeQ;
+        }
+        if (afterQ.startsWith(beforeQ.slice(0, 30)) || normFull(afterQ.slice(0, Math.min(50, afterQ.length))) === normFull(beforeQ.slice(0, Math.min(50, beforeQ.length)))) {
+          console.log("[DEDUP-TTS] Doublon phrase?phrase (début identique)");
+          return beforeQ;
+        }
+      }
+    }
     // Détection par phrase-terminale: si le texte contient "C'est bien ça ?" (ou autre terminaison) suivi de texte qui se répète
     const terminalPhrases = ["C'est bien ça ?", "c'est bien ça ?", "C\u2019est bien ça ?", "c\u2019est bien ça ?"];
     for (const tp of terminalPhrases) {
