@@ -2598,15 +2598,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return;
     }
     let normalized = normalizeFrenchTtsText(rawTextStr);
-    // Restaurant : phrase de conclusion tronquée ("C'est not" au lieu de "C'est noté ! C'est une demande...")
-    const restaurantConclusionFull = "C'est noté ! C'est une demande de réservation, le restaurant vous confirmera par message. Bonne journée et à bientôt !";
-    if (effectiveSector === "restaurant" && normalized) {
-      const t = normalized.trim();
-      if (/^c'est not\s*$/i.test(t) || (t.length < 25 && /^c'est not/i.test(t))) {
-        if (LOG_TTS) console.log("[TTS-ENQUEUE] Restaurant: conclusion tronquée « C'est not » remplacée par phrase complète.");
-        normalized = restaurantConclusionFull;
-      }
-    }
     if (!normalized) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] SORTIE: texte vide après normalisation`);
@@ -3508,7 +3499,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     PIPELINE_MODE === "realtime" &&
     PREMIUM_TTS_ENABLED &&
     (PREMIUM_TTS_PROVIDER === "elevenlabs" || PREMIUM_TTS_PROVIDER === "minimax" || PREMIUM_TTS_PROVIDER === "cartesia");
-  const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "false").toLowerCase() === "true";
+  // Streaming: avec TTS OpenAI on demande audio pour envoi direct à Twilio ; avec ElevenLabs/Minimax on garde texte seul et on stream le TTS côté serveur.
+  const REALTIME_OUTPUT_MODALITIES = REALTIME_USE_ELEVEN ? ["text"] : ["text", "audio"];
+  const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "true").toLowerCase() === "true";
   const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
   const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "240");
   const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "1200");
@@ -3716,6 +3709,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           ELEVENLABS_VOICE_ID: ELEVENLABS_VOICE_ID_FEMALE || ELEVENLABS_VOICE_ID_MALE || ELEVENLABS_VOICE_ID_DEFAULT,
           MINIMAX_VOICE_ID: MINIMAX_VOICE_ID_FEMALE || MINIMAX_VOICE_ID_MALE || MINIMAX_VOICE_ID_DEFAULT,
           CARTESIA_VOICE_ID: CARTESIA_VOICE_ID_FEMALE || CARTESIA_VOICE_ID_MALE || CARTESIA_VOICE_ID_DEFAULT,
+        });
+        console.log("🔊 Streaming Twilio:", {
+          output_modalities: REALTIME_OUTPUT_MODALITIES,
+          stt: "streaming (input_audio_buffer.append)",
+          llm: "streaming (Realtime)",
+          tts: REALTIME_USE_ELEVEN ? "streaming (ElevenLabs/Minimax/Cartesia + chunking)" : "streaming (OpenAI audio delta → Twilio)",
+          eleven_chunking: REALTIME_USE_ELEVEN ? REALTIME_ELEVEN_CHUNKING_ENABLED : "n/a",
         });
         if (REALTIME_USE_ELEVEN) {
           if (nowMs() < premiumTtsBypassUntilMs) {
@@ -4063,7 +4063,7 @@ ${compactPersona}`;
           session: {
             type: "realtime",
             instructions: initialInstructionsText,
-            output_modalities: ["text"],
+            output_modalities: REALTIME_OUTPUT_MODALITIES,
             audio: {
               input: {
                 turn_detection: {
@@ -4135,7 +4135,7 @@ ${compactPersona}`;
               session: {
                 type: "realtime",
                 instructions: instructionsToSend,
-                output_modalities: ["text"],
+                output_modalities: REALTIME_OUTPUT_MODALITIES,
                 tools: restaurantTools,
                 tool_choice: "auto",
               },
@@ -4164,7 +4164,7 @@ ${compactPersona}`;
             session: {
               type: "realtime",
               instructions: updatedInstructions,
-              output_modalities: ["text"],
+              output_modalities: REALTIME_OUTPUT_MODALITIES,
               tools: garageTools,
               tool_choice: "auto",
             },
@@ -4225,7 +4225,7 @@ ${compactPersona}`;
             const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS
               ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES: réservation naturelle, une question à la fois.]"
               : instr;
-            openaiWs.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: toSend, output_modalities: ["text"], tools: restaurantTools, tool_choice: "auto" } }));
+            openaiWs.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: toSend, output_modalities: REALTIME_OUTPUT_MODALITIES, tools: restaurantTools, tool_choice: "auto" } }));
             ws.__sessionInstructions = String(toSend || "");
             console.log("✅ Session mise à jour: consentement donné (restaurant)");
             return;
@@ -4233,7 +4233,7 @@ ${compactPersona}`;
           const clientInfoSection = buildClientInfoLine();
           const instr = buildCompactInstructions(clientInfoSection || "", consentLineGiven);
           const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES CRITIQUES: get_garage_pricing avant tarif, RDV jour puis matin/après-midi.]" : instr;
-          openaiWs.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: toSend, output_modalities: ["text"], tools: garageTools, tool_choice: "auto" } }));
+          openaiWs.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: toSend, output_modalities: REALTIME_OUTPUT_MODALITIES, tools: garageTools, tool_choice: "auto" } }));
           ws.__sessionInstructions = String(toSend || "");
           console.log("✅ Session mise à jour: consentement donné (garage)");
         };
