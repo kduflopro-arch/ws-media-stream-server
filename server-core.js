@@ -3557,7 +3557,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // Délai après la fin du TTS pendant lequel on n'envoie pas response.create — laisser le client répondre. Réduit pour moins de blancs.
   const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "4000");
   // Seuil niveau audio pour considérer "client a parlé" en restaurant (plus élevé = moins de faux positifs bruit/écho). 2200 ≈ parole claire.
-  const RESTAURANT_INPUT_SPEECH_THRESHOLD = Number(process.env.RESTAURANT_INPUT_SPEECH_THRESHOLD ?? "2200");
+  const RESTAURANT_INPUT_SPEECH_THRESHOLD = Number(process.env.RESTAURANT_INPUT_SPEECH_THRESHOLD ?? "1800");
   // En restaurant : ne répondre après un commit que si le client a vraiment parlé récemment (speech_started dans les N ms). Évite que l'IA réponde au silence / improvise. 6,5 s pour laisser le temps au TTS de finir avant de considérer "parole récente".
   const RESTAURANT_COMMIT_SPEECH_WINDOW_MS = Number(process.env.RESTAURANT_COMMIT_SPEECH_WINDOW_MS ?? "6500");
   function requestResponseCreate(reason) {
@@ -6668,8 +6668,15 @@ But: être naturel et mettre le client en confiance.`,
                     if (isRestoCI) {
                       consentGiven = true;
                       setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 100);
+                      const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
+                      const rawN = String(garageName || "").trim();
+                      const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
+                      const greeting = `${lbl}, ${assistantName} à l'appareil. Que puis-je faire pour vous ?`;
+                      initialAssistantGreetingText = greeting;
+                      hasSentInitialGreeting = true;
+                      enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
                       if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
-                      console.log("👋 Greeting désactivé (restaurant) — pas de message d'accueil, l'IA répondra à la première parole du client.");
+                      console.log("👋 Greeting restaurant joué (IA ouvre la conversation).", { callSid });
                     } else {
                       const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
                       let greeting;
@@ -6740,7 +6747,20 @@ But: être naturel et mettre le client en confiance.`,
           if (!transferFailed && (!greetOncePerCall || !hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && !initialAssistantGreetingText) {
             ws.__greetingFallbackTimer = setTimeout(() => {
               if (initialAssistantGreetingText || clientInfo) return;
-              if (effectiveSector === "restaurant") return; // Pas de greeting fallback en restaurant
+              if (effectiveSector === "restaurant") {
+                consentGiven = true;
+                setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 100);
+                const rawN = String(garageName || "").trim();
+                const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
+                const greeting = `${lbl}, ${assistantName} à l'appareil. Que puis-je faire pour vous ?`;
+                initialAssistantGreetingText = greeting;
+                hasSentInitialGreeting = true;
+                enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+                if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+                console.log("👋 Greeting restaurant (fallback) joué — IA ouvre la conversation.", { callSid });
+                ws.__greetingFallbackTimer = null;
+                return;
+              }
               const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
               let greeting;
               if (consentRequired && !consentGiven) {
