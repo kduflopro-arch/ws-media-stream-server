@@ -3842,16 +3842,29 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               model: process.env.DEEPGRAM_MODEL || "nova-3",
             });
             if (deepgramSession) {
+              const DEEPGRAM_ECHO_GUARD_MS = Number(process.env.DEEPGRAM_ECHO_GUARD_MS ?? "4000"); // après TTS, ignorer transcripts courts type écho (bonjour, menu, etc.)
+              const DEEPGRAM_ECHO_WORDS = /^(bonjour|menu|salut|allo|allô|bienvenue|voilà|voila|rebonjour|bonsoir|coucou|hello)$/i;
               deepgramSession.onTranscript((text, isFinal) => {
                 if (!isFinal || !text || !text.trim()) return;
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+                const trimmed = text.trim();
+                const now = nowMs();
+                if (lastTtsEndAt > 0 && (now - lastTtsEndAt) < INPUT_POST_TTS_GUARD_MS) {
+                  if (LOG_VERBOSE) console.log("[Deepgram] Transcript ignoré (trop tôt après TTS):", trimmed.substring(0, 40));
+                  return;
+                }
+                const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+                if (wordCount <= 2 && DEEPGRAM_ECHO_WORDS.test(trimmed) && lastTtsEndAt > 0 && (now - lastTtsEndAt) < DEEPGRAM_ECHO_GUARD_MS) {
+                  console.log("[Deepgram] Transcript ignoré (écho/bruit probable après TTS):", trimmed.substring(0, 50));
+                  return;
+                }
                 try {
                   openaiWs.send(JSON.stringify({
                     type: "conversation.item.create",
                     item: {
                       type: "message",
                       role: "user",
-                      content: [{ type: "input_text", text: text.trim() }],
+                      content: [{ type: "input_text", text: trimmed }],
                     },
                   }));
                   requestResponseCreate("deepgram_final");
