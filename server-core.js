@@ -5276,7 +5276,17 @@ But: être naturel et mettre le client en confiance.`,
                   if (!userText && typeof item.text === "string") {
                     userText = item.text;
                   }
-                  if (userText && userText.trim() && !isJunkTranscript(userText)) {
+                  // En mode Deepgram, pas de commit buffer Realtime : accepter les phrases longues/multi-mots même si isJunkTranscript les filtre (évite "bruit détecté" à tort)
+                  const longOrMultiWord = (txt) => {
+                    const s = String(txt || "").trim();
+                    if (!s) return false;
+                    return s.length >= 20 || s.split(/\s+/).filter(Boolean).length >= 3;
+                  };
+                  const considerValidUserSpeech = userText && userText.trim() && (
+                    !isJunkTranscript(userText) ||
+                    (USE_DEEPGRAM_STT && longOrMultiWord(userText))
+                  );
+                  if (considerValidUserSpeech) {
                     const norm = userText.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
                     const dedupKey = "speak_" + norm;
                     if (!userSpeakItemIds.has(dedupKey)) {
@@ -5290,14 +5300,17 @@ But: être naturel et mettre le client en confiance.`,
                     lastUserMessageText = userText;
                     const now = nowMs();
                     const timeSinceLastCommit = lastCommittedAt > 0 ? now - lastCommittedAt : Infinity;
-                    if (timeSinceLastCommit > 2000) {
+                    // Avec Deepgram : pas de commit buffer, donc toujours mettre à jour lastCommittedAt pour les phrases valides
+                    const shouldUpdateCommit = USE_DEEPGRAM_STT ? true : (timeSinceLastCommit > 2000);
+                    if (shouldUpdateCommit) {
                       const oldLastCommittedAt = lastCommittedAt;
                       lastCommittedAt = now;
-                      console.log("✅ lastCommittedAt mis à jour depuis conversation.item.done (user):", { 
-                        text: userText.substring(0, 100), 
-                        oldLastCommittedAt, 
+                      if (USE_DEEPGRAM_STT) lastSpeechTs = now; // Restaurant (et autres gardes) s'appuient sur lastSpeechTs ; avec Deepgram on n'a pas input_audio_buffer.committed
+                      console.log("✅ lastCommittedAt mis à jour depuis conversation.item.done (user):", {
+                        text: userText.substring(0, 100),
+                        oldLastCommittedAt,
                         lastCommittedAt,
-                        timeSinceLastCommit 
+                        timeSinceLastCommit: USE_DEEPGRAM_STT ? "(Deepgram)" : timeSinceLastCommit
                       });
                     }
                   } else if (userText && userText.trim()) {
