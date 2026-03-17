@@ -1376,7 +1376,7 @@ wss.on("connection", (ws, req) => {
     if (/^[\s.\u2026\u00A0\-–—,;:!?]*$/.test(t) || /^(\s*[.\u2026]\s*)+$/.test(t)) return true;
     const stripped = lower.replace(/[\s\p{P}\p{S}]/gu, "");
     if (stripped.length < 3) return true;
-    const shortValid = ["oui", "ouais", "ouai", "oua", "ok", "non", "nan", "nope", "dac", "daccord", "voila", "voilà"];
+    const shortValid = ["oui", "ouais", "ouai", "oua", "ok", "non", "nan", "nope", "dac", "daccord", "voila", "voilà", "allo", "allô"];
     if (shortValid.includes(stripped)) return false;
     if (NOISE_FILTER_STRICT && stripped.length < 5) return true;
     const isolatedNoise = /^(ah|eh|oh|mm|hmm|euh|hum|huh|uh|mh|hm|hein|quoi|bah|ben|a|e|i|o|u|euh euh|ah ah|oh oh|mhm|mmm)$/i.test(lower);
@@ -1384,7 +1384,7 @@ wss.on("connection", (ws, req) => {
     if (/^(\S{1,3}\s+){2,}\1\s*$/i.test(lower) || /^(euh\s+)+euh\s*$/i.test(lower)) return true;
     const words = t.split(/\s+/).filter(w => w.length > 0);
     if (words.length === 0) return true;
-    const oneWordOk = ["oui", "ouais", "ouai", "non", "ok", "aller", "merci", "salut", "allo", "bonjour", "bonsoir", "d'accord", "dac", "voilà", "voila", "nan", "nope"];
+    const oneWordOk = ["oui", "ouais", "ouai", "non", "ok", "aller", "merci", "salut", "allo", "allô", "bonjour", "bonsoir", "d'accord", "dac", "voilà", "voila", "nan", "nope"];
     if (words.length === 1) {
       if (words[0].length < 3) return true;
       if (NOISE_FILTER_STRICT && words[0].length < 4 && !oneWordOk.includes(words[0].toLowerCase())) return true;
