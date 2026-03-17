@@ -6,10 +6,11 @@
  * - encoding=mulaw, sample_rate=8000 pour Twilio
  * - interim_results pour barge-in réactif
  * - language=fr par défaut
- * - keywords optionnel (noms de pizzas, noms de clients récurrents)
+ * - keyterm (Nova-3) : termes à privilégier (jours, heures, 13h, midi, etc.) — évite "13h" → "trésor"
+ * - keywords (Nova-2) : conservé pour rétrocompatibilité
  *
  * Usage prévu (à brancher dans server-core quand USE_DEEPGRAM_STT=true) :
- *   const session = createDeepgramLiveSession({ language: 'fr', keywords: ['reine', 'savoyarde', ...] });
+ *   const session = createDeepgramLiveSession({ language: 'fr', keyterm: ['13h', 'dimanche', 'midi', ...] });
  *   session.onTranscript((text, isFinal) => { ... });
  *   session.sendAudio(mulawBuffer);  // à chaque chunk Twilio
  *   session.close();
@@ -35,7 +36,8 @@ const DEEPGRAM_API_KEY = (process.env.DEEPGRAM_API_KEY ?? "").trim();
  * @param {Object} options
  * @param {string} [options.language='fr']
  * @param {string} [options.model='nova-3']
- * @param {string[]} [options.keywords] - Mots à privilégier (noms, pizzas, etc.)
+ * @param {string[]} [options.keyterm] - Keyterms Nova-3 (jours, heures, 13h, midi…) — recommandé pour nova-3
+ * @param {string[]} [options.keywords] - Mots à privilégier (Nova-2, ignoré si keyterm fourni avec nova-3)
  * @param {boolean} [options.interimResults=true]
  * @param {boolean} [options.smartFormat=true]
  * @returns {{ sendAudio: (buf: Buffer) => void, onTranscript: (cb: (text: string, isFinal: boolean) => void) => void, close: () => void } | null}
@@ -53,6 +55,7 @@ export function createDeepgramLiveSession(options = {}) {
   const {
     language = "fr",
     model = process.env.DEEPGRAM_MODEL ?? "nova-3",
+    keyterm = [],
     keywords = [],
     interimResults = true,
     smartFormat = true,
@@ -68,7 +71,10 @@ export function createDeepgramLiveSession(options = {}) {
     smart_format: smartFormat,
     punctuate: true,
   };
-  if (keywords.length > 0) {
+  const useNova3 = /nova-3|flux/i.test(String(model));
+  if (keyterm.length > 0 && useNova3) {
+    connectOptions.keyterm = keyterm.slice(0, 100);
+  } else if (keywords.length > 0) {
     connectOptions.keywords = keywords.slice(0, 100).join(", ");
   }
 
@@ -131,7 +137,8 @@ export function createDeepgramLiveSession(options = {}) {
 
   connection.on(LiveTranscriptionEvents.Open, () => {
     isOpen = true;
-    console.log("[Deepgram] Connexion live ouverte (mulaw 8kHz,", model + ",", language + ")");
+    const keytermInfo = keyterm.length > 0 ? `, ${keyterm.length} keyterms` : "";
+    console.log("[Deepgram] Connexion live ouverte (mulaw 8kHz,", model + ",", language + keytermInfo + ")");
     flushQueue();
   });
 

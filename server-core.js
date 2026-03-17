@@ -3864,9 +3864,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         if (USE_DEEPGRAM_STT && PIPELINE_MODE === "realtime") {
           try {
             const { createDeepgramLiveSession } = await import("./deepgram-client.js");
+            const deepgramKeyterms = [
+              "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche",
+              "12h", "13h", "14h", "19h", "20h", "21h", "midi", "soir", "matin", "après-midi",
+              "douze heures", "treize heures", "quatorze heures", "dix-neuf heures", "vingt heures",
+              "réservation", "réserver", "table", "commander", "commande", "emporter", "à emporter",
+            ];
             deepgramSession = createDeepgramLiveSession({
               language: (process.env.STT_LANGUAGE || "fr").trim(),
               model: process.env.DEEPGRAM_MODEL || "nova-3",
+              keyterm: deepgramKeyterms,
             });
             if (deepgramSession) {
               const DEEPGRAM_ECHO_GUARD_MS = Number(process.env.DEEPGRAM_ECHO_GUARD_MS ?? "4000"); // après TTS, ignorer transcripts courts type écho (bonjour, menu, etc.)
