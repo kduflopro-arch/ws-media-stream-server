@@ -338,7 +338,18 @@ async function handleRunAnalysis(callId, res) {
       // Commande à emporter : créer l'entrée takeaway_orders pour que le restaurant puisse accepter/refuser
       if (analysis.callType === "demande_commande" && analysis.orderDetails && typeof analysis.orderDetails === "object" && call.garage_id && call.from_number) {
         const od = analysis.orderDetails;
-        const items = Array.isArray(od.items) ? od.items.map((i) => ({ product: String(i?.product ?? "").trim(), supplements: i?.supplements ? String(i.supplements).trim() : undefined, remove: i?.remove ? String(i.remove).trim() : undefined })).filter((i) => i.product) : [];
+        const items = Array.isArray(od.items)
+          ? od.items
+              .map((i) => {
+                const product = String(i?.product ?? "").trim();
+                if (!product) return null;
+                const out = { product, supplements: i?.supplements ? String(i.supplements).trim() : undefined, remove: i?.remove ? String(i.remove).trim() : undefined };
+                if (i?.quantity != null && Number(i.quantity) >= 1) out.quantity = Number(i.quantity);
+                if (Array.isArray(i?.modifications) && i.modifications.length) out.modifications = i.modifications.map((m) => String(m).trim()).filter(Boolean);
+                return out;
+              })
+              .filter(Boolean)
+          : [];
         if (items.length > 0) {
           const { error: orderErr } = await supabase.schema("autoguru").from("takeaway_orders").insert({
             garage_id: call.garage_id,
