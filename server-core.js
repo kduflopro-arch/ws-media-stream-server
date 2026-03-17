@@ -211,7 +211,13 @@ async function handleRunAnalysis(callId, res) {
       console.error("[run-analysis] Analyse vide pour appel:", callId);
       return send(500, { error: "analysis_empty" });
     }
-    const analysis = JSON.parse(content);
+    let analysis;
+    try {
+      analysis = JSON.parse(content);
+    } catch (parseErr) {
+      console.error("[run-analysis] JSON invalide (OpenAI):", callId, parseErr?.message ?? parseErr);
+      return send(500, { error: "analysis_invalid_json", message: String(parseErr?.message ?? parseErr) });
+    }
     const summaryText = analysis.summary ?? analysis.Summary ?? null;
     const conclusionText = analysis.aiConclusion ?? analysis.AIConclusion ?? null;
     if (summaryText == null || conclusionText == null) {
@@ -335,39 +341,43 @@ async function handleRunAnalysis(callId, res) {
           }).catch((e) => console.warn("[run-analysis] create-restaurant-client erreur:", e.message));
         }
       }
-      // Commande à emporter : créer l'entrée takeaway_orders pour que le restaurant puisse accepter/refuser
+      // Commande à emporter : créer l'entrée takeaway_orders pour que le restaurant puisse accepter/refuser (isolé pour ne pas faire échouer run-analysis si la table/migration diffère)
       if (analysis.callType === "demande_commande" && analysis.orderDetails && typeof analysis.orderDetails === "object" && call.garage_id && call.from_number) {
-        const od = analysis.orderDetails;
-        const items = Array.isArray(od.items)
-          ? od.items
-              .map((i) => {
-                const product = String(i?.product ?? "").trim();
-                if (!product) return null;
-                const out = { product, supplements: i?.supplements ? String(i.supplements).trim() : undefined, remove: i?.remove ? String(i.remove).trim() : undefined };
-                if (i?.quantity != null && Number(i.quantity) >= 1) out.quantity = Number(i.quantity);
-                if (Array.isArray(i?.modifications) && i.modifications.length) out.modifications = i.modifications.map((m) => String(m).trim()).filter(Boolean);
-                return out;
-              })
-              .filter(Boolean)
-          : [];
-        if (items.length > 0) {
-          const { error: orderErr } = await supabase.schema("autoguru").from("takeaway_orders").insert({
-            garage_id: call.garage_id,
-            call_id: callId,
-            phone_number: String(call.from_number).trim(),
-            client_name: (od.clientName && String(od.clientName).trim()) || null,
-            items,
-            pickup_time_desired: (od.pickupTimeDesired && String(od.pickupTimeDesired).trim()) || null,
-            status: "pending",
-            notes: null,
-            confirmed_pickup_time: null,
-            accepted_at: null,
-            sms_sent_at: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
-          if (orderErr) console.error("[run-analysis] Création takeaway_order:", orderErr);
-          else console.log("[run-analysis] takeaway_order créée pour appel:", callId);
+        try {
+          const od = analysis.orderDetails;
+          const items = Array.isArray(od.items)
+            ? od.items
+                .map((i) => {
+                  const product = String(i?.product ?? "").trim();
+                  if (!product) return null;
+                  const out = { product, supplements: i?.supplements ? String(i.supplements).trim() : undefined, remove: i?.remove ? String(i.remove).trim() : undefined };
+                  if (i?.quantity != null && Number(i.quantity) >= 1) out.quantity = Number(i.quantity);
+                  if (Array.isArray(i?.modifications) && i.modifications.length) out.modifications = i.modifications.map((m) => String(m).trim()).filter(Boolean);
+                  return out;
+                })
+                .filter(Boolean)
+            : [];
+          if (items.length > 0) {
+            const { error: orderErr } = await supabase.schema("autoguru").from("takeaway_orders").insert({
+              garage_id: call.garage_id,
+              call_id: callId,
+              phone_number: String(call.from_number).trim(),
+              client_name: (od.clientName && String(od.clientName).trim()) || null,
+              items,
+              pickup_time_desired: (od.pickupTimeDesired && String(od.pickupTimeDesired).trim()) || null,
+              status: "pending",
+              notes: null,
+              confirmed_pickup_time: null,
+              accepted_at: null,
+              sms_sent_at: null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            });
+            if (orderErr) console.error("[run-analysis] Création takeaway_order:", orderErr);
+            else console.log("[run-analysis] takeaway_order créée pour appel:", callId);
+          }
+        } catch (orderEx) {
+          console.error("[run-analysis] Exception takeaway_order (analyse OK):", orderEx?.message ?? orderEx);
         }
       }
     }
@@ -409,7 +419,13 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ error: "missing id" }));
       return;
     }
-    handleRunAnalysis(callId, res);
+    handleRunAnalysis(callId, res).catch((err) => {
+      console.error("[run-analysis] Unhandled rejection:", err?.message ?? err);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ error: "analysis_failed", message: String(err?.message ?? err) }));
+      }
+    });
     return;
   }
   res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
