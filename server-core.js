@@ -3604,6 +3604,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const INPUT_SUPPRESS_WHILE_TALKING = (process.env.INPUT_SUPPRESS_WHILE_TALKING ?? "true").toLowerCase() === "true";
   const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "2"); // ~40ms d'audio sortant
   const INPUT_SUPPRESS_BYPASS_THRESHOLD = Number(process.env.INPUT_SUPPRESS_BYPASS_THRESHOLD ?? "400"); // seuil audio pour ne pas supprimer (plus sensible = moins répétitions)
+  // Délai après la fin du TTS pendant lequel on n'envoie pas l'audio au STT (évite écho / bruit haut-parleur transcrit). Avec Deepgram + haut-parleur : 1,5 s par défaut.
+  const INPUT_POST_TTS_GUARD_MS = Number(process.env.INPUT_POST_TTS_GUARD_MS ?? (USE_DEEPGRAM_STT ? "1500" : "800"));
   const INPUT_SUPPRESS_OVERRIDE_THRESHOLD = Number(
     process.env.INPUT_SUPPRESS_OVERRIDE_THRESHOLD ?? String(Math.max(2500, Math.floor(INPUT_SPEECH_THRESHOLD * 1.5))),
   );
@@ -7222,7 +7224,7 @@ But: être naturel et mettre le client en confiance.`,
               // Le HP déclencherait sinon le micro → l'IA interprète l'écho comme parole client.
               // Aussi couper pendant un délai POST-TTS pour éviter l'écho résiduel.
               const premiumTtsPlaying = premiumTtsInFlight || outboundQueuedBytes > 0 || outboundQueue.length > 0;
-              const postTtsGuardActive = lastTtsEndAt > 0 && (Date.now() - lastTtsEndAt) < 800;
+              const postTtsGuardActive = lastTtsEndAt > 0 && (Date.now() - lastTtsEndAt) < INPUT_POST_TTS_GUARD_MS;
               const userSpeakingNow = avg > INPUT_SUPPRESS_BYPASS_THRESHOLD;
               const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && (premiumTtsPlaying || postTtsGuardActive) && !userSpeakingNow;
               if (suppressInputNow) {
