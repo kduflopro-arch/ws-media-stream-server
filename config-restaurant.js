@@ -60,7 +60,7 @@ export const RESTAURANT_CALL_ANALYSIS_SCHEMA = {
               supplements: { type: "string" },
               remove: { type: "string" },
             },
-            required: ["product"],
+            required: ["product", "quantity", "modifications", "supplements", "remove"],
             additionalProperties: false,
           },
         },
