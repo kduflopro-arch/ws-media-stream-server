@@ -3825,6 +3825,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   async function connectToOpenAI() {
     let connectionTimeout = null;
     let connectionTimeoutTriggered = false;
+    let openaiReconnectScheduled = false;
     if (!OPENAI_API_KEY) {
       console.error("❌ OpenAI API key manquante");
       return;
@@ -3893,6 +3894,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           clearTimeout(connectionTimeout);
           connectionTimeout = null;
         }
+        openaiReconnectScheduled = false;
         console.log("✅ Connecté à OpenAI Realtime API");
         console.log("☎️ Modèle Realtime:", realtimeModel);
         console.log("🎛️ OpenAI audio format (forced):", { input: "pcm16", output: "pcm16" });
@@ -3927,12 +3929,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               "réservation", "réserver", "table", "commander", "commande", "emporter", "à emporter",
               "j'aimerais", "je voudrais", "pour", "personnes",
             ];
-            deepgramSession = createDeepgramLiveSession({
-              language: (process.env.STT_LANGUAGE || "fr").trim(),
-              model: process.env.DEEPGRAM_MODEL || "nova-3",
-              keyterm: deepgramKeyterms,
-            });
-            if (deepgramSession) {
+            const deepgramAlreadyOpen = !!deepgramSession;
+            if (!deepgramAlreadyOpen) {
+              deepgramSession = createDeepgramLiveSession({
+                language: (process.env.STT_LANGUAGE || "fr").trim(),
+                model: process.env.DEEPGRAM_MODEL || "nova-3",
+                keyterm: deepgramKeyterms,
+              });
+            }
+            if (deepgramSession && !deepgramAlreadyOpen) {
               const DEEPGRAM_ECHO_GUARD_MS = Number(process.env.DEEPGRAM_ECHO_GUARD_MS ?? "4000"); // après TTS, ignorer transcripts courts type écho (bonjour, menu, etc.)
               const DEEPGRAM_ECHO_WORDS = /^(bonjour|menu|salut|allo|allô|bienvenue|voilà|voila|rebonjour|bonsoir|coucou|hello)$/i;
               deepgramSession.onTranscript((text, isFinal) => {
@@ -6660,6 +6665,7 @@ But: être naturel et mettre le client en confiance.`,
         );
         if (shouldRetry) {
           console.warn("⚠️ Erreur réseau OpenAI, tentative de reconnexion dans 2s...");
+          openaiReconnectScheduled = true;
           setTimeout(() => {
             if (ws.readyState === WebSocket.OPEN && (!openaiWs || openaiWs.readyState !== WebSocket.OPEN)) {
               console.log("🔄 Tentative de reconnexion OpenAI...");
@@ -6673,7 +6679,9 @@ But: être naturel et mettre le client en confiance.`,
           clearTimeout(connectionTimeout);
           connectionTimeout = null;
         }
-        if (deepgramSession) {
+        // Si on est en plein reconnect OpenAI, ne pas fermer Deepgram :
+        // sinon on perd la STT pendant la reconnexion et le client ne peut plus "reprendre".
+        if (!openaiReconnectScheduled && deepgramSession) {
           try { deepgramSession.close(); } catch (_) {}
           deepgramSession = null;
         }
