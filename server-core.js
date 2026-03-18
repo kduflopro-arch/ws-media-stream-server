@@ -2596,6 +2596,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const normFull = (s) => norm(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     t = norm(t);
     if (t.length < 24) return t;
+    // Détection simple de doublon "X?X" sans dépendre de la ponctuation exacte
+    const firstQ0 = t.indexOf("?");
+    if (firstQ0 >= 25 && firstQ0 < t.length - 25) {
+      const left = t.slice(0, firstQ0).trim(); // X (sans le '?')
+      const after = t.slice(firstQ0 + 1).trim(); // X ? (ou X +)
+      const afterNoTrail = after.replace(/\?+\s*$/g, "").trim();
+      if (left.length >= 25 && afterNoTrail.length >= left.length - 5) {
+        if (normApo(afterNoTrail) === normApo(left) || normFull(afterNoTrail) === normFull(left)) {
+          console.log("[DEDUP-TTS] Doublon détecté (X?X)");
+          return t.slice(0, firstQ0 + 1);
+        }
+      }
+    }
     // Doublon "phrase?phrase" ou "phrase?phrase?" (même phrase enchaînée sans espace après le ?)
     const firstQ = t.indexOf("?");
     if (firstQ >= 25 && firstQ < t.length - 25) {
@@ -2861,6 +2874,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (normalizedForCompare.length < 30) return false;
       return t.text.includes(normalizedForCompare) || normalizedForCompare.includes(t.text);
     });
+    // Restaurant : ne pas bloquer la parole pour les questions critiques (évite de "perdre" une réponse utilisateur).
+    const isCriticalQuestion =
+      effectiveSector === "restaurant" &&
+      (
+        /\?\s*$/.test(textToSpeak) ||
+        /\b(sous\s+quel\s+nom|au\s+nom\s+de\s+qui)\b/i.test(textToSpeak) ||
+        /\b(c['’']est\s+bien\s+c[aà]?\s*|c['’']est\s+c[aà]s\s*|c['’']est\s+exact)\b/i.test(textToSpeak) ||
+        /\b(cest\s+bien\s+ca)\b/i.test(textToSpeak)
+      );
     const hasNewInfoRestaurant = /\b(au nom de|au prénom de)\b/i.test(textToSpeak) && effectiveSector === "restaurant";
     const similarWasWithoutName = hasNewInfoRestaurant && recentAssistantTexts.some((t) => {
       const sim = calculateSimilarity(t.text, normalizedForCompare);
@@ -2868,7 +2890,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return sim > th && !/\b(au nom de|au prénom de)\b/i.test(t.text);
     });
     const foundInRecent = (foundInRecentExact || foundInRecentSimilar || foundInRecentContains) && !(hasNewInfoRestaurant && similarWasWithoutName);
-    if (foundInRecent && !skipRepetitionForUnInstant) {
+    if (foundInRecent && !skipRepetitionForUnInstant && !isCriticalQuestion) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] BLOQUÉ: texte déjà prononcé récemment (exact=${foundInRecentExact}, similar=${foundInRecentSimilar}, contains=${foundInRecentContains})`, textToSpeak.substring(0, 120));
         if (LOG_VERBOSE) console.log(`🚨 REPETITION BLOQUÉE (déjà prononcé) [source: ${source}]:`, textToSpeak.substring(0, 80));
@@ -2888,7 +2910,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         return;
       }
     }
-    if (premiumTtsLastText && !skipRepetitionForUnInstant) {
+    if (premiumTtsLastText && !skipRepetitionForUnInstant && !isCriticalQuestion) {
       const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase()
         .replace(/['']/g, "'") // Normaliser les apostrophes
         .replace(/\s+/g, " ") // Normaliser les espaces multiples
@@ -2933,7 +2955,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     });
     const thresholdQueue = normalizedForCompare.length < 30 ? 0.6 : normalizedForCompare.length >= 50 ? 0.55 : 0.7;
     const foundInQueue = queueCheck.some(q => q.isExact || q.similarity > thresholdQueue);
-    if (foundInQueue && !skipRepetitionForUnInstant) {
+    if (foundInQueue && !skipRepetitionForUnInstant && !isCriticalQuestion) {
       if (LOG_TTS) {
         console.log(`[TTS-ENQUEUE] REPETITION BLOQUÉE (déjà dans la queue) [source: ${source}]:`, textToSpeak.substring(0, 120));
         if (LOG_VERBOSE) console.log(`🚨 REPETITION BLOQUÉE (déjà en queue) [source: ${source}]:`, textToSpeak.substring(0, 80));
