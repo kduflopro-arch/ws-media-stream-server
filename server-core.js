@@ -2574,6 +2574,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   function dedupeRepeatedPhraseAtTts(text) {
     if (!text || typeof text !== "string") return text;
     let t = String(text).trim();
+    // Normalisation: certaines répétitions arrivent avec ponctuation collée au mot suivant
+    // (ex: "... au revoir !Merci, ..." au lieu de "... au revoir ! Merci, ...").
+    // On insère un espace après !/? quand la majuscule suit, pour aider les comparaisons de doublons.
+    try {
+      t = t.replace(/([!?…])(?=\p{Lu})/gu, "$1 ");
+    } catch {
+      // fallback si l'engine ne supporte pas \p{Lu}
+      t = t.replace(/([!?…])(?=[A-ZÀ-ÖØ-Ý])/g, "$1 ");
+    }
     // Conclusion restaurant : enlever "Merci pour l'information" en tête si présent
     if (/merci\s+pour\s+l['']information\.?\s*/i.test(t) && /\bc['']est\s+noté\b/i.test(t)) {
       t = t.replace(/^merci\s+pour\s+l['']information\.?\s*/i, "");
