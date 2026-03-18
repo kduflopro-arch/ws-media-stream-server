@@ -1420,7 +1420,10 @@ wss.on("connection", (ws, req) => {
       const commonFrench = ["oui", "ouais", "ouai", "non", "oui oui", "non non", "oui merci", "non merci", "d'accord", "ok ok", "bonjour oui", "oui s'il vous plaît", "euh oui", "ben oui", "ah oui", "ouais oui", "c'est bon", "c'est ça"];
       const normalized = lower.replace(/\s+/g, " ").trim();
       if (!commonFrench.some(phrase => normalized === phrase || normalized.startsWith(phrase + " ") || normalized.endsWith(" " + phrase))) {
-        if (words.some(w => w.length < 2)) return true;
+        // Cas important restaurant : réponses du type "8 personnes", "4 convives", "2 clients"
+        // → ces réponses sont courtes mais portent une information critique (nombre de personnes) et ne doivent PAS être filtrées.
+        const isCountPeople = /^\d+\s+(personnes?|convives?|clients?)$/i.test(t);
+        if (!isCountPeople && words.some(w => w.length < 2)) return true;
         if (NOISE_FILTER_STRICT && t.length < 8) return true;
       }
     }
