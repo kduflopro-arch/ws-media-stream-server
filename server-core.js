@@ -1393,6 +1393,9 @@ wss.on("connection", (ws, req) => {
     const t = String(text || "").trim();
     const lower = t.toLowerCase();
     if (!t) return true;
+    // Restaurant: certaines réponses très courtes sont des préfixes utiles
+    // ("On préfère une table en intérieur/terrasse...") et ne doivent pas être filtrées.
+    if (/^on$/i.test(t)) return false;
     if (lower.includes("amara.org") || lower.includes("sous-titres") || lower.includes("sous titres")) return true;
     if (lower.includes("réalisés par la communauté") || lower.includes("vidéo") || lower.includes("video") || lower.includes("youtube") || lower.includes("channel")) return true;
     if (lower.includes("ontario") || lower.includes("partenariat") || lower.includes("merci d'avoir regardé") || lower.includes("subscribe") || lower.includes("like") || lower.includes("comment")) return true;
