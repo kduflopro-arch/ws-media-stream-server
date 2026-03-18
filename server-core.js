@@ -2573,13 +2573,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
       t = t.trim();
     }
-    // Récap : "C'est bien ça ?Parfait" ou "C'est bien ça ?à l'intérieur" → garder uniquement "C'est bien ça ?" SI ce n'est pas un récap complet avant.
+    // Récap : "C'est bien ça ? Parfait" ou "C'est bien ça ? en terrasse" → garder tout le récap jusqu'à "C'est bien ça ?" (inclus), supprimer uniquement la répétition en fin.
     const hasRecapBefore = /je récapitule|récapitulons|récapitulatif/i.test(t);
     const cestBienCaMatch = !hasRecapBefore
       ? t.match(/(C['']est bien ça \?)\s*(Parfait|à l['']intérieur|à l['']interieur|en terrasse)/i)
       : null;
     if (cestBienCaMatch) {
-      t = cestBienCaMatch[1].trim();
+      const endOfRecap = cestBienCaMatch.index + cestBienCaMatch[1].length;
+      t = t.slice(0, endOfRecap).trim();
     }
     const norm = (s) => String(s).normalize("NFC").replace(/\s+/g, " ").trim();
     const normApo = (s) => String(s).normalize("NFC").replace(/[\u2019\u2018\u0027]/g, "'");
