@@ -2965,6 +2965,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     setTimeout(() => {
       ws.__processingTexts.delete(normalizedForCompare);
     }, 60_000);
+    // Restaurant : si l'IA demande le nom juste avant le récap,
+    // on doit accepter même des réponses très courtes (ex: "Jérémy")
+    // sans que le filtre "bruit" ne les ignore.
+    if (effectiveSector === "restaurant") {
+      const asksForName = /\b(sous\s+quel\s+nom|au\s+nom\s+de\s+qui)\b/i.test(textToSpeak || "");
+      if (asksForName) {
+        ws.__awaitingReservationName = true;
+        ws.__awaitingReservationNameAt = nowMs();
+        if (LOG_VERBOSE) console.log("[RESTAURANT] Attente nom réservation activée (pour bypass bruit).");
+      }
+    }
     console.log(`[AI-SAYS] ${normalizeFrenchTtsText(textToSpeak)}`);
     // Annuler hangup si l'IA pose une question devis/RDV nécessitant une réponse du client
     const asksForConfirmation = (/\b(est-ce bien correct|est-ce correct)\b/i.test(textToSpeak) && /\b(plaque|immatriculation)\b/i.test(textToSpeak))
@@ -5320,11 +5331,22 @@ But: être naturel et mettre le client en confiance.`,
                     if (!s) return false;
                     return s.length >= 20 || s.split(/\s+/).filter(Boolean).length >= 3;
                   };
+                  const awaitingReservationName =
+                    effectiveSector === "restaurant" &&
+                    ws.__awaitingReservationName === true &&
+                    typeof ws.__awaitingReservationNameAt === "number" &&
+                    (nowMs() - ws.__awaitingReservationNameAt) < 30_000;
                   const considerValidUserSpeech = userText && userText.trim() && (
+                    awaitingReservationName ||
                     !isJunkTranscript(userText) ||
                     (USE_DEEPGRAM_STT && longOrMultiWord(userText))
                   );
                   if (considerValidUserSpeech) {
+                    if (awaitingReservationName) {
+                      ws.__awaitingReservationName = false;
+                      ws.__awaitingReservationNameAt = null;
+                      if (LOG_VERBOSE) console.log("[RESTAURANT] Nom reçu -> bypass bruit désactivé.");
+                    }
                     const norm = userText.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
                     const dedupKey = "speak_" + norm;
                     if (!userSpeakItemIds.has(dedupKey)) {
