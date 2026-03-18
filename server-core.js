@@ -3904,6 +3904,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
                 const trimmed = text.trim();
                 const now = nowMs();
+                // Restaurant: pendant que Minimax/TTS lit, on ignore toute parole Deepgram
+                // (évite que l'écho du HP soit interprété comme une nouvelle réponse utilisateur).
+                const ttsIsActive = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueuedBytes > 0 || outboundQueue.length > 0;
+                if (effectiveSector === "restaurant" && ttsIsActive) {
+                  if (LOG_VERBOSE) console.log("[Deepgram] Transcript ignoré (TTS en cours):", trimmed.substring(0, 40));
+                  return;
+                }
                 if (lastTtsEndAt > 0 && (now - lastTtsEndAt) < INPUT_POST_TTS_GUARD_MS) {
                   if (LOG_VERBOSE) console.log("[Deepgram] Transcript ignoré (trop tôt après TTS):", trimmed.substring(0, 40));
                   return;
