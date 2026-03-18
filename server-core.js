@@ -3918,9 +3918,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             const { createDeepgramLiveSession } = await import("./deepgram-client.js");
             const deepgramKeyterms = [
               "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche",
+              "demain", "aujourd'hui",
               "12h", "13h", "14h", "19h", "20h", "21h", "midi", "soir", "matin", "après-midi",
               "douze heures", "treize heures", "quatorze heures", "dix-neuf heures", "vingt heures",
+              "douze", "treize", "quatorze",
+              "treize heures et demie", "quatorze heures et demie",
+              "treize heures demi", "quatorze heures demi", "demie",
               "réservation", "réserver", "table", "commander", "commande", "emporter", "à emporter",
+              "j'aimerais", "je voudrais", "pour", "personnes",
             ];
             deepgramSession = createDeepgramLiveSession({
               language: (process.env.STT_LANGUAGE || "fr").trim(),

@@ -58,7 +58,9 @@ export function createDeepgramLiveSession(options = {}) {
     keyterm = [],
     keywords = [],
     interimResults = true,
-    smartFormat = true,
+    // smart_format peut retarder la finalisation sur du live audio.
+    // Pour des appels vocaux temps réel, on préfère une config plus réactive.
+    smartFormat = false,
   } = options;
 
   const client = createClient(DEEPGRAM_API_KEY);
@@ -69,6 +71,10 @@ export function createDeepgramLiveSession(options = {}) {
     sample_rate: 8000,
     interim_results: interimResults,
     smart_format: smartFormat,
+    // Endpointing: détection des pauses pour envoyer plus vite `is_final`.
+    // Utterance end: détection de gap après les derniers mots transcrits (utile en bruit).
+    endpointing: 400,
+    utterance_end_ms: 1000,
     punctuate: true,
   };
   const useNova3 = /nova-3|flux/i.test(String(model));
