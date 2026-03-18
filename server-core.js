@@ -1408,7 +1408,8 @@ wss.on("connection", (ws, req) => {
     if (stripped.length < 3) return true;
     const shortValid = ["oui", "ouais", "ouai", "oua", "ok", "non", "nan", "nope", "dac", "daccord", "voila", "voilà", "allo", "allô"];
     if (shortValid.includes(stripped)) return false;
-    if (NOISE_FILTER_STRICT && stripped.length < 5) return true;
+    const strictLenStripped = effectiveSector === "restaurant" ? 3 : 5;
+    if (NOISE_FILTER_STRICT && stripped.length < strictLenStripped) return true;
     const isolatedNoise = /^(ah|eh|oh|mm|hmm|euh|hum|huh|uh|mh|hm|hein|quoi|bah|ben|a|e|i|o|u|euh euh|ah ah|oh oh|mhm|mmm)$/i.test(lower);
     if (isolatedNoise) return true;
     if (/^(\S{1,3}\s+){2,}\1\s*$/i.test(lower) || /^(euh\s+)+euh\s*$/i.test(lower)) return true;
@@ -1417,7 +1418,8 @@ wss.on("connection", (ws, req) => {
     const oneWordOk = ["oui", "ouais", "ouai", "non", "ok", "aller", "merci", "salut", "allo", "allô", "bonjour", "bonsoir", "d'accord", "dac", "voilà", "voila", "nan", "nope"];
     if (words.length === 1) {
       if (words[0].length < 3) return true;
-      if (NOISE_FILTER_STRICT && words[0].length < 4 && !oneWordOk.includes(words[0].toLowerCase())) return true;
+      const strictLenOneWord = effectiveSector === "restaurant" ? 3 : 4;
+      if (NOISE_FILTER_STRICT && words[0].length < strictLenOneWord && !oneWordOk.includes(words[0].toLowerCase())) return true;
     }
     if (words.length <= 2 && t.length < 12) {
       const commonFrench = ["oui", "ouais", "ouai", "non", "oui oui", "non non", "oui merci", "non merci", "d'accord", "ok ok", "bonjour oui", "oui s'il vous plaît", "euh oui", "ben oui", "ah oui", "ouais oui", "c'est bon", "c'est ça"];
@@ -1427,7 +1429,8 @@ wss.on("connection", (ws, req) => {
         // → ces réponses sont courtes mais portent une information critique (nombre de personnes) et ne doivent PAS être filtrées.
         const isCountPeople = /^\d+\s+(personnes?|convives?|clients?)$/i.test(t);
         if (!isCountPeople && words.some(w => w.length < 2)) return true;
-        if (NOISE_FILTER_STRICT && t.length < 8) return true;
+        const strictLenShortSentence = effectiveSector === "restaurant" ? 5 : 8;
+        if (NOISE_FILTER_STRICT && t.length < strictLenShortSentence) return true;
       }
     }
     const letterRatio = (lower.match(/[a-zàâäéèêëïîôùûüç]/g) || []).length / Math.max(1, stripped.length);
@@ -5141,7 +5144,7 @@ But: être naturel et mettre le client en confiance.`,
                 "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
                 "au revoir et bonne journée", "aurevoir et bonne journee", "au revoir, bonne journée", "aurevoir, bonne journee"
               ];
-              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 5000; // 5 secondes - attendre que le client ait fini de parler
+              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = effectiveSector === "restaurant" ? 8000 : 5000; // restaurant: éviter hangup trop tôt
               if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_FOR_GOODBYE_MS) {
                 goodbyeDetected = true;
                 console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique après que l'audio soit terminé", {
@@ -5677,7 +5680,7 @@ But: être naturel et mettre le client en confiance.`,
                 "excellente journée", "excellente journee", "passez une bonne journée", "passez une bonne journee",
                 "au revoir et bonne journée", "aurevoir et bonne journee", "au revoir, bonne journée", "aurevoir, bonne journee"
               ];
-              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = 5000; // 5 secondes - attendre que le client ait fini de parler
+              const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = effectiveSector === "restaurant" ? 8000 : 5000; // restaurant: éviter hangup trop tôt
               if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_FOR_GOODBYE_MS) {
                 goodbyeDetected = true;
                 console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique après que l'audio soit terminé", {
