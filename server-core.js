@@ -358,13 +358,17 @@ async function handleRunAnalysis(callId, res) {
                 .filter(Boolean)
             : [];
           if (items.length > 0) {
-            const { error: orderErr } = await supabase.schema("autoguru").from("takeaway_orders").insert({
+            const delivery = od.delivery === true;
+            const insertPayload = {
               garage_id: call.garage_id,
               call_id: callId,
               phone_number: String(call.from_number).trim(),
               client_name: (od.clientName && String(od.clientName).trim()) || null,
               items,
-              pickup_time_desired: (od.pickupTimeDesired && String(od.pickupTimeDesired).trim()) || null,
+              delivery,
+              delivery_address: delivery && (od.deliveryAddress && String(od.deliveryAddress).trim()) ? String(od.deliveryAddress).trim() : null,
+              estimated_delivery_time: delivery && (od.estimatedDeliveryTime && String(od.estimatedDeliveryTime).trim()) ? String(od.estimatedDeliveryTime).trim() : null,
+              pickup_time_desired: !delivery && (od.pickupTimeDesired && String(od.pickupTimeDesired).trim()) ? String(od.pickupTimeDesired).trim() : null,
               status: "pending",
               notes: null,
               confirmed_pickup_time: null,
@@ -372,7 +376,8 @@ async function handleRunAnalysis(callId, res) {
               sms_sent_at: null,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
-            });
+            };
+            const { error: orderErr } = await supabase.schema("autoguru").from("takeaway_orders").insert(insertPayload);
             if (orderErr) console.error("[run-analysis] Création takeaway_order:", orderErr);
             else console.log("[run-analysis] takeaway_order créée pour appel:", callId);
           }
@@ -891,6 +896,8 @@ wss.on("connection", (ws, req) => {
   let restaurantClosedByDaySummary = ""; // Ex: "Fermé le midi: dimanche. Fermé le soir: lundi."
   let takeawayEnabled = false;
   let takeawayProductsText = "";
+  let tableReservationEnabled = true;
+  let establishmentType = "restaurant"; // restaurant | pizzeria
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -4301,9 +4308,11 @@ ${compactPersona}`;
         }
         const restaurantInstructions = effectiveSector === "restaurant" ? buildRestaurantInstructions({
           restaurantName: garageName,
+          establishmentType,
           assistantName,
           menuText: String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")),
           openingHoursText: garageHoursText || "Horaires non renseignés.",
+          tableReservationEnabled,
           lunchFullToday,
           dinnerFullToday,
           lunchPassedForToday,
@@ -4373,9 +4382,11 @@ ${compactPersona}`;
                 })();
             const updatedRestaurantInstructions = buildRestaurantInstructions({
               restaurantName: garageName,
+              establishmentType,
               assistantName,
               menuText: String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")),
               openingHoursText: garageHoursText || "Horaires non renseignés.",
+              tableReservationEnabled,
               lunchFullToday,
               dinnerFullToday,
               lunchPassedForToday,
@@ -4472,9 +4483,11 @@ ${compactPersona}`;
                 })();
             const instr = buildRestaurantInstructions({
               restaurantName: garageName,
+              establishmentType,
               assistantName,
               menuText: String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")),
               openingHoursText: garageHoursText || "Horaires non renseignés.",
+              tableReservationEnabled,
               lunchFullToday,
               dinnerFullToday,
               lunchPassedForToday,
@@ -6754,6 +6767,8 @@ But: être naturel et mettre le client en confiance.`,
         const finalRestaurantClosedByDaySummary = startParams.restaurantClosedByDaySummary || "";
         const finalTakeawayEnabled = startParams.takeawayEnabled || "";
         const finalTakeawayProductsText = startParams.takeawayProductsText || "";
+        const finalTableReservationEnabled = startParams.tableReservationEnabled || "true";
+        const finalEstablishmentType = String(startParams.establishmentType || "restaurant").trim().toLowerCase() || "restaurant";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
         if (finalGarageType === "restaurant") effectiveSector = "restaurant";
         console.log("🏷️ Secteur effectif:", effectiveSector, "(garageType reçu:", finalGarageType || "non fourni", ")");
@@ -6825,6 +6840,8 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalRestaurantClosedByDaySummary === "string" && finalRestaurantClosedByDaySummary.trim()) restaurantClosedByDaySummary = String(finalRestaurantClosedByDaySummary).trim();
         if (typeof finalTakeawayEnabled === "string") takeawayEnabled = finalTakeawayEnabled.trim().toLowerCase() === "true";
         if (typeof finalTakeawayProductsText === "string" && finalTakeawayProductsText.trim()) takeawayProductsText = String(finalTakeawayProductsText).trim();
+        tableReservationEnabled = typeof finalTableReservationEnabled === "string" && finalTableReservationEnabled.trim().toLowerCase() === "true";
+        establishmentType = finalEstablishmentType === "pizzeria" ? "pizzeria" : "restaurant";
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
