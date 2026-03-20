@@ -3723,7 +3723,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     const now = nowMs();
     if (responseInProgress) {
-      try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:3374',message:'requestResponseCreate_skipped',data:{reason,why:'responseInProgress'},hypothesisId:'C',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
       return;
     }
     const isCommitTrigger = reason === "watchdog_after_commit" || reason === "after_response_done_pending_commit";
@@ -3738,7 +3737,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     const skipDebounce = reason === "after_function_call_output";
     if (!skipDebounce && (now - lastResponseCreateRequestedAt) < RESPONSE_CREATE_DEBOUNCE_MS) {
-      try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:3378',message:'requestResponseCreate_skipped',data:{reason,why:'debounce',msSince:now-lastResponseCreateRequestedAt},hypothesisId:'C',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
       return;
     }
     lastResponseCreateRequestedAt = now;
@@ -3957,6 +3955,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
                 const trimmed = text.trim();
                 const now = nowMs();
+                // Une fois "au revoir" détecté, ignorer les transcripts (évite écho du message de clôture type "Au nom de Stéphanie" qui coupe le TTS)
+                if (goodbyeDetected) {
+                  console.log("[Deepgram] Transcript ignoré (au revoir détecté, évite écho):", trimmed.substring(0, 60));
+                  return;
+                }
                 // Restaurant: pendant que Minimax/TTS lit, on ignore toute parole Deepgram
                 // (évite que l'écho du HP soit interprété comme une nouvelle réponse utilisateur).
                 const ttsIsActive = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueuedBytes > 0 || outboundQueue.length > 0;
@@ -5172,9 +5175,6 @@ But: être naturel et mettre le client en confiance.`,
               }
               const low = String(doneText || "").toLowerCase();
               // #region agent log
-              if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur")) && typeof fetch === "function") {
-                fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:terrasseIntérieur", message: "AI said terrasse/intérieur", data: { hypothesisId: "H_terrasse", lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }, timestamp: Date.now() }) }).catch(() => {});
-              }
               if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur"))) {
                 console.log("[DEBUG-terrasse]", JSON.stringify({ lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }));
               }
@@ -5706,9 +5706,6 @@ But: être naturel et mettre le client en confiance.`,
               }
               const low = String(doneText || "").toLowerCase();
               // #region agent log
-              if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur")) && typeof fetch === "function") {
-                fetch("http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a5863f" }, body: JSON.stringify({ sessionId: "a5863f", location: "server-core.js:terrasseIntérieur_output_text", message: "AI said terrasse/intérieur (output_text)", data: { hypothesisId: "H_terrasse", lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }, timestamp: Date.now() }) }).catch(() => {});
-              }
               if (effectiveSector === "restaurant" && (low.includes("terrasse") || low.includes("intérieur"))) {
                 console.log("[DEBUG-terrasse]", JSON.stringify({ lastUserTranscript: (typeof lastUserMessageText === "string" ? lastUserMessageText : "").slice(0, 200), aiResponseSnippet: (doneText || "").slice(0, 250), aiSaidTerrasse: low.includes("terrasse"), aiSaidInterieur: low.includes("intérieur") }));
               }
@@ -6575,9 +6572,6 @@ But: être naturel et mettre le client en confiance.`,
               return;
             }
             console.log("🟢 Le client a parlé (détection début parole OpenAI - speech_started)", { niveau: lastInputAudioLevel, seuil: restaurantSpeechThreshold });
-            // #region agent log
-            try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:5902',message:'speech_started',data:{responseInProgress,outboundQueuedBytes,premiumTtsInFlight,lastCommitAt},hypothesisId:'A',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
-            // #endregion
             speechActive = true;
             lastSpeechTs = nowMs();
             awaitingUserResponse = true;
@@ -6597,9 +6591,6 @@ But: être naturel et mettre le client en confiance.`,
             lastCommitAt = commitTs;
             if (hasRealSpeech) {
               console.log("🟢 Le client a parlé (buffer audio envoyé au modèle - committed)", { item_id: msg.item_id, timeSinceSpeech: commitTs - lastSpeechTs });
-              // #region agent log
-              try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:5919',message:'committed',data:{item_id:msg.item_id,timeSinceSpeech:commitTs-lastSpeechTs},hypothesisId:'B',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
-              // #endregion
               if (LOG_VERBOSE) console.log("✅ OpenAI buffer committed:", { item_id: msg.item_id, previous_item_id: msg.previous_item_id, timeSinceSpeech: commitTs - lastSpeechTs });
             } else {
               if (LOG_VERBOSE) console.log("⚠️ OpenAI buffer committed (sans speech_started récent, on envoie quand même response.create si délai ok):", { item_id: msg.item_id, timeSinceSpeech: nowMs() - lastSpeechTs });
@@ -7400,9 +7391,6 @@ But: être naturel et mettre le client en confiance.`,
               if (suppressInputNow) {
                 if (typeof ws.__suppressLogCount === "undefined") ws.__suppressLogCount = 0;
                 ws.__suppressLogCount = (ws.__suppressLogCount || 0) + 1;
-                if ((ws.__suppressLogCount || 0) % 25 === 1) {
-                  try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:6632',message:'input_suppressed',data:{count:ws.__suppressLogCount,outboundQueuedBytes,responseInProgress,premiumTtsInFlight,assistantBacklogFrames},hypothesisId:'D',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
-                }
                 inputActive = false;
                 inputSpeechFrames = 0;
                 inputSilenceFrames = 0;
@@ -7528,9 +7516,6 @@ But: être naturel et mettre le client en confiance.`,
           try { deepgramSession.close(); } catch (_) {}
           deepgramSession = null;
         }
-        // #region agent log
-        try { fetch('http://127.0.0.1:7242/ingest/dcfd425b-4b52-4e18-bb8d-cd0a0fd50419',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a5863f'},body:JSON.stringify({sessionId:'a5863f',location:'server-core.js:6740',message:'stream_stop',data:{mediaCount,lastCommitAt,lastSpeechTs:lastSpeechTs||0,responseInProgress},hypothesisId:'E',timestamp:Date.now()})}).catch(()=>{}); } catch(_){}
-        // #endregion
         if (LOG_VERBOSE) console.log("🛑 Raison: timeout, erreur Twilio ou fin d'appel");
         if (goodbyeTimer) {
           clearTimeout(goodbyeTimer);

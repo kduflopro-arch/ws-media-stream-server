@@ -71,10 +71,10 @@ export function createDeepgramLiveSession(options = {}) {
     sample_rate: 8000,
     interim_results: interimResults,
     smart_format: smartFormat,
-    // Endpointing: détection des pauses pour envoyer plus vite `is_final`.
-    // Utterance end: détection de gap après les derniers mots transcrits (utile en bruit).
-    endpointing: 400,
-    utterance_end_ms: 1000,
+    // Endpointing: ms de silence avant de considérer la phrase terminée. Plus élevé = moins de découpage (ex. "Pour la pizza, tu" | "m'enlever les champignons").
+    endpointing: Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 800,
+    // Utterance end: gap après le dernier mot pour émettre UtteranceEnd.
+    utterance_end_ms: Number(process.env.DEEPGRAM_UTTERANCE_END_MS) || 1500,
     punctuate: true,
   };
   const useNova3 = /nova-3|flux/i.test(String(model));
