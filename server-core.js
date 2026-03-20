@@ -379,7 +379,31 @@ async function handleRunAnalysis(callId, res) {
             };
             const { error: orderErr } = await supabase.schema("autoguru").from("takeaway_orders").insert(insertPayload);
             if (orderErr) console.error("[run-analysis] Création takeaway_order:", orderErr);
-            else console.log("[run-analysis] takeaway_order créée pour appel:", callId);
+            else {
+              console.log("[run-analysis] takeaway_order créée pour appel:", callId);
+              if (delivery && !(insertPayload.delivery_address && String(insertPayload.delivery_address).trim())) {
+                const ingestUrl = process.env.AUTOGURU_INGEST_URL || "";
+                const baseUrl = ingestUrl ? ingestUrl.replace(/\/api\/twilio\/realtime-(?:ingest|finalize)\/?$/i, "").replace(/\/+$/, "") : (process.env.AUTOGURU_API_BASE || "").replace(/\/+$/, "");
+                const secret = process.env.RUN_ANALYSIS_SECRET || "";
+                if (baseUrl && secret) {
+                  const { data: garageRow } = await supabase.schema("autoguru").from("garages").select("name").eq("id", call.garage_id).maybeSingle();
+                  const garageName = (garageRow?.name ?? "").trim() || "Restaurant";
+                  const smsUrl = `${baseUrl.replace(/\/$/, "")}/api/internal/send-delivery-address-request`;
+                  fetch(smsUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` },
+                    body: JSON.stringify({
+                      garage_id: call.garage_id,
+                      phone_number: String(call.from_number).trim(),
+                      garage_name: garageName,
+                    }),
+                  }).then((r) => {
+                    if (r.ok) console.log("[run-analysis] SMS demande adresse livraison envoyé");
+                    else r.text().then((t) => console.warn("[run-analysis] send-delivery-address-request échec:", r.status, t));
+                  }).catch((e) => console.warn("[run-analysis] send-delivery-address-request erreur:", e.message));
+                }
+              }
+            }
           }
         } catch (orderEx) {
           console.error("[run-analysis] Exception takeaway_order (analyse OK):", orderEx?.message ?? orderEx);
