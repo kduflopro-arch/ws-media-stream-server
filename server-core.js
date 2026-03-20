@@ -320,29 +320,8 @@ async function handleRunAnalysis(callId, res) {
     if (writtenSummaryLen === 0 || writtenConclusionLen === 0) {
       console.warn("[run-analysis] ATTENTION: résumé ou conclusion vides après update (vérifier même projet Supabase que l'app AutoGuru)");
     }
-    // Restaurant : création automatique du dossier client pour les prochaines réservations
+    // Restaurant : ne pas créer/mettre à jour automatiquement le dossier client quand le client donne son nom (résa ou commande)
     if (isRestaurant) {
-      const reservationDetails = analysis.reservationDetails && typeof analysis.reservationDetails === "object" ? analysis.reservationDetails : {};
-      const clientName = (reservationDetails.clientName ?? "").trim();
-      const fromNumber = (call.from_number ?? "").trim();
-      if (clientName && fromNumber && call.garage_id) {
-        const appUrl = process.env.AUTOGURU_APP_URL || process.env.AUTOGURU_API_BASE || "";
-        const ingestUrl = process.env.AUTOGURU_INGEST_URL || "";
-        const rawBase = appUrl || ingestUrl;
-        const baseUrl = rawBase ? rawBase.replace(/\/api\/twilio\/realtime-(?:ingest|finalize)\/?$/i, "").replace(/\/+$/, "") : "";
-        const secret = process.env.RUN_ANALYSIS_SECRET || "";
-        if (baseUrl && secret) {
-          const createClientUrl = `${baseUrl.replace(/\/$/, "")}/api/internal/create-restaurant-client`;
-          fetch(createClientUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` },
-            body: JSON.stringify({ garage_id: call.garage_id, phone_number: fromNumber, name: clientName }),
-          }).then((r) => {
-            if (r.ok) console.log("[run-analysis] Dossier client restaurant créé/mis à jour:", clientName);
-            else r.text().then((t) => console.warn("[run-analysis] create-restaurant-client échec:", r.status, t));
-          }).catch((e) => console.warn("[run-analysis] create-restaurant-client erreur:", e.message));
-        }
-      }
       // Commande à emporter : créer l'entrée takeaway_orders pour que le restaurant puisse accepter/refuser (isolé pour ne pas faire échouer run-analysis si la table/migration diffère)
       if (analysis.callType === "demande_commande" && analysis.orderDetails && typeof analysis.orderDetails === "object" && call.garage_id && call.from_number) {
         try {
@@ -927,6 +906,10 @@ wss.on("connection", (ws, req) => {
   let takeawayEnabled = false;
   let takeawayProductsText = "";
   let takeawayDeliveryEnabled = false;
+  let takeawayLunchOrderStart = "11:30";
+  let takeawayLunchOrderEnd = "14:00";
+  let takeawayDinnerOrderStart = "18:00";
+  let takeawayDinnerOrderEnd = "21:30";
   let tableReservationEnabled = true;
   let establishmentType = "restaurant"; // restaurant | pizzeria
   let callStartIso = "";
@@ -4412,6 +4395,10 @@ ${compactPersona}`;
           takeawayEnabled,
           takeawayProductsText,
           takeawayDeliveryEnabled,
+          takeawayLunchOrderStart,
+          takeawayLunchOrderEnd,
+          takeawayDinnerOrderStart,
+          takeawayDinnerOrderEnd,
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
@@ -4487,6 +4474,10 @@ ${compactPersona}`;
               takeawayEnabled,
               takeawayProductsText,
               takeawayDeliveryEnabled,
+              takeawayLunchOrderStart,
+              takeawayLunchOrderEnd,
+              takeawayDinnerOrderStart,
+              takeawayDinnerOrderEnd,
             });
             let instructionsToSend = updatedRestaurantInstructions;
             if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
@@ -4589,6 +4580,10 @@ ${compactPersona}`;
               takeawayEnabled,
               takeawayProductsText,
               takeawayDeliveryEnabled,
+              takeawayLunchOrderStart,
+              takeawayLunchOrderEnd,
+              takeawayDinnerOrderStart,
+              takeawayDinnerOrderEnd,
             });
             const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS
               ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES: réservation naturelle, une question à la fois.]"
@@ -6840,6 +6835,10 @@ But: être naturel et mettre le client en confiance.`,
         const finalTakeawayEnabled = startParams.takeawayEnabled || "";
         const finalTakeawayProductsText = startParams.takeawayProductsText || "";
         const finalTakeawayDeliveryEnabled = startParams.takeawayDeliveryEnabled || "";
+        const finalTakeawayLunchOrderStart = startParams.takeawayLunchOrderStart || "";
+        const finalTakeawayLunchOrderEnd = startParams.takeawayLunchOrderEnd || "";
+        const finalTakeawayDinnerOrderStart = startParams.takeawayDinnerOrderStart || "";
+        const finalTakeawayDinnerOrderEnd = startParams.takeawayDinnerOrderEnd || "";
         const finalTableReservationEnabled = startParams.tableReservationEnabled || "true";
         const finalEstablishmentType = String(startParams.establishmentType || "restaurant").trim().toLowerCase() || "restaurant";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
@@ -6914,6 +6913,10 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalTakeawayEnabled === "string") takeawayEnabled = finalTakeawayEnabled.trim().toLowerCase() === "true";
         if (typeof finalTakeawayProductsText === "string" && finalTakeawayProductsText.trim()) takeawayProductsText = String(finalTakeawayProductsText).trim();
         if (typeof finalTakeawayDeliveryEnabled === "string") takeawayDeliveryEnabled = finalTakeawayDeliveryEnabled.trim().toLowerCase() === "true";
+        if (typeof finalTakeawayLunchOrderStart === "string" && /^\d{1,2}:\d{2}$/.test(String(finalTakeawayLunchOrderStart).trim())) takeawayLunchOrderStart = String(finalTakeawayLunchOrderStart).trim();
+        if (typeof finalTakeawayLunchOrderEnd === "string" && /^\d{1,2}:\d{2}$/.test(String(finalTakeawayLunchOrderEnd).trim())) takeawayLunchOrderEnd = String(finalTakeawayLunchOrderEnd).trim();
+        if (typeof finalTakeawayDinnerOrderStart === "string" && /^\d{1,2}:\d{2}$/.test(String(finalTakeawayDinnerOrderStart).trim())) takeawayDinnerOrderStart = String(finalTakeawayDinnerOrderStart).trim();
+        if (typeof finalTakeawayDinnerOrderEnd === "string" && /^\d{1,2}:\d{2}$/.test(String(finalTakeawayDinnerOrderEnd).trim())) takeawayDinnerOrderEnd = String(finalTakeawayDinnerOrderEnd).trim();
         tableReservationEnabled = typeof finalTableReservationEnabled === "string" && finalTableReservationEnabled.trim().toLowerCase() === "true";
         establishmentType = finalEstablishmentType === "pizzeria" ? "pizzeria" : "restaurant";
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
