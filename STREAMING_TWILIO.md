@@ -61,7 +61,7 @@ Les paramètres `input_audio_format=pcm16` et `output_audio_format=pcm16` sont d
 | `REALTIME_TTS_MODE` | Qui produit la voix | `openai` (instantané) ou `elevenlabs` / `minimax` / `cartesia` |
 | `PREMIUM_TTS_ENABLED` | Activer un TTS externe | `false` pour OpenAI natif, `true` pour ElevenLabs etc. |
 | `REALTIME_ELEVEN_CHUNKING_ENABLED` | Envoi du texte au TTS par chunks | `true` (défaut) pour TTS streaming avec ElevenLabs/Minimax/Cartesia |
-| `INPUT_POST_TTS_GUARD_MS` | Délai (ms) après la fin du TTS pendant lequel le micro n’est pas envoyé au STT (anti-écho / bruit haut-parleur) | Défaut : **1500** si Deepgram actif, **800** sinon. En haut-parleur avec Deepgram, augmenter à 2000 si faux positifs. |
+| `INPUT_POST_TTS_GUARD_MS` | Délai (ms) après la fin du TTS pendant lequel le micro n’est pas envoyé au STT (anti-écho / bruit haut-parleur) | Défaut : **900** si Deepgram actif, **800** sinon. Augmenter à 1500-2000 si écho. |
 | `DEEPGRAM_ECHO_GUARD_MS` | Avec Deepgram : pendant cette durée (ms) après la fin du TTS, les transcripts d’un ou deux mots type « bonjour », « menu », « salut », « allo » sont ignorés (évite écho haut-parleur) | Défaut : **4000**. Réduire si le client dit vraiment un mot court juste après le TTS. |
 | `TURN_DETECTION_EAGERNESS` | Réactivité de la détection de fin de parole | `high` (défaut) pour réponses plus rapides |
 | `DEEPGRAM_API_KEY` | Clé API Deepgram (optionnel) | Clé pour activer le STT Deepgram à la place du STT Realtime |
