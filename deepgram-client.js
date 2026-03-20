@@ -72,10 +72,10 @@ export function createDeepgramLiveSession(options = {}) {
     sample_rate: 8000,
     interim_results: interimResults,
     smart_format: smartFormat,
-    // Endpointing: ms de silence avant speech_final (doc Deepgram: 300-500 pour conversations, 10ms défaut).
-    endpointing: Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 400,
-    // Utterance end: gap après le dernier mot (min 1000, max 5000). Doc recommande 1000.
-    utterance_end_ms: Number(process.env.DEEPGRAM_UTTERANCE_END_MS) || 1000,
+    // Endpointing: ms de silence avant speech_final (doc: 300-500 pour conversations). Plus court = plus réactif.
+    endpointing: Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 300,
+    // Utterance end: gap après le dernier mot (min 1000 recommandé par doc, mais 700 acceptable pour réactivité).
+    utterance_end_ms: Number(process.env.DEEPGRAM_UTTERANCE_END_MS) || 700,
     punctuate: true,
   };
   const useNova3 = /nova-3|flux/i.test(String(model));

@@ -3726,7 +3726,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "2"); // ~40ms d'audio sortant
   const INPUT_SUPPRESS_BYPASS_THRESHOLD = Number(process.env.INPUT_SUPPRESS_BYPASS_THRESHOLD ?? "400"); // seuil audio pour ne pas supprimer (plus sensible = moins répétitions)
   // Délai après la fin du TTS pendant lequel on n'envoie pas l'audio au STT (évite écho / bruit haut-parleur transcrit). Avec Deepgram + haut-parleur : 1,5 s par défaut.
-  const INPUT_POST_TTS_GUARD_MS = Number(process.env.INPUT_POST_TTS_GUARD_MS ?? (USE_DEEPGRAM_STT ? "1500" : "800"));
+  const INPUT_POST_TTS_GUARD_MS = Number(process.env.INPUT_POST_TTS_GUARD_MS ?? (USE_DEEPGRAM_STT ? "900" : "800"));
   const INPUT_SUPPRESS_OVERRIDE_THRESHOLD = Number(
     process.env.INPUT_SUPPRESS_OVERRIDE_THRESHOLD ?? String(Math.max(2500, Math.floor(INPUT_SPEECH_THRESHOLD * 1.5))),
   );
@@ -3980,7 +3980,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             if (deepgramSession && !deepgramAlreadyOpen) {
               const DEEPGRAM_ECHO_GUARD_MS = Number(process.env.DEEPGRAM_ECHO_GUARD_MS ?? "4000"); // après TTS, ignorer transcripts courts type écho (bonjour, menu, etc.)
               const DEEPGRAM_ECHO_WORDS = /^(bonjour|menu|salut|allo|allô|bienvenue|voilà|voila|rebonjour|bonsoir|coucou|hello)$/i;
-              const DEEPGRAM_MERGE_WINDOW_MS = Number(process.env.DEEPGRAM_MERGE_WINDOW_MS ?? "1400"); // fusionner finals reçus dans cette fenêtre (réduit découpage)
+              const DEEPGRAM_MERGE_WINDOW_MS = Number(process.env.DEEPGRAM_MERGE_WINDOW_MS ?? "500"); // fusionner finals reçus dans cette fenêtre (réduit découpage, 500=plus réactif)
               const sendToRealtime = (toSend) => {
                 if (!toSend || !toSend.trim()) return;
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
