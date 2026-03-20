@@ -88,6 +88,7 @@ export function createDeepgramLiveSession(options = {}) {
   const transcriptCbs = [];
   const audioQueue = [];
   let isOpen = false;
+  let keepAliveInterval = null;
 
   function onTranscript(cb) {
     if (typeof cb === "function") transcriptCbs.push(cb);
@@ -132,6 +133,10 @@ export function createDeepgramLiveSession(options = {}) {
   }
 
   function close() {
+    if (keepAliveInterval) {
+      clearInterval(keepAliveInterval);
+      keepAliveInterval = null;
+    }
     audioQueue.length = 0;
     try {
       if (connection?.disconnect) {
@@ -146,6 +151,19 @@ export function createDeepgramLiveSession(options = {}) {
     const keytermInfo = keyterm.length > 0 ? `, ${keyterm.length} keyterms` : "";
     console.log("[Deepgram] Connexion live ouverte (mulaw 8kHz,", model + ",", language + keytermInfo + ")");
     flushQueue();
+    // KeepAlive toutes les 4s pour éviter timeout 10s (doc Deepgram : si pas d'audio ni KeepAlive en 10s → NET-0001)
+    const KEEPALIVE_MS = Number(process.env.DEEPGRAM_KEEPALIVE_MS) || 4000;
+    if (keepAliveInterval) clearInterval(keepAliveInterval);
+    keepAliveInterval = setInterval(() => {
+      if (!isOpen || !connection) return;
+      try {
+        if (typeof connection.keepAlive === "function") {
+          connection.keepAlive();
+        }
+      } catch (e) {
+        console.error("[Deepgram] keepAlive error:", e?.message ?? e);
+      }
+    }, KEEPALIVE_MS);
   });
 
   connection.on(LiveTranscriptionEvents.Transcript, (data) => {
@@ -159,6 +177,10 @@ export function createDeepgramLiveSession(options = {}) {
   });
 
   connection.on(LiveTranscriptionEvents.Close, () => {
+    if (keepAliveInterval) {
+      clearInterval(keepAliveInterval);
+      keepAliveInterval = null;
+    }
     isOpen = false;
     console.log("[Deepgram] Connexion fermée.");
   });
