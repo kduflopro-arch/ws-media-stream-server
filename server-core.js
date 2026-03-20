@@ -3950,6 +3950,24 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             if (deepgramSession && !deepgramAlreadyOpen) {
               const DEEPGRAM_ECHO_GUARD_MS = Number(process.env.DEEPGRAM_ECHO_GUARD_MS ?? "4000"); // après TTS, ignorer transcripts courts type écho (bonjour, menu, etc.)
               const DEEPGRAM_ECHO_WORDS = /^(bonjour|menu|salut|allo|allô|bienvenue|voilà|voila|rebonjour|bonsoir|coucou|hello)$/i;
+              const DEEPGRAM_MERGE_WINDOW_MS = Number(process.env.DEEPGRAM_MERGE_WINDOW_MS ?? "1400"); // fusionner finals reçus dans cette fenêtre (réduit découpage)
+              const sendToRealtime = (toSend) => {
+                if (!toSend || !toSend.trim()) return;
+                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+                try {
+                  openaiWs.send(JSON.stringify({
+                    type: "conversation.item.create",
+                    item: {
+                      type: "message",
+                      role: "user",
+                      content: [{ type: "input_text", text: toSend.trim() }],
+                    },
+                  }));
+                  requestResponseCreate("deepgram_final");
+                } catch (e) {
+                  console.error("[Deepgram] Erreur envoi transcript → Realtime:", e?.message ?? e);
+                }
+              };
               deepgramSession.onTranscript((text, isFinal) => {
                 if (!isFinal || !text || !text.trim()) return;
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
@@ -3961,7 +3979,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                   return;
                 }
                 // Restaurant: pendant que Minimax/TTS lit, on ignore toute parole Deepgram
-                // (évite que l'écho du HP soit interprété comme une nouvelle réponse utilisateur).
                 const ttsIsActive = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueuedBytes > 0 || outboundQueue.length > 0;
                 if (effectiveSector === "restaurant" && ttsIsActive) {
                   if (LOG_VERBOSE) console.log("[Deepgram] Transcript ignoré (TTS en cours):", trimmed.substring(0, 40));
@@ -3976,18 +3993,44 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                   console.log("[Deepgram] Transcript ignoré (écho/bruit probable après TTS):", trimmed.substring(0, 50));
                   return;
                 }
-                try {
-                  openaiWs.send(JSON.stringify({
-                    type: "conversation.item.create",
-                    item: {
-                      type: "message",
-                      role: "user",
-                      content: [{ type: "input_text", text: trimmed }],
-                    },
-                  }));
-                  requestResponseCreate("deepgram_final");
-                } catch (e) {
-                  console.error("[Deepgram] Erreur envoi transcript → Realtime:", e?.message ?? e);
+                // Buffer de fusion : si un final arrive peu après le précédent, fusionner (réduit découpage Deepgram)
+                if (!ws.__deepgramMergeBuffer) ws.__deepgramMergeBuffer = { parts: [], lastAt: 0 };
+                const buf = ws.__deepgramMergeBuffer;
+                const elapsed = buf.lastAt > 0 ? now - buf.lastAt : DEEPGRAM_MERGE_WINDOW_MS + 1;
+                if (elapsed <= DEEPGRAM_MERGE_WINDOW_MS && buf.parts.length > 0) {
+                  buf.parts.push(trimmed);
+                  buf.lastAt = now;
+                  if (buf.mergeTimer) clearTimeout(buf.mergeTimer);
+                  buf.mergeTimer = setTimeout(() => {
+                    const count = buf.parts.length;
+                    const merged = buf.parts.join(" ").replace(/\s+/g, " ").trim();
+                    buf.parts = [];
+                    buf.lastAt = 0;
+                    buf.mergeTimer = null;
+                    if (merged) {
+                      if (count > 1) console.log("[Deepgram] Fusion", count, "segments → 1 phrase");
+                      sendToRealtime(merged);
+                    }
+                  }, DEEPGRAM_MERGE_WINDOW_MS);
+                } else {
+                  if (buf.mergeTimer) {
+                    clearTimeout(buf.mergeTimer);
+                    buf.mergeTimer = null;
+                  }
+                  if (buf.parts.length > 0) {
+                    const merged = buf.parts.join(" ").replace(/\s+/g, " ").trim();
+                    buf.parts = [];
+                    if (merged) sendToRealtime(merged);
+                  }
+                  buf.parts = [trimmed];
+                  buf.lastAt = now;
+                  buf.mergeTimer = setTimeout(() => {
+                    const merged = buf.parts.join(" ").replace(/\s+/g, " ").trim();
+                    buf.parts = [];
+                    buf.lastAt = 0;
+                    buf.mergeTimer = null;
+                    if (merged) sendToRealtime(merged);
+                  }, DEEPGRAM_MERGE_WINDOW_MS);
                 }
               });
               console.log("🎤 Deepgram STT actif (transcript final → Realtime LLM)");

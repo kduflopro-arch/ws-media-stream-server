@@ -69,6 +69,7 @@ Les paramètres `input_audio_format=pcm16` et `output_audio_format=pcm16` sont d
 | `DEEPGRAM_MODEL` | Modèle Deepgram | `nova-3` par défaut |
 | `DEEPGRAM_ENDPOINTING_MS` | Silences (ms) avant de finaliser la phrase | 1800 par défaut ; plus élevé = moins de découpage (ex. liste pizzas sans hésitation) |
 | `DEEPGRAM_UTTERANCE_END_MS` | Gap (ms) pour émettre UtteranceEnd | 2200 par défaut (min 1000, max 5000) |
+| `DEEPGRAM_MERGE_WINDOW_MS` | Fenêtre (ms) pour fusionner plusieurs finals consécutifs en une phrase | 1400 par défaut ; si 2 finals arrivent dans cette fenêtre, fusion en 1 envoi à l'IA |
 
 ## STT optionnel : Deepgram
 
