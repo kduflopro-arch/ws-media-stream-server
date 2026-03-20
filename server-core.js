@@ -326,8 +326,10 @@ async function handleRunAnalysis(callId, res) {
       const clientName = (reservationDetails.clientName ?? "").trim();
       const fromNumber = (call.from_number ?? "").trim();
       if (clientName && fromNumber && call.garage_id) {
+        const appUrl = process.env.AUTOGURU_APP_URL || process.env.AUTOGURU_API_BASE || "";
         const ingestUrl = process.env.AUTOGURU_INGEST_URL || "";
-        const baseUrl = ingestUrl ? ingestUrl.replace(/\/api\/twilio\/realtime-(?:ingest|finalize)\/?$/i, "").replace(/\/+$/, "") : (process.env.AUTOGURU_API_BASE || "").replace(/\/+$/, "");
+        const rawBase = appUrl || ingestUrl;
+        const baseUrl = rawBase ? rawBase.replace(/\/api\/twilio\/realtime-(?:ingest|finalize)\/?$/i, "").replace(/\/+$/, "") : "";
         const secret = process.env.RUN_ANALYSIS_SECRET || "";
         if (baseUrl && secret) {
           const createClientUrl = `${baseUrl.replace(/\/$/, "")}/api/internal/create-restaurant-client`;
@@ -382,8 +384,10 @@ async function handleRunAnalysis(callId, res) {
             else {
               console.log("[run-analysis] takeaway_order créée pour appel:", callId);
               if (delivery && !(insertPayload.delivery_address && String(insertPayload.delivery_address).trim())) {
+                const appUrl = process.env.AUTOGURU_APP_URL || process.env.AUTOGURU_API_BASE || "";
                 const ingestUrl = process.env.AUTOGURU_INGEST_URL || "";
-                const baseUrl = ingestUrl ? ingestUrl.replace(/\/api\/twilio\/realtime-(?:ingest|finalize)\/?$/i, "").replace(/\/+$/, "") : (process.env.AUTOGURU_API_BASE || "").replace(/\/+$/, "");
+                const rawBase = appUrl || ingestUrl;
+                const baseUrl = rawBase ? rawBase.replace(/\/api\/twilio\/realtime-(?:ingest|finalize)\/?$/i, "").replace(/\/+$/, "") : "";
                 const secret = process.env.RUN_ANALYSIS_SECRET || "";
                 if (baseUrl && secret) {
                   const { data: garageRow } = await supabase.schema("autoguru").from("garages").select("name").eq("id", call.garage_id).maybeSingle();
@@ -401,6 +405,8 @@ async function handleRunAnalysis(callId, res) {
                     if (r.ok) console.log("[run-analysis] SMS demande adresse livraison envoyé");
                     else r.text().then((t) => console.warn("[run-analysis] send-delivery-address-request échec:", r.status, t));
                   }).catch((e) => console.warn("[run-analysis] send-delivery-address-request erreur:", e.message));
+                } else {
+                  console.warn("[run-analysis] SMS livraison non envoyé: baseUrl ou RUN_ANALYSIS_SECRET manquant. Définir AUTOGURU_APP_URL (ex: https://xxx.vercel.app) et RUN_ANALYSIS_SECRET sur Render.");
                 }
               }
             }
