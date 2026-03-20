@@ -8,6 +8,7 @@
  * - language=fr par défaut
  * - keyterm (Nova-3) : termes à privilégier (jours, heures, 13h, midi, etc.) — évite "13h" → "trésor"
  * - keywords (Nova-2) : conservé pour rétrocompatibilité
+ * - Phrase coupée en 2 : doc "understand-endpointing-interim-results" — concaténer is_final jusqu'à speech_final
  *
  * Usage prévu (à brancher dans server-core quand USE_DEEPGRAM_STT=true) :
  *   const session = createDeepgramLiveSession({ language: 'fr', keyterm: ['13h', 'dimanche', 'midi', ...] });
@@ -71,10 +72,10 @@ export function createDeepgramLiveSession(options = {}) {
     sample_rate: 8000,
     interim_results: interimResults,
     smart_format: smartFormat,
-    // Endpointing: ms de silence avant de considérer la phrase terminée. Plus élevé = moins de découpage (ex. liste de pizzas coupée en 2-3 parties).
-    endpointing: Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 1800,
-    // Utterance end: gap après le dernier mot pour émettre UtteranceEnd (min 1000, max 5000).
-    utterance_end_ms: Number(process.env.DEEPGRAM_UTTERANCE_END_MS) || 2200,
+    // Endpointing: ms de silence avant speech_final. Plus élevé = moins de découpage (doc: 300-500 pour pauses mid-thought, 2500+ pour phrases longues).
+    endpointing: Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 2500,
+    // Utterance end: gap après le dernier mot (min 1000, max 5000). Aligné avec endpointing pour phrases complètes.
+    utterance_end_ms: Number(process.env.DEEPGRAM_UTTERANCE_END_MS) || 3200,
     punctuate: true,
   };
   const useNova3 = /nova-3|flux/i.test(String(model));
@@ -166,10 +167,21 @@ export function createDeepgramLiveSession(options = {}) {
     }, KEEPALIVE_MS);
   });
 
+  // Buffer pour concaténer les segments is_final jusqu'à speech_final (doc Deepgram: "concatenate is_final until speech_final").
+  let isFinalBuffer = [];
   connection.on(LiveTranscriptionEvents.Transcript, (data) => {
-    const transcript = data?.channel?.alternatives?.[0]?.transcript ?? "";
-    const isFinal = data?.is_final === true || data?.speech_final === true;
-    if (transcript) emitTranscript(transcript, isFinal);
+    const transcript = (data?.channel?.alternatives?.[0]?.transcript ?? "").trim();
+    const isFinal = data?.is_final === true;
+    const speechFinal = data?.speech_final === true;
+    if (!transcript) return;
+    if (isFinal) isFinalBuffer.push(transcript);
+    if (speechFinal) {
+      const merged = isFinalBuffer.length > 0
+        ? isFinalBuffer.join(" ").replace(/\s+/g, " ").trim()
+        : transcript;
+      isFinalBuffer = [];
+      if (merged) emitTranscript(merged, true);
+    }
   });
 
   connection.on(LiveTranscriptionEvents.Error, (err) => {

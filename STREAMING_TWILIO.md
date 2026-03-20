@@ -67,8 +67,8 @@ Les paramètres `input_audio_format=pcm16` et `output_audio_format=pcm16` sont d
 | `DEEPGRAM_API_KEY` | Clé API Deepgram (optionnel) | Clé pour activer le STT Deepgram à la place du STT Realtime |
 | `USE_DEEPGRAM_STT` | Activer le STT Deepgram | `true` pour pipeline STT Deepgram → LLM → TTS (à brancher dans le code) |
 | `DEEPGRAM_MODEL` | Modèle Deepgram | `nova-3` par défaut |
-| `DEEPGRAM_ENDPOINTING_MS` | Silences (ms) avant de finaliser la phrase | 1800 par défaut ; plus élevé = moins de découpage (ex. liste pizzas sans hésitation) |
-| `DEEPGRAM_UTTERANCE_END_MS` | Gap (ms) pour émettre UtteranceEnd | 2200 par défaut (min 1000, max 5000) |
+| `DEEPGRAM_ENDPOINTING_MS` | Silences (ms) avant speech_final | 2500 par défaut ; plus élevé = moins de découpage (doc: concaténation is_final jusqu'à speech_final) |
+| `DEEPGRAM_UTTERANCE_END_MS` | Gap (ms) pour UtteranceEnd | 3200 par défaut (min 1000, max 5000) |
 | `DEEPGRAM_MERGE_WINDOW_MS` | Fenêtre (ms) pour fusionner plusieurs finals consécutifs en une phrase | 1400 par défaut ; si 2 finals arrivent dans cette fenêtre, fusion en 1 envoi à l'IA |
 
 ## STT optionnel : Deepgram
