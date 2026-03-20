@@ -896,6 +896,7 @@ wss.on("connection", (ws, req) => {
   let restaurantClosedByDaySummary = ""; // Ex: "Fermé le midi: dimanche. Fermé le soir: lundi."
   let takeawayEnabled = false;
   let takeawayProductsText = "";
+  let takeawayDeliveryEnabled = false;
   let tableReservationEnabled = true;
   let establishmentType = "restaurant"; // restaurant | pizzeria
   let callStartIso = "";
@@ -1400,6 +1401,10 @@ wss.on("connection", (ws, req) => {
     const t = String(text || "").trim();
     const lower = t.toLowerCase();
     if (!t) return true;
+    // Restaurant / takeaway : réponses courtes critiques à ne jamais filtrer (ex. "non merci" = fin d'ajout commande)
+    const criticalShortPhrases = ["non merci", "oui merci", "c'est tout", "rien d'autre", "non c'est tout", "voilà c'est tout"];
+    const normalizedForMatch = lower.replace(/\s+/g, " ").replace(/[.!?,;:]*$/, "").trim();
+    if (criticalShortPhrases.some(p => normalizedForMatch === p || normalizedForMatch.startsWith(p + " "))) return false;
     // Restaurant: certaines réponses très courtes sont des préfixes utiles
     // ("On préfère une table en intérieur/terrasse...") et ne doivent pas être filtrées.
     if (/^on$/i.test(t)) return false;
@@ -4330,6 +4335,7 @@ ${compactPersona}`;
           restaurantCurrentlyClosed: garageClosed,
           takeawayEnabled,
           takeawayProductsText,
+          takeawayDeliveryEnabled,
         }) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
@@ -4404,6 +4410,7 @@ ${compactPersona}`;
               restaurantCurrentlyClosed: garageClosed,
               takeawayEnabled,
               takeawayProductsText,
+              takeawayDeliveryEnabled,
             });
             let instructionsToSend = updatedRestaurantInstructions;
             if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
@@ -4505,6 +4512,7 @@ ${compactPersona}`;
               restaurantCurrentlyClosed: garageClosed,
               takeawayEnabled,
               takeawayProductsText,
+              takeawayDeliveryEnabled,
             });
             const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS
               ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES: réservation naturelle, une question à la fois.]"
@@ -6767,6 +6775,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalRestaurantClosedByDaySummary = startParams.restaurantClosedByDaySummary || "";
         const finalTakeawayEnabled = startParams.takeawayEnabled || "";
         const finalTakeawayProductsText = startParams.takeawayProductsText || "";
+        const finalTakeawayDeliveryEnabled = startParams.takeawayDeliveryEnabled || "";
         const finalTableReservationEnabled = startParams.tableReservationEnabled || "true";
         const finalEstablishmentType = String(startParams.establishmentType || "restaurant").trim().toLowerCase() || "restaurant";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
@@ -6840,6 +6849,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalRestaurantClosedByDaySummary === "string" && finalRestaurantClosedByDaySummary.trim()) restaurantClosedByDaySummary = String(finalRestaurantClosedByDaySummary).trim();
         if (typeof finalTakeawayEnabled === "string") takeawayEnabled = finalTakeawayEnabled.trim().toLowerCase() === "true";
         if (typeof finalTakeawayProductsText === "string" && finalTakeawayProductsText.trim()) takeawayProductsText = String(finalTakeawayProductsText).trim();
+        if (typeof finalTakeawayDeliveryEnabled === "string") takeawayDeliveryEnabled = finalTakeawayDeliveryEnabled.trim().toLowerCase() === "true";
         tableReservationEnabled = typeof finalTableReservationEnabled === "string" && finalTableReservationEnabled.trim().toLowerCase() === "true";
         establishmentType = finalEstablishmentType === "pizzeria" ? "pizzeria" : "restaurant";
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
