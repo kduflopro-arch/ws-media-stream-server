@@ -204,12 +204,34 @@ export function buildRestaurantInstructions(ctx) {
       const saucesList = go.sauces?.list || [];
       const saucesIncluded = go.sauces?.included_count ?? 2;
       const breadChoices = go.bread_choices || [];
+      const categories = snackConfig.categories || [];
+      const offerMenuCats = categories.filter(c => c.type !== "enfant" && (c.offer_menu !== false)).map(c => c.name).filter(Boolean);
+      const noMenuCats = categories.filter(c => c.type !== "enfant" && c.offer_menu === false).map(c => c.name).filter(Boolean);
       takeawayBase += " MODE SNACK (sandwichs, burgers, tacos, pizzas, menu enfant) : ";
       if (breadChoices.length) takeawayBase += " Choix pain : " + breadChoices.map(b => b.name).join(", ") + ". ";
       if (stoIncluded) takeawayBase += " STO inclus (Salade, Tomates, Oignons) : demande si le client veut en retirer. ";
       if (saucesList.length) takeawayBase += " Sauces : " + saucesList.join(", ") + " (" + saucesIncluded + " incluses). ";
-      if (menuPrice) takeawayBase += " Menu (+frites +boisson) : " + menuPrice + "€. ";
+      if (menuPrice) {
+        takeawayBase += " Menu (+frites +boisson) : " + menuPrice + "€";
+        if (noMenuCats.length) {
+          takeawayBase += " — proposer uniquement pour : " + (offerMenuCats.length ? offerMenuCats.join(", ") : "aucune catégorie") + ". Ne PAS proposer le menu pour : " + noMenuCats.join(", ") + ". ";
+        } else {
+          takeawayBase += ". ";
+        }
+      }
       if (extraMeatPrice) takeawayBase += " Supplément viande : " + extraMeatPrice + "€. ";
+      const pizzaCats = categories.filter(c => c.type === "pizza");
+      if (pizzaCats.length) {
+        const sizesList = [];
+        for (const pc of pizzaCats) {
+          const sizes = pc.options?.sizes ?? [];
+          for (const s of sizes) {
+            if (s?.name) sizesList.push(s.price ? `${s.name} (${s.price}€)` : s.name);
+          }
+        }
+        const uniqSizes = [...new Set(sizesList)];
+        if (uniqSizes.length) takeawayBase += " PIZZAS — Tailles disponibles : " + uniqSizes.join(", ") + ". **RÈGLE OBLIGATOIRE** : pour toute commande de pizza, si le client n'a pas précisé la taille, tu DOIS systématiquement demander « En quelle taille ? » ou proposer les tailles (ex. « 30 ou 35 centimètres ? ») avant de valider l'article. ";
+      }
     }
     takeawayBase += " Pour commencer : « Que souhaitez-vous commander ? ». **Si le client demande un produit qui n'est pas dans la liste, réponds : « Désolé, on ne fait pas ce produit. »** **Heure de récupération** : plages — midi " + takeawayLunchRange + ", soir " + takeawayDinnerRange + ".";
     contextLines.push(takeawayBase);
