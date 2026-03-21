@@ -5282,7 +5282,15 @@ But: être naturel et mettre le client en confiance.`,
                 "au revoir et bonne journée", "aurevoir et bonne journee", "au revoir, bonne journée", "aurevoir, bonne journee"
               ];
               const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = effectiveSector === "restaurant" ? 8000 : 5000; // restaurant: éviter hangup trop tôt
-              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_FOR_GOODBYE_MS) {
+              const lastUserForGoodbye = String(lastUserMessageText || "").trim().toLowerCase();
+              const lastUserShort = lastUserForGoodbye.length > 0 && lastUserForGoodbye.length < 25;
+              const lastUserExplicitGoodbye = /\b(au\s+revoir|aurevoir|bonne\s+journée|bonne\s+journee|à\s+bientôt|a\s+bientot|merci\s+au\s+revoir)\b/i.test(lastUserForGoodbye);
+              const aiSaysDeliveryConclusion = (low.includes("envoyer un message") || low.includes("vais vous envoyer") || low.includes("va vous envoyer")) && (low.includes("livraison") || low.includes("adresse"));
+              const possibleNameResponse = effectiveSector === "restaurant" && lastUserShort && !lastUserExplicitGoodbye && aiSaysDeliveryConclusion;
+              if (possibleNameResponse && isGoodbye) {
+                console.log("👋 Pas de hangup (dernier message client court = possible nom, ex. « non verra ») — attente clarification", { lastUser: lastUserForGoodbye.substring(0, 30) });
+              }
+              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_FOR_GOODBYE_MS && !possibleNameResponse) {
                 goodbyeDetected = true;
                 console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique après que l'audio soit terminé", {
                   callDuration: Math.round(callDurationMs / 1000) + "s",
@@ -5815,7 +5823,15 @@ But: être naturel et mettre le client en confiance.`,
                 "au revoir et bonne journée", "aurevoir et bonne journee", "au revoir, bonne journée", "aurevoir, bonne journee"
               ];
               const MIN_USER_INACTIVITY_FOR_GOODBYE_MS = effectiveSector === "restaurant" ? 8000 : 5000; // restaurant: éviter hangup trop tôt
-              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_FOR_GOODBYE_MS) {
+              const lastUserForGoodbye2 = String(lastUserMessageText || "").trim().toLowerCase();
+              const lastUserShort2 = lastUserForGoodbye2.length > 0 && lastUserForGoodbye2.length < 25;
+              const lastUserExplicitGoodbye2 = /\b(au\s+revoir|aurevoir|bonne\s+journée|bonne\s+journee|à\s+bientôt|a\s+bientot|merci\s+au\s+revoir)\b/i.test(lastUserForGoodbye2);
+              const aiSaysDeliveryConclusion2 = (low.includes("envoyer un message") || low.includes("vais vous envoyer") || low.includes("va vous envoyer")) && (low.includes("livraison") || low.includes("adresse"));
+              const possibleNameResponse2 = effectiveSector === "restaurant" && lastUserShort2 && !lastUserExplicitGoodbye2 && aiSaysDeliveryConclusion2;
+              if (possibleNameResponse2 && isGoodbye) {
+                console.log("👋 Pas de hangup (dernier message client court = possible nom, ex. « non verra ») — attente clarification", { lastUser: lastUserForGoodbye2.substring(0, 30) });
+              }
+              if (isGoodbye && !goodbyeDetected && callDurationMs >= MIN_CALL_DURATION_FOR_GOODBYE_MS && !possibleNameResponse2) {
                 goodbyeDetected = true;
                 console.log("👋 Détection fin d'échange (au revoir détecté), hangup automatique après que l'audio soit terminé", {
                   callDuration: Math.round(callDurationMs / 1000) + "s",
