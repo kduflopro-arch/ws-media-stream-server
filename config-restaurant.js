@@ -73,7 +73,7 @@ export const RESTAURANT_CALL_ANALYSIS_SCHEMA = {
               category_type: { type: "string", description: "Mode snack: sandwich/burger/tacos/etc" },
               sto_removed: { type: "array", items: { type: "string" }, description: "Mode snack: STO retirés (Salade, Tomates, Oignons)" },
             },
-            required: ["product", "quantity", "modifications", "supplements", "remove"],
+            required: ["product", "quantity", "modifications", "supplements", "remove", "bread", "size", "base", "meats", "supplements_list", "sauces", "as_menu", "formula_choice", "category_type", "sto_removed"],
             additionalProperties: false,
           },
         },
@@ -220,6 +220,14 @@ export function buildRestaurantInstructions(ctx) {
         }
       }
       if (extraMeatPrice) takeawayBase += " Supplément viande : " + extraMeatPrice + "€. ";
+      const tacosCats = categories.filter(c => c.type === "tacos");
+      if (tacosCats.length) {
+        const meatChoices = tacosCats.flatMap(c => (c.options?.meat_choices ?? [])).filter(Boolean);
+        const uniqMeats = [...new Set(meatChoices)];
+        if (uniqMeats.length) takeawayBase += " TACOS — Viandes au choix : " + uniqMeats.join(", ") + ". **RÈGLE OBLIGATOIRE** : Tacos 1 viande = 1 viande au choix, Tacos 2 viandes = 2 viandes au choix, Tacos 3 viandes = 3 viandes au choix. Pour CHAQUE tacos commandé, tu DOIS demander (1) quelles viandes le client veut (parmi la liste ci-dessus), (2) s'il le veut en menu (+frites +boisson) ou non (si la catégorie propose le menu). ";
+      }
+      const pizzaCats = categories.filter(c => c.type === "pizza");
+      if (pizzaCats.length) takeawayBase += " PIZZAS — Ne demande JAMAIS la base (tomate ou crème) : le nom de chaque pizza dans la liste inclut déjà sa base. Demande uniquement la taille (30 ou 35 centimètres) si le client ne l'a pas précisé. ";
     }
     takeawayBase += " Pour commencer : « Que souhaitez-vous commander ? ». **Si le client demande un produit qui n'est pas dans la liste, réponds : « Désolé, on ne fait pas ce produit. »** **Heure de récupération** : plages — midi " + takeawayLunchRange + ", soir " + takeawayDinnerRange + ".";
     contextLines.push(takeawayBase);
@@ -243,7 +251,7 @@ ${toneNote}
 # Formulation pour une voix naturelle (TTS)
 Tes réponses sont lues à voix haute. Pour que la conversation sonne **fluide et spontanée** : parle comme à l'oral — courtes confirmations puis la suite (« Parfait. », « D'accord. », « Très bien. ») avant d'enchaîner avec la question ou l'info. Évite les énumérations rigides et le ton scolaire ; privilégie le flux d'une vraie conversation téléphonique, avec des enchaînements naturels (confirmation + une question, pas trois questions d'un coup).
 - **Ne répète jamais la même phrase deux fois** dans une même réplique (une seule fois suffit). Si tu as dit une phrase, n'écris pas la même phrase à nouveau juste après.
-- **Orthographe** : toujours un espace avant les chiffres (ex. « avant 14 h », « à 13 h 30 », « pour 8 personnes », « le 16 mars »). Écris « 14 h » et « 13 h 30 », pas « 14h » ni « 13h30 ».
+- **Orthographe** : toujours un espace avant les chiffres (ex. « avant 14 h », « à 13 h 30 », « pour 8 personnes », « le 16 mars »). Écris « 14 h » et « 13 h 30 », pas « 14h » ni « 13h30 ». Pour les tailles : cm = centimètre(s) — quand tu parles d'une taille (pizza, etc.), dis « 30 centimètres » ou « 35 centimètres », pas « 30 cm ». Si le client dit « 30 cm » ou « 30cm », comprends que c'est 30 centimètres. **Tacos** : pour que le TTS prononce correctement, écris « tacosse » (et non « tacos ») quand tu dis le mot à voix haute.
 
 - **Aucun tag entre crochets** : n'écris jamais de mot entre crochets dans tes réponses (ex. [pause], [laughs], [warmly]). Le texte doit être lisible tel quel, sans balises. Reste naturel et chaleureux par le choix des mots, pas par des tags.
 
