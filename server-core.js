@@ -905,6 +905,8 @@ wss.on("connection", (ws, req) => {
   let restaurantClosedByDaySummary = ""; // Ex: "Fermé le midi: dimanche. Fermé le soir: lundi."
   let takeawayEnabled = false;
   let takeawayProductsText = "";
+  let takeawayMode = ""; // "pizza" | "sushi" | "snack"
+  let snackConfig = null; // objet parsé si takeawayMode === "snack"
   let takeawayDeliveryEnabled = false;
   let takeawayLunchOrderStart = "11:30";
   let takeawayLunchOrderEnd = "14:00";
@@ -4394,6 +4396,8 @@ ${compactPersona}`;
           restaurantCurrentlyClosed: garageClosed,
           takeawayEnabled,
           takeawayProductsText,
+          takeawayMode,
+          snackConfig,
           takeawayDeliveryEnabled,
           takeawayLunchOrderStart,
           takeawayLunchOrderEnd,
@@ -4473,6 +4477,8 @@ ${compactPersona}`;
               restaurantCurrentlyClosed: garageClosed,
               takeawayEnabled,
               takeawayProductsText,
+              takeawayMode,
+              snackConfig,
               takeawayDeliveryEnabled,
               takeawayLunchOrderStart,
               takeawayLunchOrderEnd,
@@ -4579,6 +4585,8 @@ ${compactPersona}`;
               restaurantCurrentlyClosed: garageClosed,
               takeawayEnabled,
               takeawayProductsText,
+              takeawayMode,
+              snackConfig,
               takeawayDeliveryEnabled,
               takeawayLunchOrderStart,
               takeawayLunchOrderEnd,
@@ -6850,6 +6858,8 @@ But: être naturel et mettre le client en confiance.`,
         const finalRestaurantClosedByDaySummary = startParams.restaurantClosedByDaySummary || "";
         const finalTakeawayEnabled = startParams.takeawayEnabled || "";
         const finalTakeawayProductsText = startParams.takeawayProductsText || "";
+        const finalTakeawayMode = startParams.takeawayMode || "";
+        const finalSnackConfig = startParams.snackConfig || "";
         const finalTakeawayDeliveryEnabled = startParams.takeawayDeliveryEnabled || "";
         const finalTakeawayLunchOrderStart = startParams.takeawayLunchOrderStart || "";
         const finalTakeawayLunchOrderEnd = startParams.takeawayLunchOrderEnd || "";
@@ -6928,6 +6938,10 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalRestaurantClosedByDaySummary === "string" && finalRestaurantClosedByDaySummary.trim()) restaurantClosedByDaySummary = String(finalRestaurantClosedByDaySummary).trim();
         if (typeof finalTakeawayEnabled === "string") takeawayEnabled = finalTakeawayEnabled.trim().toLowerCase() === "true";
         if (typeof finalTakeawayProductsText === "string" && finalTakeawayProductsText.trim()) takeawayProductsText = String(finalTakeawayProductsText).trim();
+        if (typeof finalTakeawayMode === "string" && finalTakeawayMode.trim()) takeawayMode = String(finalTakeawayMode).trim().toLowerCase();
+        if (typeof finalSnackConfig === "string" && finalSnackConfig.trim()) {
+          try { snackConfig = JSON.parse(finalSnackConfig); } catch (e) { snackConfig = null; }
+        }
         if (typeof finalTakeawayDeliveryEnabled === "string") takeawayDeliveryEnabled = finalTakeawayDeliveryEnabled.trim().toLowerCase() === "true";
         if (typeof finalTakeawayLunchOrderStart === "string" && /^\d{1,2}:\d{2}$/.test(String(finalTakeawayLunchOrderStart).trim())) takeawayLunchOrderStart = String(finalTakeawayLunchOrderStart).trim();
         if (typeof finalTakeawayLunchOrderEnd === "string" && /^\d{1,2}:\d{2}$/.test(String(finalTakeawayLunchOrderEnd).trim())) takeawayLunchOrderEnd = String(finalTakeawayLunchOrderEnd).trim();
