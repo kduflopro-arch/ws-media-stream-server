@@ -220,18 +220,6 @@ export function buildRestaurantInstructions(ctx) {
         }
       }
       if (extraMeatPrice) takeawayBase += " Supplément viande : " + extraMeatPrice + "€. ";
-      const pizzaCats = categories.filter(c => c.type === "pizza");
-      if (pizzaCats.length) {
-        const sizesList = [];
-        for (const pc of pizzaCats) {
-          const sizes = pc.options?.sizes ?? [];
-          for (const s of sizes) {
-            if (s?.name) sizesList.push(s.price ? `${s.name} (${s.price}€)` : s.name);
-          }
-        }
-        const uniqSizes = [...new Set(sizesList)];
-        if (uniqSizes.length) takeawayBase += " PIZZAS — Tailles disponibles : " + uniqSizes.join(", ") + ". **RÈGLE OBLIGATOIRE** : pour toute commande de pizza, si le client n'a pas précisé la taille, tu DOIS systématiquement demander « En quelle taille ? » ou proposer les tailles (ex. « 30 ou 35 centimètres ? ») avant de valider l'article. ";
-      }
     }
     takeawayBase += " Pour commencer : « Que souhaitez-vous commander ? ». **Si le client demande un produit qui n'est pas dans la liste, réponds : « Désolé, on ne fait pas ce produit. »** **Heure de récupération** : plages — midi " + takeawayLunchRange + ", soir " + takeawayDinnerRange + ".";
     contextLines.push(takeawayBase);
