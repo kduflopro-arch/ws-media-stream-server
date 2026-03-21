@@ -200,14 +200,16 @@ export function buildRestaurantInstructions(ctx) {
       const go = snackConfig.global_options || {};
       const stoIncluded = go.sto_included !== false;
       const menuPrice = go.menu_upgrade_price || "";
+      const extraMeatPrice = go.extra_meat_price || "";
       const saucesList = go.sauces?.list || [];
       const saucesIncluded = go.sauces?.included_count ?? 2;
       const breadChoices = go.bread_choices || [];
-      takeawayBase += " MODE SNACK (sandwichs, burgers, tacos, etc.) : ";
+      takeawayBase += " MODE SNACK (sandwichs, burgers, tacos, pizzas, menu enfant) : ";
       if (breadChoices.length) takeawayBase += " Choix pain : " + breadChoices.map(b => b.name).join(", ") + ". ";
       if (stoIncluded) takeawayBase += " STO inclus (Salade, Tomates, Oignons) : demande si le client veut en retirer. ";
       if (saucesList.length) takeawayBase += " Sauces : " + saucesList.join(", ") + " (" + saucesIncluded + " incluses). ";
       if (menuPrice) takeawayBase += " Menu (+frites +boisson) : " + menuPrice + "€. ";
+      if (extraMeatPrice) takeawayBase += " Supplément viande : " + extraMeatPrice + "€. ";
     }
     takeawayBase += " Pour commencer : « Que souhaitez-vous commander ? ». **Si le client demande un produit qui n'est pas dans la liste, réponds : « Désolé, on ne fait pas ce produit. »** **Heure de récupération** : plages — midi " + takeawayLunchRange + ", soir " + takeawayDinnerRange + ".";
     contextLines.push(takeawayBase);
