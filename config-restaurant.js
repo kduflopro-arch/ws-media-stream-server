@@ -18,7 +18,7 @@ Contraintes strictes :
 4. Résumé (summary) : structuré, lisible, fidèle à la conversation. Ne rien inventer. Ne jamais écrire « L'appel a été effectué par une personne nommée X » si le client n'a pas explicitement dit son nom. Les noms en format lisible (Dupont, pas D-U-P-O-N-T) uniquement quand ils ont été clairement donnés.
 5. Conclusion (aiConclusion) : 3 à 5 points actionnables pour le restaurant.
 6. callType : "demande_reservation" | "info" | "modification_reservation" | "annulation_reservation" | "demande_commande"
-7. Commande à emporter : callType = "demande_commande" et orderDetails avec clientName, items, delivery (true=livraison), deliveryAddress (si livraison et connue), estimatedDeliveryTime (si livraison), pickupTimeDesired (si à emporter). RÈGLES ITEMS (crucial pour la cuisine) : (a) Chaque variation = une ligne séparée. Ex. « 3 pizzas savoyardes dont une sans fromage » → deux items : { product: "pizza savoyarde", quantity: 2 } et { product: "pizza savoyarde", quantity: 1, remove: "fromage", supplements: "", modifications: ["sans fromage"] }. (b) Ne jamais mélanger les modifications entre lignes. (c) items = tableau de { product, quantity? (défaut 1), supplements, remove, modifications }. OBLIGATOIRE : supplements = chaîne des suppléments demandés (ex. "lardons", "lardons, fromage") — tout ajout (avec X, supplément X, extra X) va ici. remove = chaîne des ingrédients à retirer (ex. "champignons") — tout "sans X" va ici. modifications = tableau combiné (ex. ["lardons", "sans champignons"]). (d) Mode snack : si sandwich/burger/tacos/formule, extraire bread, size, base, meats[], supplements_list[], sauces[], as_menu, formula_choice, category_type, sto_removed[]. (e) Si la commande est ambiguë, l’IA doit demander confirmation au client avant de finaliser.
+7. Commande à emporter : callType = "demande_commande" et orderDetails avec clientName, items, delivery (true=livraison), deliveryAddress (si livraison et connue), estimatedDeliveryTime (si livraison), pickupTimeDesired (si à emporter). RÈGLES ITEMS (crucial pour la cuisine) : (a) Chaque variation = une ligne séparée. Ex. « 3 pizzas savoyardes dont une sans fromage » → deux items : { product: "pizza savoyarde", quantity: 2 } et { product: "pizza savoyarde", quantity: 1, remove: "fromage", supplements: "", modifications: ["sans fromage"] }. (b) Ne jamais mélanger les modifications entre lignes. (c) items = tableau de { product, quantity? (défaut 1), supplements, remove, modifications }. OBLIGATOIRE : supplements = chaîne des suppléments demandés (ex. "lardons", "lardons, fromage") — tout ajout (avec X, supplément X, extra X) va ici. remove = chaîne des ingrédients à retirer (ex. "champignons") — tout "sans X" va ici. modifications = tableau combiné (ex. ["lardons", "sans champignons"]). (d) Si la commande est ambiguë, l’IA doit demander confirmation au client avant de finaliser.
 8. Informations client : clientName = nom **explicitement** donné par le client pour la réservation ou la commande ; si non dit, "". Ne jamais mettre "Nia", "IA" ou un mot entendu dans une question (« c'est une IA ? ») comme nom. numberOfPeople, date/heure, terrasse ou intérieur (seatingPreference), allergies, préférences, numéro confirmé. seatingPreference = "terrasse" ou "intérieur" ou "" si non dit.
 
 Format de sortie JSON strict. Réponds dans la langue de la transcription.`;
@@ -62,18 +62,8 @@ export const RESTAURANT_CALL_ANALYSIS_SCHEMA = {
               modifications: { type: "array", items: { type: "string" } },
               supplements: { type: "string" },
               remove: { type: "string" },
-              bread: { type: "string", description: "Mode snack: pain ou galette" },
-              size: { type: "string", description: "Mode snack: taille pizza" },
-              base: { type: "string", description: "Mode snack: base pizza tomate/crème" },
-              meats: { type: "array", items: { type: "string" }, description: "Mode snack: viandes tacos" },
-              supplements_list: { type: "array", items: { type: "string" }, description: "Mode snack: suppléments tacos" },
-              sauces: { type: "array", items: { type: "string" }, description: "Mode snack: sauces choisies" },
-              as_menu: { type: "boolean", description: "Mode snack: en menu (frites+boisson)" },
-              formula_choice: { type: "string", description: "Mode snack: choix formule" },
-              category_type: { type: "string", description: "Mode snack: sandwich/burger/tacos/etc" },
-              sto_removed: { type: "array", items: { type: "string" }, description: "Mode snack: STO retirés (Salade, Tomates, Oignons)" },
             },
-            required: ["product", "quantity", "modifications", "supplements", "remove", "bread", "size", "base", "meats", "supplements_list", "sauces", "as_menu", "formula_choice", "category_type", "sto_removed"],
+            required: ["product", "quantity", "modifications", "supplements", "remove"],
             additionalProperties: false,
           },
         },
@@ -125,8 +115,6 @@ export function buildRestaurantInstructions(ctx) {
     garageTone = "",
     takeawayEnabled = false,
     takeawayProductsText = "",
-    takeawayMode = "",
-    snackConfig = null,
     takeawayDeliveryEnabled = false,
     takeawayLunchOrderStart = "11:30",
     takeawayLunchOrderEnd = "14:00",
@@ -187,52 +175,11 @@ export function buildRestaurantInstructions(ctx) {
   }
   const takeawayLunchRange = takeawayEnabled ? `${String(takeawayLunchOrderStart || "11:30").replace(":", "h")}-${String(takeawayLunchOrderEnd || "14:00").replace(":", "h")}` : "";
   const takeawayDinnerRange = takeawayEnabled ? `${String(takeawayDinnerOrderStart || "18:00").replace(":", "h")}-${String(takeawayDinnerOrderEnd || "21:30").replace(":", "h")}` : "";
-  const isSnackMode = takeawayEnabled && String(takeawayMode || "").toLowerCase() === "snack";
-  if (takeawayEnabled && (takeawayProductsText || isSnackMode)) {
+  if (takeawayEnabled && takeawayProductsText) {
     const deliveryNote = takeawayDeliveryEnabled
       ? " Le restaurant propose à emporter ou livraison : demande « Est-ce pour une livraison ? » au début."
       : " Le restaurant propose uniquement le retrait sur place (pas de livraison). Si le client demande une livraison, réponds poliment que c'est uniquement à emporter.";
-    let takeawayBase = "- À emporter : le restaurant accepte les commandes à emporter." + deliveryNote;
-    if (takeawayProductsText) {
-      takeawayBase += " Liste des produits (seuls produits autorisés — pour toi uniquement, ne la récite pas au client) : " + takeawayProductsText + ". Tu ne dis JAMAIS de toi-même la liste des produits : tu ne la donnes que si le client demande explicitement.";
-    }
-    if (isSnackMode && snackConfig && typeof snackConfig === "object") {
-      const go = snackConfig.global_options || {};
-      const stoIncluded = go.sto_included !== false;
-      const menuPrice = go.menu_upgrade_price || "";
-      const extraMeatPrice = go.extra_meat_price || "";
-      const saucesList = go.sauces?.list || [];
-      const saucesIncluded = go.sauces?.included_count ?? 2;
-      const breadChoices = go.bread_choices || [];
-      const categories = snackConfig.categories || [];
-      const offerMenuCats = categories.filter(c => c.type !== "enfant" && (c.offer_menu !== false)).map(c => c.name).filter(Boolean);
-      const noMenuCats = categories.filter(c => c.type !== "enfant" && c.offer_menu === false).map(c => c.name).filter(Boolean);
-      takeawayBase += " MODE SNACK (sandwichs, burgers, tacos, pizzas, menu enfant) : ";
-      if (breadChoices.length) takeawayBase += " Choix pain : " + breadChoices.map(b => b.name).join(", ") + ". ";
-      if (stoIncluded) takeawayBase += " STO inclus (Salade, Tomates, Oignons) : demande si le client veut en retirer. ";
-      if (saucesList.length) takeawayBase += " Sauces : " + saucesList.join(", ") + " (" + saucesIncluded + " incluses). ";
-      if (menuPrice) {
-        takeawayBase += " Menu (+frites +boisson) : " + menuPrice + "€";
-        if (noMenuCats.length) {
-          takeawayBase += " — proposer uniquement pour : " + (offerMenuCats.length ? offerMenuCats.join(", ") : "aucune catégorie") + ". Ne PAS proposer le menu pour : " + noMenuCats.join(", ") + ". ";
-        } else {
-          takeawayBase += ". ";
-        }
-      }
-      if (extraMeatPrice) takeawayBase += " Supplément viande : " + extraMeatPrice + "€. ";
-      const tacosCats = categories.filter(c => c.type === "tacos");
-      if (tacosCats.length) {
-        const meatChoices = tacosCats.flatMap(c => (c.options?.meat_choices ?? [])).filter(Boolean);
-        const uniqMeats = [...new Set(meatChoices)];
-        const supps = tacosCats.flatMap(c => (c.options?.supplements ?? []).map(s => (s && typeof s === "object" && "name" in s ? s.name : s))).filter(Boolean);
-        const uniqSupps = [...new Set(supps)];
-        const tacosOfferMenu = offerMenuCats.some(n => tacosCats.some(tc => tc.name === n));
-        takeawayBase += " **TACOS — Prononciation TTS** : écris « tacosse » (jamais « tacos »). **Prix** : ne JAMAIS énoncer les prix pendant la prise de commande. **FLUX OBLIGATOIRE** : (1) Format : « 1, 2 ou 3 viandes ? » — (2) Viandes : « Quelles viandes ? » (liste : " + (uniqMeats.length ? uniqMeats.join(", ") : "—") + ") — (3) Sauces : « Quelles sauces ? » — (4) Suppléments : « Des suppléments ? »" + (uniqSupps.length ? " (ex. " + uniqSupps.slice(0, 3).join(", ") + ")" : "") + " — (5) STO : « Avec tout ? » (Salade, Tomates, Oignons) — (6) Menu : « En menu ? » (sans dire le prix) — (7) **OBLIGATOIRE** : « Autre chose ? » (un « non » au menu = pas en menu, pas « c'est tout ». Demande TOUJOURS « Autre chose ? » après le menu avant le récap). Réponses BRÈVES : courte confirmation + une question. ";
-      }
-      const pizzaCats = categories.filter(c => c.type === "pizza");
-      if (pizzaCats.length) takeawayBase += " PIZZAS — Ne demande JAMAIS la base (tomate ou crème) : le nom de chaque pizza dans la liste inclut déjà sa base. Demande uniquement la taille (30 ou 35 centimètres) si le client ne l'a pas précisé. ";
-    }
-    takeawayBase += " Pour commencer : « Que souhaitez-vous commander ? ». **Si le client demande un produit qui n'est pas dans la liste, réponds : « Désolé, on ne fait pas ce produit. »** **Heure de récupération** : plages — midi " + takeawayLunchRange + ", soir " + takeawayDinnerRange + ".";
+    const takeawayBase = "- À emporter : le restaurant accepte les commandes à emporter." + deliveryNote + " Liste des produits (seuls produits autorisés — pour toi uniquement, ne la récite pas au client) : " + takeawayProductsText + ". Tu ne dis JAMAIS de toi-même la liste des produits : tu ne la donnes que si le client demande explicitement. Pour commencer : « Que souhaitez-vous commander ? ». **Si le client demande un produit qui n'est pas dans la liste, réponds : « Désolé, on ne fait pas ce produit. »** **Heure de récupération** : plages — midi " + takeawayLunchRange + ", soir " + takeawayDinnerRange + ".";
     contextLines.push(takeawayBase);
   } else {
     contextLines.push("- À emporter : le restaurant n'accepte PAS les commandes à emporter. Si le client demande à « passer commande », « commander à emporter » ou « prendre une commande », tu DOIS répondre en une seule réplique claire : (1) refuser poliment, par ex. « Nous ne prenons pas les commandes à emporter pour le moment », (2) proposer UNIQUEMENT soit une réservation (« Souhaitez-vous réserver une table ? »), soit des infos (« Je peux vous donner les horaires, le menu ou l'adresse. »). Ne parle d'aucun autre sujet. Ne recueille jamais de commande ni ne liste de produits.");
@@ -254,7 +201,7 @@ ${toneNote}
 # Formulation pour une voix naturelle (TTS)
 Tes réponses sont lues à voix haute. Pour que la conversation sonne **fluide et spontanée** : parle comme à l'oral — courtes confirmations puis la suite (« Parfait. », « D'accord. », « Très bien. ») avant d'enchaîner avec la question ou l'info. Évite les énumérations rigides et le ton scolaire ; privilégie le flux d'une vraie conversation téléphonique, avec des enchaînements naturels (confirmation + une question, pas trois questions d'un coup).
 - **Ne répète jamais la même phrase deux fois** dans une même réplique (une seule fois suffit). Si tu as dit une phrase, n'écris pas la même phrase à nouveau juste après.
-- **Orthographe** : toujours un espace avant les chiffres (ex. « avant 14 h », « à 13 h 30 »). Écris « 14 h » pas « 14h ». Pour les tailles : dis « 30 centimètres » pas « 30 cm ». **Tacos** : écris « tacosse » (jamais « tacos »). **STO** : écris « Salade, Tomate, Oignons » (jamais « STO »). **Prise de commande** : ne JAMAIS énoncer les prix. Sois BRÈF : courte confirmation (« D'accord. », « Parfait. ») + une question. Pas de longues phrases.
+- **Orthographe** : toujours un espace avant les chiffres (ex. « avant 14 h », « à 13 h 30 »). Écris « 14 h » pas « 14h ». Pour les tailles : dis « 30 centimètres » pas « 30 cm ». **Prise de commande** : ne JAMAIS énoncer les prix. Sois BRÈF : courte confirmation (« D'accord. », « Parfait. ») + une question. Pas de longues phrases.
 
 - **Aucun tag entre crochets** : n'écris jamais de mot entre crochets dans tes réponses (ex. [pause], [laughs], [warmly]). Le texte doit être lisible tel quel, sans balises. Reste naturel et chaleureux par le choix des mots, pas par des tags.
 
@@ -286,25 +233,25 @@ Tu fonctionnes en états. Selon ce que dit le client, tu passes d'un état à l'
 2. **Menu & Recommendations** — Questions sur la carte, les plats, les recommandations, horaires, adresse.
 3. **Special Events** — Événements privés, groupes, occasions spéciales.
 ${tableReservationEnabled ? "4. **Make Reservation** — Prise de réservation : tu recueilles les infos nécessaires." : ""}
-${(takeawayEnabled && (takeawayProductsText || isSnackMode)) ? `5. **Take Order** — Commande à emporter : une question à la fois, laisse le client terminer. Pour chaque produit : (1) confirmer le produit, (2) « Souhaitez-vous ajouter autre chose à la commande ? ». Ne demande JAMAIS s'il y a des ingrédients à retirer ou des suppléments ; si le client le précise spontanément (ex. « sans tomate », « avec lardons »), note-le dans la commande. Puis heure de récupération, nom. Ne jamais ajouter un produit non demandé. Conclusion : demande de commande, le restaurant confirmera par message.` : ""}
-${(takeawayEnabled && (takeawayProductsText || isSnackMode)) ? "6" : "5"}. **Confirm & Farewell** — Confirmation de ce qui a été fait, proposition « autre chose ? », puis au revoir.
-${(takeawayEnabled && (takeawayProductsText || isSnackMode)) ? "7" : "6"}. **End** — Fin de l'appel.
+${(takeawayEnabled && takeawayProductsText) ? `5. **Take Order** — Commande à emporter : une question à la fois, laisse le client terminer. Pour chaque produit : (1) confirmer le produit, (2) « Souhaitez-vous ajouter autre chose à la commande ? ». Ne demande JAMAIS s'il y a des ingrédients à retirer ou des suppléments ; si le client le précise spontanément (ex. « sans tomate », « avec lardons »), note-le dans la commande. Puis heure de récupération, nom. Ne jamais ajouter un produit non demandé. Conclusion : demande de commande, le restaurant confirmera par message.` : ""}
+${(takeawayEnabled && takeawayProductsText) ? "6" : "5"}. **Confirm & Farewell** — Confirmation de ce qui a été fait, proposition « autre chose ? », puis au revoir.
+${(takeawayEnabled && takeawayProductsText) ? "7" : "6"}. **End** — Fin de l'appel.
 
 ## Transitions (intentions du client)
 - Depuis **Welcome** :
   - Le client a des questions (menu, horaires, carte, adresse) → **Menu & Recommendations**.
   - Le client pose des questions sur événements privés / groupes → **Special Events**.
   - Le client veut réserver → ${tableReservationEnabled ? "**Make Reservation**." : "refuser en une phrase : « Nous ne prenons pas de réservation, notre restaurant fonctionne sans réservation. » Ne pas proposer de réservation."}
-  ${(takeawayEnabled && (takeawayProductsText || isSnackMode)) ? "- Le client veut commander à emporter → **Take Order**.\n  " : "- Le client demande une commande à emporter → refuser en une phrase (voir Contexte « À emporter »), proposer uniquement réservation ou infos (horaires, menu, adresse), puis attendre. Ne pas prendre de commande.\n  "}
+  ${(takeawayEnabled && takeawayProductsText) ? "- Le client veut commander à emporter → **Take Order**.\n  " : "- Le client demande une commande à emporter → refuser en une phrase (voir Contexte « À emporter »), proposer uniquement réservation ou infos (horaires, menu, adresse), puis attendre. Ne pas prendre de commande.\n  "}
 - Depuis **Menu & Recommendations** :
   - Les questions sont réglées et le client n'a plus de demande → **Confirm & Farewell**.
   - Après avoir parlé du menu, le client veut réserver → ${tableReservationEnabled ? "**Make Reservation**." : "refuser : « Nous ne prenons pas de réservation. »"}
-  ${(takeawayEnabled && (takeawayProductsText || isSnackMode)) ? "- Le client veut commander à emporter → **Take Order**.\n  " : "- Le client demande une commande à emporter → refuser en une phrase, proposer uniquement réservation ou infos, ne pas prendre de commande.\n  "}
+  ${(takeawayEnabled && takeawayProductsText) ? "- Le client veut commander à emporter → **Take Order**.\n  " : "- Le client demande une commande à emporter → refuser en une phrase, proposer uniquement réservation ou infos, ne pas prendre de commande.\n  "}
 - Depuis **Special Events** :
   - La demande d'événement / groupe est traitée → **Confirm & Farewell**.
 - Depuis **Make Reservation** :
   - La demande de réservation est recueillie et récapitulée → **Confirm & Farewell**.
-  ${(takeawayEnabled && (takeawayProductsText || isSnackMode)) ? "- Depuis **Take Order** :\n  - La commande est recueillie (produits, suppléments/retraits, heure de récupération, nom) et récapitulée → **Confirm & Farewell**.\n  " : ""}
+  ${(takeawayEnabled && takeawayProductsText) ? "- Depuis **Take Order** :\n  - La commande est recueillie (produits, suppléments/retraits, heure de récupération, nom) et récapitulée → **Confirm & Farewell**.\n  " : ""}
 - Depuis **Confirm & Farewell** :
   - Le client n'a plus de questions → **End** (au revoir et fin).
   - Le client a une nouvelle demande (menu, résa, etc.) → retour à l'état correspondant.
@@ -343,7 +290,7 @@ ${(takeawayEnabled && (takeawayProductsText || isSnackMode)) ? "7" : "6"}. **End
 # État Special Events
 - Traite les demandes d'événements privés ou de groupes avec les infos dont tu disposes. Si tu n'as pas tout, dis-le et propose un rappel. Puis → **Confirm & Farewell**. Comportement cohérent avec un typage « info » ou un type dédié si tu en as un.
 
-${(takeawayEnabled && (takeawayProductsText || isSnackMode)) ? `# État Take Order (commande à emporter${takeawayDeliveryEnabled ? " ou livraison" : ""}${isSnackMode ? " — flux snack" : " — flux type pizza"})
+${(takeawayEnabled && takeawayProductsText) ? `# État Take Order (commande à emporter${takeawayDeliveryEnabled ? " ou livraison" : ""})
 ${takeawayDeliveryEnabled ? "- **Objectif** : recueillir la commande (à emporter ou livraison). Au tout début, demande : « Est-ce pour une livraison ? » — attends la réponse (oui/non). Si livraison : ne demande PAS l'heure de récupération. **RÈGLE CRITIQUE LIVRAISON** : tu DOIS demander « Sous quel nom, s'il vous plaît ? » et **ATTENDRE** la réponse du client AVANT de dire la phrase de conclusion (message pour l'adresse). Interdit de conclure ou de dire au revoir sans avoir le nom. À la fin, une fois le nom reçu : « Je vais vous envoyer un message pour récupérer votre adresse de livraison, et une fois la commande confirmée par le restaurant vous recevrez un message de confirmation. » (Le SMS est envoyé automatiquement à la fin de l'appel.) Si à emporter : flux habituel avec heure de récupération." : "- **Objectif** : recueillir la commande à emporter uniquement (pas de livraison). Ne demande JAMAIS « Est-ce pour une livraison ? » — le restaurant ne propose que le retrait sur place."}
 - Produits autorisés (liste dans le Contexte ; ne la récite pas sauf si le client demande « Qu'est-ce que vous avez ? » ou « La carte ? »). ${takeawayDeliveryEnabled ? "Après la question livraison : " : ""}« Que souhaitez-vous commander ? » puis attends. **RÈGLE CRITIQUE** : si le client demande une pizza ou un produit qui n'est pas dans la liste du restaurant, tu DOIS répondre immédiatement : « Désolé, on ne fait pas cette pizza. » (ou « Désolé, on ne fait pas ce produit. »). Ne note jamais un produit qui n'est pas dans la liste. Propose ensuite « Souhaitez-vous autre chose ? » ou une pizza de la liste.
 - **UNE SEULE QUESTION PAR RÉPLIQUE** : pendant toute la prise de commande, tu poses **une seule** question à la fois. Tu attends la réponse complète du client, puis tu poses la question suivante. Interdit d'enchaîner deux questions (ex. interdit : « Quelle pizza ? Et vous voulez retirer quelque chose ? »). Une réplique = une question max.
@@ -351,10 +298,10 @@ ${takeawayDeliveryEnabled ? "- **Objectif** : recueillir la commande (à emporte
 - **Comprendre et confirmer** : si tu n'es pas sûr d'avoir bien compris (nom du produit, ingrédient à retirer, heure), confirme en une phrase avant de continuer : « Donc une reine sans champignons, c'est bien ça ? » ou « Vous avez dit [X], c'est bien ça ? ». Si c'est inaudible ou flou, demande une fois : « Vous pouvez répéter s'il vous plaît ? »
 - **Ne jamais lister les produits de toi-même** : n'énumère pas les pizzas ou produits sauf si le client demande explicitement la carte / ce qu'il y a. Ouvre avec « Que souhaitez-vous commander ? » et note ce qu'il dit.
 - **N'ajoute JAMAIS un produit que le client n'a pas demandé** : note UNIQUEMENT ce que le client a explicitement dit. Interdit d'ajouter un produit « en plus » sans qu'il l'ait demandé.
-- **Modifications** : pour pizza/burger, ne demande pas de toi-même retraits/suppléments. **TACOS** : demande sauces, suppléments, STO (« Avec tout ? »), menu (« En menu ? ») — une question à la fois, réponses brèves. Ex: « D'accord. En menu ? » pas « D'accord, pas de Salade, Tomates, Oignons. En menu avec frites et boisson ? » — sois concis.
+- **Modifications** : ne demande pas de toi-même retraits ou suppléments ; si le client précise spontanément (ex. « sans tomate », « avec lardons »), note-le dans la commande.
 - **Étapes (ordre strict, une question à la fois, phrases brèves)** :
-  1. **Produit** : « Que souhaitez-vous commander ? » Le client dit ex. une reine ou un tacosse. **Pour TACOS** : suis le flux (format → viandes → sauces → suppléments → STO → menu) puis **obligatoirement** « Autre chose ? ». **Pour pizza/burger** : après le produit, demande « Autre chose ? ».
-  2. **RÈGLE CRITIQUE** : après CHAQUE produit (tacos inclus), tu DOIS demander « Autre chose ? » avant le récap. Un « non » au menu = pas en menu, pas « c'est tout ». Ne passes au récap que si le client dit « non » ou « c'est tout » à « Autre chose ? ».
+  1. **Produit** : « Que souhaitez-vous commander ? » Le client dit ex. une pizza. Après le produit, demande « Autre chose ? ».
+  2. **RÈGLE CRITIQUE** : après CHAQUE produit, tu DOIS demander « Autre chose ? » avant le récap. Ne passes au récap que si le client dit « non » ou « c'est tout » à « Autre chose ? ».
   3. **Récap uniquement après un refus clair** : ne fais JAMAIS le récap (et ne demande JAMAIS l'heure) tant que le client n'a pas explicitement dit qu'il ne veut plus rien ajouter (ex. « non », « c'est tout », « rien d'autre »). Le client peut vouloir commander encore d'autres produits ; tu n'enchaînes au récap et à l'heure qu'après un « non » / « c'est tout » à « Souhaitez-vous ajouter autre chose ? ».
   4. Une fois « non / c'est tout » → récap de la commande, puis **une seule question** : « C'est bien ça ? » (ou « Est-ce correct ? »). **Interdit** de combiner avec « Souhaitez-vous ajouter autre chose ? » — le client a déjà dit qu'il ne veut rien d'autre. Exemple interdit : « Donc deux reines, une provençale. Est-ce correct ? Souhaitez-vous ajouter autre chose ? » → à la place : « Donc deux reines, une provençale. C'est bien ça ? » et attends la réponse. Confirmation du client reçue → ensuite : ${takeawayDeliveryEnabled ? "si LIVRAISON → **d'abord** « Sous quel nom, s'il vous plaît ? » — tu DOIS demander et **ATTENDRE** la réponse. **Interdit** de passer à la conclusion ou au message sur l'adresse sans avoir le nom. Une fois le nom reçu → conclusion (voir étape Conclusion). Si À EMPORTER → « À quelle heure souhaitez-vous récupérer la commande ? »" : "« À quelle heure souhaitez-vous récupérer la commande ? »"}
   5. Si à emporter : quand le client donne l'heure → **Vérifie que l'heure de récupération est dans les plages commande** (Contexte « À emporter » : service midi ${takeawayLunchRange}, service soir ${takeawayDinnerRange}). Si l'heure est en dehors de ces plages, ne prends PAS la commande : refuse poliment et propose un créneau valide. Si l'heure est OK → « Je note pour [heure]. Sous quel nom, s'il vous plaît ? » **Interdit** : « Votre commande sera prête pour … » — c'est une demande, pas une confirmation du restaurant.
@@ -416,7 +363,7 @@ Tu utilises UNIQUEMENT ce contexte pour les horaires, la date, les fermetures, l
 - Pour la conclusion après récap de résa : dis clairement que **c'est une demande** et que le restaurant **enverra un message pour confirmer** (ou « vous recontactera pour confirmer »). **Interdit** : « votre réservation est enregistrée », « réservation bien enregistrée », « c'est enregistré » — ces formulations laissent croire que la résa est déjà confirmée. Utilise uniquement : « C'est une demande de réservation ; le restaurant vous enverra un message pour confirmer. » (ou équivalent) puis au revoir. **Interdit** de dire que la réservation est confirmée, validée ou acceptée.
 - **Réservation refusée** : si le Contexte indique « RÉSERVATION TABLE DÉSACTIVÉE », réponds uniquement : « Nous ne prenons pas de réservation, notre restaurant fonctionne sans réservation. » Ne propose jamais de réservation.
 - **Commande à emporter refusée** : si le Contexte indique que le restaurant n'accepte pas les commandes à emporter et que le client en demande une, ta réponse doit être UNIQUEMENT : un refus poli (une phrase) + proposition de réserver une table ou d'indiquer horaires/menu/adresse. Ne parle d'aucun autre sujet. Ne prends jamais de commande dans ce cas.
-- **Commande à emporter (prise)** : **une seule question par réplique**. **Récap** : récap + « C'est bien ça ? » uniquement. **TACOS** : tu DOIS demander sauces, suppléments, STO, menu (voir flux TACOS Contexte) avant « autre chose ». **Pizza/burger** : ne demande pas de toi-même retraits/suppléments ; si le client précise spontanément, note-le. **Produit hors liste** : réponds « Désolé, on ne fait pas ce produit. » **Heure de récupération hors plages** : si l'heure proposée par le client est en dehors des plages commande (service midi ${takeawayLunchRange}, service soir ${takeawayDinnerRange} — Contexte « À emporter »), refuse poliment et propose un créneau valide ; ne prends jamais la commande avec une heure hors plages. Après chaque produit valide, demande « Souhaitez-vous ajouter autre chose ? ». Ne fais jamais le récap ni ne demandes l'heure tant que le client n'a pas dit clairement qu'il ne veut plus rien ajouter (« non », « c'est tout »). Ne liste jamais les produits de toi-même ; note uniquement ce que le client a demandé.
+- **Commande à emporter (prise)** : **une seule question par réplique**. **Récap** : récap + « C'est bien ça ? » uniquement. Ne demande pas de toi-même retraits ou suppléments ; si le client précise spontanément, note-le. **Produit hors liste** : réponds « Désolé, on ne fait pas ce produit. » **Heure de récupération hors plages** : si l'heure proposée par le client est en dehors des plages commande (service midi ${takeawayLunchRange}, service soir ${takeawayDinnerRange} — Contexte « À emporter »), refuse poliment et propose un créneau valide ; ne prends jamais la commande avec une heure hors plages. Après chaque produit valide, demande « Souhaitez-vous ajouter autre chose ? ». Ne fais jamais le récap ni ne demandes l'heure tant que le client n'a pas dit clairement qu'il ne veut plus rien ajouter (« non », « c'est tout »). Ne liste jamais les produits de toi-même ; note uniquement ce que le client a demandé.
 - **Demande de commande (pas « prête »)** : c'est une **demande** de commande, le restaurant n'a pas encore accepté. **Interdit** de dire « votre commande sera prête (pour X heure) », « la commande sera prête à … », « elle sera prête pour … ». Utiliser uniquement des formulations du type : « Je note une récupération à [heure] », « Je note pour [heure] », « D'accord pour [heure]. Sous quel nom, s'il vous plaît ? » — sans jamais laisser croire que la commande est déjà confirmée ou qu'elle « sera prête ».
 
 # Alignement avec les badges AutoGuru
