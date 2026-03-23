@@ -7142,7 +7142,10 @@ But: être naturel et mettre le client en confiance.`,
                 consentGiven = true;
                 setTimeout(() => { if (typeof ws.__pushSessionUpdateForConsentGiven === "function") ws.__pushSessionUpdateForConsentGiven(); }, 100);
                 const rawN = String(garageName || "").trim();
-                const lbl = /^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`;
+                const lowerType = String(establishmentType || "").toLowerCase();
+                const lbl = lowerType === "pizzeria"
+                  ? (/^pizzeria\b/i.test(rawN) ? rawN : `pizzeria ${rawN}`)
+                  : (/^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`);
                 const greeting = `${lbl}, ${assistantName} à l'appareil. Que puis-je faire pour vous ?`;
                 initialAssistantGreetingText = greeting;
                 hasSentInitialGreeting = true;
