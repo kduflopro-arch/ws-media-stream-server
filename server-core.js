@@ -4069,7 +4069,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const rawGarageName = String(garageName || "AutoGuru").trim();
         const garageLabel = /^garage\b/i.test(rawGarageName) ? rawGarageName : `Garage ${rawGarageName}`;
         const placeLabel = effectiveSector === "restaurant"
-          ? (/^restaurant\b/i.test(rawGarageName) ? rawGarageName : `Restaurant ${rawGarageName}`)
+          ? (String(establishmentType || "").toLowerCase() === "pizzeria"
+              ? (/^pizzeria\b/i.test(rawGarageName) ? rawGarageName : `Pizzeria ${rawGarageName}`)
+              : (/^restaurant\b/i.test(rawGarageName) ? rawGarageName : `Restaurant ${rawGarageName}`))
           : garageLabel;
         const modeLine =
           appointmentMode === "none"
