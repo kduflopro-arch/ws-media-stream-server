@@ -1810,7 +1810,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       sttInFlight = false;
     }
   }
-  /** Minimax: en restaurant, éviter language_boost=French sur des réponses uniquement en anglais (meilleure prononciation). */
+  /** Minimax: en restaurant, French par défaut ; English uniquement si MINIMAX_TTS_BOOST_AUTO_EN=true (meilleure prononciation EN). */
   function resolveMinimaxLanguageBoostForUtterance(utterance) {
     const restaurantOverride = (process.env.MINIMAX_RESTAURANT_LANGUAGE_BOOST ?? "").trim();
     if (effectiveSector === "restaurant" && restaurantOverride) return restaurantOverride;
@@ -1819,7 +1819,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       : "French";
     if (
       effectiveSector === "restaurant" &&
-      (process.env.MINIMAX_TTS_BOOST_AUTO_EN ?? "true").trim().toLowerCase() !== "false"
+      (process.env.MINIMAX_TTS_BOOST_AUTO_EN ?? "false").trim().toLowerCase() === "true"
     ) {
       const u = String(utterance || "");
       if (u.length >= 8) {
