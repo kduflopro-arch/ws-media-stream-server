@@ -1810,6 +1810,28 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       sttInFlight = false;
     }
   }
+  /** Minimax: en restaurant, éviter language_boost=French sur des réponses uniquement en anglais (meilleure prononciation). */
+  function resolveMinimaxLanguageBoostForUtterance(utterance) {
+    const restaurantOverride = (process.env.MINIMAX_RESTAURANT_LANGUAGE_BOOST ?? "").trim();
+    if (effectiveSector === "restaurant" && restaurantOverride) return restaurantOverride;
+    const base = MINIMAX_LANGUAGE_BOOST && String(MINIMAX_LANGUAGE_BOOST).trim()
+      ? String(MINIMAX_LANGUAGE_BOOST).trim()
+      : "French";
+    if (
+      effectiveSector === "restaurant" &&
+      (process.env.MINIMAX_TTS_BOOST_AUTO_EN ?? "true").trim().toLowerCase() !== "false"
+    ) {
+      const u = String(utterance || "");
+      if (u.length >= 8) {
+        const frDiac = (u.match(/[àâäéèêëïîôùûüçœæ]/gi) || []).length;
+        const ratio = frDiac / u.length;
+        const englishCue = /\b(the|and|you|your|for|with|hello|hi|thanks|thank you|please|order|orders|table|tables|reservation|today|tomorrow|people|guests|pickup|delivery|time|yes|no|ok|okay|sure|welcome|half|hour)\b/i.test(u);
+        const frenchCue = /\b(je|vous|nous|une?|des|les|pour|avec|merci|bonjour|bonsoir|s'il|veux|voudrais|commande|réservation|au\s+jour)\b/i.test(u);
+        if (ratio < 0.025 && englishCue && !frenchCue) return "English";
+      }
+    }
+    return base;
+  }
   async function speakWithMinimaxNow(text, { interrupt = true } = {}) {
     const rawText = String(text || "").substring(0, 200);
     if (LOG_VERBOSE) console.log(`🔊 Minimax TTS entry: "${rawText.substring(0, 80)}${rawText.length > 80 ? "…" : ""}"`);
@@ -2012,7 +2034,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           format: "pcm",
           channel: 1,
         },
-        language_boost: MINIMAX_LANGUAGE_BOOST && String(MINIMAX_LANGUAGE_BOOST).trim() ? String(MINIMAX_LANGUAGE_BOOST).trim() : "French",
+        language_boost: resolveMinimaxLanguageBoostForUtterance(textToSend),
       };
       if (LOG_MINIMAX_EVENTS) console.log("📤 Envoi task_start:", JSON.stringify(taskStartMsg, null, 2));
       minimaxWs.send(JSON.stringify(taskStartMsg));
@@ -3956,14 +3978,20 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               "j'aimerais", "je voudrais", "pour", "personnes", "people", "guests",
             ];
             const deepgramAlreadyOpen = !!deepgramSession;
+            const useKeytermForMulti = (process.env.DEEPGRAM_KEYTERM_MULTI ?? "false").trim().toLowerCase() === "true";
+            const deepgramKeytermsEffective =
+              deepgramLang === "multi" && !useKeytermForMulti ? [] : deepgramKeyterms;
             if (!deepgramAlreadyOpen) {
               deepgramSession = createDeepgramLiveSession({
                 language: deepgramLang,
                 model: process.env.DEEPGRAM_MODEL || "nova-3",
-                keyterm: deepgramKeyterms,
+                keyterm: deepgramKeytermsEffective,
               });
               if (deepgramLang === "multi") {
-                console.log("[Deepgram] STT multilingue (language=multi) — FR + EN sans STT_LANGUAGE=fr forcé.");
+                console.log(
+                  "[Deepgram] STT multilingue (language=multi). Keyterms:",
+                  deepgramKeytermsEffective.length > 0 ? "on (DEEPGRAM_KEYTERM_MULTI=true)" : "off (meilleur anglais — activer si le français horaires/jours se dégrade)"
+                );
               }
             }
             if (deepgramSession && !deepgramAlreadyOpen) {

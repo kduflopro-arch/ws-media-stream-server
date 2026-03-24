@@ -65,6 +65,13 @@ export function createDeepgramLiveSession(options = {}) {
   } = options;
 
   const client = createClient(DEEPGRAM_API_KEY);
+  const isMulti = String(language).toLowerCase() === "multi";
+  // Codeswitching FR/EN : Deepgram recommande ~100 ms d'endpointing pour language=multi (vs 300–500 ms conversation mono-langue).
+  const endpointingMono = Number(process.env.DEEPGRAM_ENDPOINTING_MS);
+  const endpointingMulti = Number(process.env.DEEPGRAM_ENDPOINTING_MS_MULTI);
+  const endpointing = isMulti
+    ? (Number.isFinite(endpointingMulti) && endpointingMulti > 0 ? endpointingMulti : 110)
+    : (Number.isFinite(endpointingMono) && endpointingMono > 0 ? endpointingMono : 300);
   const connectOptions = {
     model,
     language,
@@ -72,10 +79,10 @@ export function createDeepgramLiveSession(options = {}) {
     sample_rate: 8000,
     interim_results: interimResults,
     smart_format: smartFormat,
-    // Endpointing: ms de silence avant speech_final (doc: 300-500 pour conversations). Plus court = plus réactif.
-    endpointing: Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 300,
+    endpointing,
     // Utterance end: gap après le dernier mot (min 1000 requis par Deepgram avec interim_results).
-    utterance_end_ms: Number(process.env.DEEPGRAM_UTTERANCE_END_MS) || 1000,
+    // Légèrement plus long en multi pour laisser finir les phrases en anglais (pauses entre groupes de mots).
+    utterance_end_ms: Number(process.env.DEEPGRAM_UTTERANCE_END_MS) || (isMulti ? 1200 : 1000),
     punctuate: true,
   };
   const useNova3 = /nova-3|flux/i.test(String(model));
@@ -150,7 +157,7 @@ export function createDeepgramLiveSession(options = {}) {
   connection.on(LiveTranscriptionEvents.Open, () => {
     isOpen = true;
     const keytermInfo = keyterm.length > 0 ? `, ${keyterm.length} keyterms` : "";
-    console.log("[Deepgram] Connexion live ouverte (mulaw 8kHz,", model + ",", language + keytermInfo + ")");
+    console.log("[Deepgram] Connexion live ouverte (mulaw 8kHz,", model + ",", language + keytermInfo + ", endpointing=" + endpointing + "ms)");
     flushQueue();
     // KeepAlive toutes les 4s pour éviter timeout 10s (doc Deepgram : si pas d'audio ni KeepAlive en 10s → NET-0001)
     const KEEPALIVE_MS = Number(process.env.DEEPGRAM_KEEPALIVE_MS) || 4000;
