@@ -207,3 +207,17 @@ export function createDeepgramLiveSession(options = {}) {
 export function isDeepgramAvailable() {
   return !!DEEPGRAM_API_KEY && !!createClient;
 }
+
+/**
+ * Langue STT Deepgram : fr, en, multi (multilingue / code-switching, ex. nova-3 + language=multi).
+ * - STT_LANGUAGE=multi ou multilingual → "multi"
+ * - STT_LANGUAGE non défini + modèle nova-3/flux → "multi" (FR + EN sans réglage manuel)
+ * - Sinon STT_LANGUAGE ou "fr" par défaut
+ */
+export function resolveDeepgramSttLanguage() {
+  const raw = (process.env.STT_LANGUAGE ?? "").trim().toLowerCase();
+  if (raw === "multi" || raw === "multilingual") return "multi";
+  if (raw.length > 0) return raw;
+  const model = (process.env.DEEPGRAM_MODEL ?? "nova-3").trim();
+  return /nova-3|flux/i.test(model) ? "multi" : "fr";
+}

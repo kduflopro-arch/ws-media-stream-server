@@ -3940,29 +3940,35 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         });
         if (USE_DEEPGRAM_STT && PIPELINE_MODE === "realtime") {
           try {
-            const { createDeepgramLiveSession } = await import("./deepgram-client.js");
+            const { createDeepgramLiveSession, resolveDeepgramSttLanguage } = await import("./deepgram-client.js");
+            const deepgramLang = resolveDeepgramSttLanguage();
             const deepgramKeyterms = [
               "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche",
-              "demain", "aujourd'hui",
+              "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+              "demain", "aujourd'hui", "tomorrow", "today",
               "12h", "13h", "14h", "19h", "20h", "21h", "midi", "soir", "matin", "après-midi",
               "douze heures", "treize heures", "quatorze heures", "dix-neuf heures", "vingt heures",
               "douze", "treize", "quatorze",
               "treize heures et demie", "quatorze heures et demie",
               "treize heures demi", "quatorze heures demi", "demie",
               "réservation", "réserver", "table", "commander", "commande", "emporter", "à emporter",
-              "j'aimerais", "je voudrais", "pour", "personnes",
+              "reservation", "reserve", "order", "takeaway", "pickup", "delivery", "deliver",
+              "j'aimerais", "je voudrais", "pour", "personnes", "people", "guests",
             ];
             const deepgramAlreadyOpen = !!deepgramSession;
             if (!deepgramAlreadyOpen) {
               deepgramSession = createDeepgramLiveSession({
-                language: (process.env.STT_LANGUAGE || "fr").trim(),
+                language: deepgramLang,
                 model: process.env.DEEPGRAM_MODEL || "nova-3",
                 keyterm: deepgramKeyterms,
               });
+              if (deepgramLang === "multi") {
+                console.log("[Deepgram] STT multilingue (language=multi) — FR + EN sans STT_LANGUAGE=fr forcé.");
+              }
             }
             if (deepgramSession && !deepgramAlreadyOpen) {
               const DEEPGRAM_ECHO_GUARD_MS = Number(process.env.DEEPGRAM_ECHO_GUARD_MS ?? "4000"); // après TTS, ignorer transcripts courts type écho (bonjour, menu, etc.)
-              const DEEPGRAM_ECHO_WORDS = /^(bonjour|menu|salut|allo|allô|bienvenue|voilà|voila|rebonjour|bonsoir|coucou|hello)$/i;
+              const DEEPGRAM_ECHO_WORDS = /^(bonjour|menu|salut|allo|allô|bienvenue|voilà|voila|rebonjour|bonsoir|coucou|hello|hi|hey|thanks|thank you|yes|no|ok|okay)$/i;
               const DEEPGRAM_MERGE_WINDOW_MS = Number(process.env.DEEPGRAM_MERGE_WINDOW_MS ?? "500"); // fusionner finals reçus dans cette fenêtre (réduit découpage, 500=plus réactif)
               const sendToRealtime = (toSend) => {
                 if (!toSend || !toSend.trim()) return;
