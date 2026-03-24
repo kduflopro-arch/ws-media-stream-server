@@ -3998,8 +3998,31 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               const DEEPGRAM_ECHO_GUARD_MS = Number(process.env.DEEPGRAM_ECHO_GUARD_MS ?? "4000"); // après TTS, ignorer transcripts courts type écho (bonjour, menu, etc.)
               const DEEPGRAM_ECHO_WORDS = /^(bonjour|menu|salut|allo|allô|bienvenue|voilà|voila|rebonjour|bonsoir|coucou|hello|hi|hey|thanks|thank you|yes|no|ok|okay)$/i;
               const DEEPGRAM_MERGE_WINDOW_MS = Number(process.env.DEEPGRAM_MERGE_WINDOW_MS ?? "500"); // fusionner finals reçus dans cette fenêtre (réduit découpage, 500=plus réactif)
+              const deepgramLongOrMultiWord = (txt) => {
+                const s = String(txt || "").trim();
+                if (!s) return false;
+                return s.length >= 20 || s.split(/\s+/).filter(Boolean).length >= 3;
+              };
+              /** Aligné sur conversation.item.done : ne pas envoyer bruit/hallucinations (ex. « Rien » sans parole réelle). */
+              const shouldForwardDeepgramToRealtime = (txt) => {
+                const s = String(txt || "").trim();
+                if (!s) return false;
+                const awaitingReservationName =
+                  effectiveSector === "restaurant" &&
+                  ws.__awaitingReservationName === true &&
+                  typeof ws.__awaitingReservationNameAt === "number" &&
+                  (nowMs() - ws.__awaitingReservationNameAt) < 30_000;
+                if (awaitingReservationName) return true;
+                if (!isJunkTranscript(s)) return true;
+                if (USE_DEEPGRAM_STT && deepgramLongOrMultiWord(s)) return true;
+                return false;
+              };
               const sendToRealtime = (toSend) => {
                 if (!toSend || !toSend.trim()) return;
+                if (!shouldForwardDeepgramToRealtime(toSend)) {
+                  console.log("[Deepgram] Transcript non envoyé à Realtime (bruit / phrase trop courte):", String(toSend).trim().substring(0, 80));
+                  return;
+                }
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
                 try {
                   openaiWs.send(JSON.stringify({
