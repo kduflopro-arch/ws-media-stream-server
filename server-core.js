@@ -3940,6 +3940,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           connectionTimeout = null;
         }
         openaiReconnectScheduled = false;
+        ws.__openaiReconnectAttempts = 0;
         console.log("✅ Connecté à OpenAI Realtime API");
         console.log("☎️ Modèle Realtime:", realtimeModel);
         console.log("🎛️ OpenAI audio format (forced):", { input: "pcm16", output: "pcm16" });
@@ -6834,16 +6835,50 @@ But: être naturel et mettre le client en confiance.`,
           clearTimeout(connectionTimeout);
           connectionTimeout = null;
         }
+        // Reconnect OpenAI si fermeture anormale pendant que l'appel continue.
+        const OPENAI_WS_RECONNECT_MAX_TRIES = Number(process.env.OPENAI_WS_RECONNECT_MAX_TRIES ?? "3");
+        const OPENAI_WS_RECONNECT_BASE_DELAY_MS = Number(process.env.OPENAI_WS_RECONNECT_BASE_DELAY_MS ?? "2000");
+        const wsStillOpen = ws.readyState === WebSocket.OPEN;
+        const shouldReconnectNow = code !== 1000 && wsStillOpen && !connectionTimeoutTriggered;
+
+        // Si on doit reconnnecter, on évite de fermer Deepgram pour ne pas perdre le STT.
+        if (shouldReconnectNow && !openaiReconnectScheduled) {
+          openaiReconnectScheduled = true;
+          ws.__openaiReconnectAttempts = (ws.__openaiReconnectAttempts ?? 0) + 1;
+          const tries = ws.__openaiReconnectAttempts;
+          const maxTries = Math.max(1, OPENAI_WS_RECONNECT_MAX_TRIES);
+          const delayMs = OPENAI_WS_RECONNECT_BASE_DELAY_MS * Math.min(tries, 5);
+          console.warn(
+            `↩️ Reconnexion OpenAI tentée (essai ${tries}/${maxTries}) après fermeture WS. code=${code} reason=${reason?.toString() ?? ""} délai=${delayMs}ms`
+          );
+          if (tries <= maxTries) {
+            setTimeout(() => {
+              if (ws.readyState !== WebSocket.OPEN) return;
+              if (openaiWs && openaiWs.readyState === WebSocket.OPEN) return;
+              try {
+                connectToOpenAI();
+              } catch (e) {
+                console.error("❌ Erreur tentative connectToOpenAI après close:", e?.message ?? e);
+              }
+            }, delayMs);
+          } else {
+            console.warn("⚠️ Reconnexion OpenAI abandonnée (trop d'essais).");
+          }
+        }
+
         // Si on est en plein reconnect OpenAI, ne pas fermer Deepgram :
         // sinon on perd la STT pendant la reconnexion et le client ne peut plus "reprendre".
         if (!openaiReconnectScheduled && deepgramSession) {
           try { deepgramSession.close(); } catch (_) {}
           deepgramSession = null;
         }
+
         console.log("🔌 OpenAI WS fermé", { code, reason: reason?.toString() });
         if (code !== 1000) {
           const msg = code === 1006
-            ? (connectionTimeoutTriggered ? "⚠️ Timeout connexion OpenAI (1006) — augmenter OPENAI_WS_CONNECTION_TIMEOUT_MS si récurrent" : "❌ Connexion OpenAI fermée avant établissement (1006) — vérifier OPENAI_API_KEY et connectivité réseau")
+            ? (connectionTimeoutTriggered
+              ? "⚠️ Timeout connexion OpenAI (1006) — augmenter OPENAI_WS_CONNECTION_TIMEOUT_MS si récurrent"
+              : "⚠️ OpenAI WS fermé anormalement (1006) pendant l'appel — reconnexion si possible")
             : "⚠️ OpenAI WS fermé anormalement (code != 1000)";
           console.warn(msg);
         }
