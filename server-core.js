@@ -681,6 +681,8 @@ wss.on("connection", (ws, req) => {
   let preOpenFrames = []; // Array<{ audioBase64: string, mulawLen: number, ts: number }>
   let preOpenBytes = 0;
   let deepgramSession = null; // Session Deepgram STT (quand USE_DEEPGRAM_STT=true)
+  /** Si true : un transcript Deepgram a été envoyé à Realtime mais response.create était bloqué (réponse IA encore en cours). */
+  let pendingDeepgramResponseCreate = false;
   let outboundQueue = []; // Array<Buffer>
   let outboundQueuedBytes = 0;
   let hasSentInitialGreeting = false;
@@ -3758,6 +3760,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     const now = nowMs();
     if (responseInProgress) {
+      if (reason === "deepgram_final" && USE_DEEPGRAM_STT) {
+        pendingDeepgramResponseCreate = true;
+        console.log("🗣️ response.create différé (deepgram): réponse IA encore en cours — envoi après response.done");
+      }
       return;
     }
     const isCommitTrigger = reason === "watchdog_after_commit" || reason === "after_response_done_pending_commit";
@@ -3770,7 +3776,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (LOG_VERBOSE) console.log("🗣️ response.create ignoré (restaurant): attendre réponse client après TTS", { reason, msSinceTtsEnd: now - lastTtsEndAt, waitMs: RESTAURANT_WAIT_AFTER_TTS_MS });
       return;
     }
-    const skipDebounce = reason === "after_function_call_output";
+    const skipDebounce =
+      reason === "after_function_call_output" ||
+      reason === "deepgram_final" ||
+      reason === "deepgram_final_flush";
     if (!skipDebounce && (now - lastResponseCreateRequestedAt) < RESPONSE_CREATE_DEBOUNCE_MS) {
       return;
     }
@@ -3974,8 +3983,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               "douze", "treize", "quatorze",
               "treize heures et demie", "quatorze heures et demie",
               "treize heures demi", "quatorze heures demi", "demie",
-              "réservation", "réserver", "table", "commander", "commande", "emporter", "à emporter",
-              "reservation", "reserve", "order", "takeaway", "pickup", "delivery", "deliver",
+              "réservation", "réserver", "table", "commander", "commande", "emporter", "à emporter", "au comptoir", "sur place",
+              "livraison", "à livrer", "delivery", "takeaway", "pickup", "order", "deliver",
+              "reservation", "reserve",
               "j'aimerais", "je voudrais", "pour", "personnes", "people", "guests",
             ];
             const deepgramAlreadyOpen = !!deepgramSession;
@@ -6772,6 +6782,16 @@ But: être naturel et mettre le client en confiance.`,
             const doneRid = activeResponseId;
             responseInProgress = false;
             activeResponseId = null;
+            if (pendingDeepgramResponseCreate && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+              pendingDeepgramResponseCreate = false;
+              setTimeout(() => {
+                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) {
+                  if (responseInProgress && USE_DEEPGRAM_STT) pendingDeepgramResponseCreate = true;
+                  return;
+                }
+                requestResponseCreate("deepgram_final_flush");
+              }, 50);
+            }
             const commitAfterResponse = lastCommitAt > lastResponseCreatedAt;
             const restaurantSkipPendingCommit = effectiveSector === "restaurant" && (!userHasSpoken || lastSpeechTs <= 0 || (nowMs() - lastSpeechTs) > RESTAURANT_COMMIT_SPEECH_WINDOW_MS);
             if (commitAfterResponse && openaiWs && openaiWs.readyState === WebSocket.OPEN && !restaurantSkipPendingCommit) {
