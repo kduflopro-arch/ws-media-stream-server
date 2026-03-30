@@ -66,12 +66,13 @@ export function createDeepgramLiveSession(options = {}) {
 
   const client = createClient(DEEPGRAM_API_KEY);
   const isMulti = String(language).toLowerCase() === "multi";
-  // Codeswitching FR/EN : Deepgram recommande ~100 ms d'endpointing pour language=multi (vs 300–500 ms conversation mono-langue).
+  // Codeswitching FR/EN : Deepgram recommande ~100 ms d'endpointing pour language=multi.
+  // En mono, on prend un endpointing un peu plus long pour éviter de couper des phrases en deux.
   const endpointingMono = Number(process.env.DEEPGRAM_ENDPOINTING_MS);
   const endpointingMulti = Number(process.env.DEEPGRAM_ENDPOINTING_MS_MULTI);
   const endpointing = isMulti
     ? (Number.isFinite(endpointingMulti) && endpointingMulti > 0 ? endpointingMulti : 110)
-    : (Number.isFinite(endpointingMono) && endpointingMono > 0 ? endpointingMono : 300);
+    : (Number.isFinite(endpointingMono) && endpointingMono > 0 ? endpointingMono : 450);
   const connectOptions = {
     model,
     language,

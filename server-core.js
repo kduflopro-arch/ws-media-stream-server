@@ -4017,7 +4017,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             if (deepgramSession && !deepgramAlreadyOpen) {
               const DEEPGRAM_ECHO_GUARD_MS = Number(process.env.DEEPGRAM_ECHO_GUARD_MS ?? "4000"); // après TTS, ignorer transcripts courts type écho (bonjour, menu, etc.)
               const DEEPGRAM_ECHO_WORDS = /^(bonjour|menu|salut|allo|allô|bienvenue|voilà|voila|rebonjour|bonsoir|coucou|hello|hi|hey|thanks|thank you|yes|no|ok|okay)$/i;
-              const DEEPGRAM_MERGE_WINDOW_MS = Number(process.env.DEEPGRAM_MERGE_WINDOW_MS ?? "500"); // fusionner finals reçus dans cette fenêtre (réduit découpage, 500=plus réactif)
+              const DEEPGRAM_MERGE_WINDOW_MS = Number(process.env.DEEPGRAM_MERGE_WINDOW_MS ?? "850"); // fusionner finals proches pour éviter réponses sur fragments ("bonjour...", puis suite)
+              const DEEPGRAM_RESPONSE_DELAY_MS = Number(process.env.DEEPGRAM_RESPONSE_DELAY_MS ?? "700"); // petite attente après final avant response.create
               const deepgramLongOrMultiWord = (txt) => {
                 const s = String(txt || "").trim();
                 if (!s) return false;
@@ -4037,6 +4038,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                 if (USE_DEEPGRAM_STT && deepgramLongOrMultiWord(s)) return true;
                 return false;
               };
+              const scheduleDeepgramResponseCreate = () => {
+                if (!ws.__deepgramResponseState) {
+                  ws.__deepgramResponseState = { timer: null };
+                }
+                const state = ws.__deepgramResponseState;
+                if (state.timer) clearTimeout(state.timer);
+                state.timer = setTimeout(() => {
+                  state.timer = null;
+                  requestResponseCreate("deepgram_final");
+                }, DEEPGRAM_RESPONSE_DELAY_MS);
+              };
               const sendToRealtime = (toSend) => {
                 if (!toSend || !toSend.trim()) return;
                 if (!shouldForwardDeepgramToRealtime(toSend)) {
@@ -4053,7 +4065,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                       content: [{ type: "input_text", text: toSend.trim() }],
                     },
                   }));
-                  requestResponseCreate("deepgram_final");
+                  // Ne pas déclencher la réponse instantanément: on laisse une courte fenêtre
+                  // pour capter une éventuelle suite de phrase utilisateur.
+                  scheduleDeepgramResponseCreate();
                 } catch (e) {
                   console.error("[Deepgram] Erreur envoi transcript → Realtime:", e?.message ?? e);
                 }
