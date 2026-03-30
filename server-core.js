@@ -752,8 +752,9 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1");
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0");
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0");
-  // emotion: fluent = fluide/naturel, calm = posé. Vide ou "auto" = laisser le modèle choisir (recommandé doc pour ton le plus naturel). speech-2.8 ne supporte pas "whisper".
-  const MINIMAX_EMOTION_RAW = String(process.env.MINIMAX_EMOTION ?? "fluent").trim().toLowerCase();
+  // emotion: "auto" (par défaut) laisse le modèle choisir l'intonation la plus naturelle pour éviter les micro-pauses artificielles.
+  // speech-2.8 ne supporte pas "whisper".
+  const MINIMAX_EMOTION_RAW = String(process.env.MINIMAX_EMOTION ?? "auto").trim().toLowerCase();
   const MINIMAX_EMOTION_AUTO = MINIMAX_EMOTION_RAW === "" || MINIMAX_EMOTION_RAW === "auto";
   const MINIMAX_LANGUAGE_BOOST = process.env.MINIMAX_LANGUAGE_BOOST ?? "French";
   const MINIMAX_TEXT_NORMALIZATION = (process.env.MINIMAX_TEXT_NORMALIZATION ?? "false").toLowerCase() === "true";
@@ -1539,7 +1540,7 @@ wss.on("connection", (ws, req) => {
   let backchannelTimer = null;
   let lastBackchannelAt = 0;
   let llmInFlight = false;
-  const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "300");
+  const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "120");
   const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "50"); // plus court = réactivité (déclenche response.create plus vite après committed)
   let sttSpeechFrames = 0;
   let sttSilenceFrames = 0;
@@ -3684,6 +3685,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     t = t.replace(/\bsoixante-et-un\s+heures?\b/gi, "soixante-et-une heures");
     t = t.replace(/\bun\s+heure\b/gi, "une heure");
     t = t.replace(/\bun\s+heures\b/gi, "une heure");
+    // Lissage prosodie: supprimer certaines virgules "hachées" qui cassent le flux de parole.
+    // Exemples: "que puis-je faire, pour, vous" ; "dominos, pizza".
+    t = t.replace(/\b(que\s+puis-je\s+faire)\s*,\s*(pour)\s*,\s*(vous)\b/gi, "$1 $2 $3");
+    t = t.replace(/\b(dominos?)\s*,\s*(pizza)\b/gi, "$1 $2");
+    t = t.replace(/,\s*,+/g, ", ");
+    t = t.replace(/\s+,/g, ",");
+    // Éviter les pauses après des micro-segments d'un mot (sauf décimaux).
+    t = t.replace(/\b([A-Za-zÀ-ÖØ-öø-ÿ]{1,4})\s*,\s+([A-Za-zÀ-ÖØ-öø-ÿ]{1,4})\b/g, "$1 $2");
     return t.trim();
   }
   /** Coupe le texte à maxChars (à une frontière de phrase) et retourne la tête + le reste pour enchaîner. */
@@ -3747,11 +3756,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "true").toLowerCase() === "true";
   const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
   const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "240");
-  const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "1200");
+  const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "650");
   // Après la fin du TTS, ignorer speech_started pendant ce délai (écho) — plus court = réactivité, le client peut répondre plus tôt.
-  const RESTAURANT_POST_TTS_SPEECH_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_SPEECH_GUARD_MS ?? "1500");
+  const RESTAURANT_POST_TTS_SPEECH_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_SPEECH_GUARD_MS ?? "700");
   // Délai après TTS pendant lequel on bloque response.create (anti-écho). Plus court = réponses plus rapides quand le client parle.
-  const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "2000");
+  const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "900");
   // Seuil niveau audio pour considérer "client a parlé" en restaurant (plus élevé = moins de faux positifs bruit/écho). 2200 ≈ parole claire.
   const RESTAURANT_INPUT_SPEECH_THRESHOLD = Number(process.env.RESTAURANT_INPUT_SPEECH_THRESHOLD ?? "1800");
   // En restaurant : ne répondre après un commit que si le client a vraiment parlé récemment (speech_started dans les N ms). Évite que l'IA réponde au silence / improvise. 6,5 s pour laisser le temps au TTS de finir avant de considérer "parole récente".
@@ -4482,8 +4491,9 @@ ${compactPersona}`;
               input: {
                 turn_detection: {
                   type: "semantic_vad",
-                  // Restaurant: "low" = laisser le client finir sa phrase avant commit (meilleure compréhension). Garage: "medium" par défaut.
-                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || (effectiveSector === "restaurant" ? "low" : "medium")),
+                  // Restaurant: "high" pour déclencher plus vite la réponse après la fin de phrase.
+                  // Garage: "medium" par défaut.
+                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || (effectiveSector === "restaurant" ? "high" : "medium")),
                 },
               },
             },
