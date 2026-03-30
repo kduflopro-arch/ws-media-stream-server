@@ -122,9 +122,14 @@ export function buildRestaurantInstructions(ctx) {
     takeawayDinnerOrderEnd = "21:30",
   } = ctx;
 
-  const isPizzeria = String(establishmentType || "").toLowerCase() === "pizzeria";
-  const prefix = isPizzeria ? "Pizzeria " : "Restaurant ";
-  const restaurantLabel = (isPizzeria ? /^pizzeria\b/i : /^restaurant\b/i).test(restaurantName) ? restaurantName : `${prefix}${restaurantName}`;
+  const kind = String(establishmentType || "").toLowerCase();
+  const isPizzeria = kind === "pizzeria";
+  const isSnack = kind === "snack";
+  const effectiveTableReservationEnabled = isSnack ? false : tableReservationEnabled;
+  const prefix = isPizzeria ? "Pizzeria " : isSnack ? "Snack " : "Restaurant ";
+  const restaurantLabel = (isPizzeria ? /^pizzeria\b/i : isSnack ? /^snack\b/i : /^restaurant\b/i).test(restaurantName)
+    ? restaurantName
+    : `${prefix}${restaurantName}`;
 
   // Contexte opérationnel (injecté dynamiquement)
   const contextLines = [];
@@ -144,7 +149,7 @@ export function buildRestaurantInstructions(ctx) {
       contextLines.push("- Restaurant FERMÉ LE MIDI (certains jours ou toujours) : pour les jours concernés, n'accepte JAMAIS de résa pour le midi. Propose le soir ou un autre jour.");
     }
   }
-  if (tableReservationEnabled) {
+  if (effectiveTableReservationEnabled) {
     if (lunchFullToday) {
       contextLines.push("- Aujourd'hui midi : complet ou fermé — refuse toute résa pour ce midi, propose le soir ou demain midi (selon l'heure actuelle).");
     } else {
@@ -165,7 +170,7 @@ export function buildRestaurantInstructions(ctx) {
     if (dinnerPassedForToday) contextLines.push("- MAINTENANT : heure limite dîner dépassée pour aujourd'hui — refuse toute résa ce soir.");
   }
   if (menuText) contextLines.push(`- Carte / menu : ${menuText}`);
-  if (!tableReservationEnabled) {
+  if (!effectiveTableReservationEnabled) {
     contextLines.push("- RÉSERVATION TABLE DÉSACTIVÉE : le restaurant ne prend PAS de réservation. Si le client demande une réservation, réponds exactement : « Nous ne prenons pas de réservation, notre restaurant fonctionne sans réservation. » Ne propose jamais de réservation. Ne prends jamais de demande de réservation.");
   }
   contextLines.push(`- Terrasse : ${hasTerrace ? "oui — demande terrasse ou intérieur pour chaque résa." : "non — ne pose pas la question."}`);
@@ -232,7 +237,7 @@ Tu fonctionnes en états. Selon ce que dit le client, tu passes d'un état à l'
 1. **Welcome** — Accueil (consentement si requis, puis écoute de la demande).
 2. **Menu & Recommendations** — Questions sur la carte, les plats, les recommandations, horaires, adresse.
 3. **Special Events** — Événements privés, groupes, occasions spéciales.
-${tableReservationEnabled ? "4. **Make Reservation** — Prise de réservation : tu recueilles les infos nécessaires." : ""}
+${effectiveTableReservationEnabled ? "4. **Make Reservation** — Prise de réservation : tu recueilles les infos nécessaires." : ""}
 ${(takeawayEnabled && takeawayProductsText) ? `5. **Take Order** — Commande à emporter : une question à la fois, laisse le client terminer. Pour chaque produit : (1) confirmer le produit, (2) « Souhaitez-vous ajouter autre chose à la commande ? ». Ne demande JAMAIS s'il y a des ingrédients à retirer ou des suppléments ; si le client le précise spontanément (ex. « sans tomate », « avec lardons »), note-le dans la commande. Puis heure de récupération, nom. Ne jamais ajouter un produit non demandé. Conclusion : demande de commande, le restaurant confirmera par message.` : ""}
 ${(takeawayEnabled && takeawayProductsText) ? "6" : "5"}. **Confirm & Farewell** — Confirmation de ce qui a été fait, proposition « autre chose ? », puis au revoir.
 ${(takeawayEnabled && takeawayProductsText) ? "7" : "6"}. **End** — Fin de l'appel.
@@ -241,11 +246,11 @@ ${(takeawayEnabled && takeawayProductsText) ? "7" : "6"}. **End** — Fin de l'a
 - Depuis **Welcome** :
   - Le client a des questions (menu, horaires, carte, adresse) → **Menu & Recommendations**.
   - Le client pose des questions sur événements privés / groupes → **Special Events**.
-  - Le client veut réserver → ${tableReservationEnabled ? "**Make Reservation**." : "refuser en une phrase : « Nous ne prenons pas de réservation, notre restaurant fonctionne sans réservation. » Ne pas proposer de réservation."}
+  - Le client veut réserver → ${effectiveTableReservationEnabled ? "**Make Reservation**." : "refuser en une phrase : « Nous ne prenons pas de réservation, notre restaurant fonctionne sans réservation. » Ne pas proposer de réservation."}
   ${(takeawayEnabled && takeawayProductsText) ? "- Le client veut commander à emporter → **Take Order**.\n  " : "- Le client demande une commande à emporter → refuser en une phrase (voir Contexte « À emporter »), proposer uniquement réservation ou infos (horaires, menu, adresse), puis attendre. Ne pas prendre de commande.\n  "}
 - Depuis **Menu & Recommendations** :
   - Les questions sont réglées et le client n'a plus de demande → **Confirm & Farewell**.
-  - Après avoir parlé du menu, le client veut réserver → ${tableReservationEnabled ? "**Make Reservation**." : "refuser : « Nous ne prenons pas de réservation. »"}
+  - Après avoir parlé du menu, le client veut réserver → ${effectiveTableReservationEnabled ? "**Make Reservation**." : "refuser : « Nous ne prenons pas de réservation. »"}
   ${(takeawayEnabled && takeawayProductsText) ? "- Le client veut commander à emporter → **Take Order**.\n  " : "- Le client demande une commande à emporter → refuser en une phrase, proposer uniquement réservation ou infos, ne pas prendre de commande.\n  "}
 - Depuis **Special Events** :
   - La demande d'événement / groupe est traitée → **Confirm & Farewell**.

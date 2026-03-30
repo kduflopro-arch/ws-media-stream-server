@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
 import { RESTAURANT_CALL_ANALYSIS_PROMPT, RESTAURANT_CALL_ANALYSIS_SCHEMA, buildRestaurantInstructions } from "./config-restaurant.js";
+import { SNACK_CALL_ANALYSIS_PROMPT, SNACK_CALL_ANALYSIS_SCHEMA, buildSnackInstructions } from "./config-snack.js";
 
 const PORT = process.env.PORT || 8080;
 const ACCOUNT_SECTOR = process.env.ACCOUNT_SECTOR || "garage";
@@ -127,6 +128,16 @@ async function handleRunAnalysis(callId, res) {
     .eq("id", call.garage_id)
     .maybeSingle();
   const isRestaurant = garageRow?.type === "restaurant";
+  let isSnack = false;
+  if (call.garage_id && isRestaurant) {
+    const { data: settingsType } = await supabase
+      .schema("autoguru")
+      .from("garage_settings")
+      .select("establishment_type")
+      .eq("garage_id", call.garage_id)
+      .maybeSingle();
+    isSnack = String(settingsType?.establishment_type || "").toLowerCase() === "snack";
+  }
   let appointmentMode = "request";
   if (call.garage_id && !isRestaurant) {
     const { data: settings } = await supabase
@@ -169,12 +180,22 @@ async function handleRunAnalysis(callId, res) {
     return send(500, { error: "config", message: "OPENAI_API_KEY non configuré" });
   }
   const model = process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
-  const analysisPrompt = isRestaurant ? RESTAURANT_CALL_ANALYSIS_PROMPT : CALL_ANALYSIS_PROMPT;
-  const analysisSchema = JSON.parse(JSON.stringify(isRestaurant ? RESTAURANT_CALL_ANALYSIS_SCHEMA : CALL_ANALYSIS_SCHEMA));
-  const userInput = isRestaurant
+  const analysisPrompt = isSnack
+    ? SNACK_CALL_ANALYSIS_PROMPT
+    : isRestaurant
+      ? RESTAURANT_CALL_ANALYSIS_PROMPT
+      : CALL_ANALYSIS_PROMPT;
+  const analysisSchema = JSON.parse(JSON.stringify(
+    isSnack
+      ? SNACK_CALL_ANALYSIS_SCHEMA
+      : isRestaurant
+        ? RESTAURANT_CALL_ANALYSIS_SCHEMA
+        : CALL_ANALYSIS_SCHEMA
+  ));
+  const userInput = (isRestaurant || isSnack)
     ? `Transcription: ${transcript}\n${callDateIso ? `Date de l'appel: ${callDateIso}\n` : ""}`
     : `Transcription: ${transcript}\nSymptômes déclarés: ${(call.symptom_summary ?? "non précisé")}\n${callDateIso ? `Date de l'appel (utilise cette année pour les dates du type "mercredi 11 février"): ${callDateIso}\n` : ""}`;
-  const systemContent = isRestaurant ? analysisPrompt : `${analysisPrompt} ${rdvInstruction}`;
+  const systemContent = (isRestaurant || isSnack) ? analysisPrompt : `${analysisPrompt} ${rdvInstruction}`;
   try {
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -914,7 +935,7 @@ wss.on("connection", (ws, req) => {
   let takeawayDinnerOrderStart = "18:00";
   let takeawayDinnerOrderEnd = "21:30";
   let tableReservationEnabled = true;
-  let establishmentType = "restaurant"; // restaurant | pizzeria
+  let establishmentType = "restaurant"; // restaurant | pizzeria | snack
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -4463,7 +4484,23 @@ ${compactPersona}`;
         if (effectiveSector === "restaurant") {
           console.log("🍽️ [Restaurant] Build prompt avec:", { lunchFullToday, dinnerFullToday, lunchPassedForToday, dinnerPassedForToday });
         }
-        const restaurantInstructions = effectiveSector === "restaurant" ? buildRestaurantInstructions({
+        const isSnackEstablishment = String(establishmentType || "").toLowerCase() === "snack";
+        const hospitalityInstructions = effectiveSector === "restaurant" ? (isSnackEstablishment ? buildSnackInstructions({
+          restaurantName: garageName,
+          assistantName,
+          menuText: String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")),
+          openingHoursText: garageHoursText || "Horaires non renseignés.",
+          todayDateLine: todayDateLineRest,
+          allowTransfer,
+          consentRequired,
+          consentGiven,
+          garageTone,
+          takeawayDeliveryEnabled,
+          takeawayLunchOrderStart,
+          takeawayLunchOrderEnd,
+          takeawayDinnerOrderStart,
+          takeawayDinnerOrderEnd,
+        }) : buildRestaurantInstructions({
           restaurantName: garageName,
           establishmentType,
           assistantName,
@@ -4492,9 +4529,9 @@ ${compactPersona}`;
           takeawayLunchOrderEnd,
           takeawayDinnerOrderStart,
           takeawayDinnerOrderEnd,
-        }) : "";
+        })) : "";
         const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
-        let initialInstructionsText = effectiveSector === "restaurant" ? restaurantInstructions : buildCompactInstructions(clientInfoLine);
+        let initialInstructionsText = effectiveSector === "restaurant" ? hospitalityInstructions : buildCompactInstructions(clientInfoLine);
         const sessionUpdate = {
           type: "session.update",
           session: {
@@ -4543,7 +4580,22 @@ ${compactPersona}`;
                   const restNowUpd = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
                   return `[Référence] Aujourd'hui: ${restNowUpd.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
                 })();
-            const updatedRestaurantInstructions = buildRestaurantInstructions({
+            const updatedHospitalityInstructions = isSnackEstablishment ? buildSnackInstructions({
+              restaurantName: garageName,
+              assistantName,
+              menuText: String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")),
+              openingHoursText: garageHoursText || "Horaires non renseignés.",
+              todayDateLine: todayDateLineRestUpd,
+              allowTransfer,
+              consentRequired,
+              consentGiven,
+              garageTone,
+              takeawayDeliveryEnabled,
+              takeawayLunchOrderStart,
+              takeawayLunchOrderEnd,
+              takeawayDinnerOrderStart,
+              takeawayDinnerOrderEnd,
+            }) : buildRestaurantInstructions({
               restaurantName: garageName,
               establishmentType,
               assistantName,
@@ -4573,9 +4625,11 @@ ${compactPersona}`;
               takeawayDinnerOrderStart,
               takeawayDinnerOrderEnd,
             });
-            let instructionsToSend = updatedRestaurantInstructions;
+            let instructionsToSend = updatedHospitalityInstructions;
             if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
-              const truncNote = "\n\n[RÈGLES: réservation naturelle, une question à la fois, multilangue.]";
+              const truncNote = isSnackEstablishment
+                ? "\n\n[RÈGLES SNACK: aucune réservation de table, commande naturelle, une question à la fois.]"
+                : "\n\n[RÈGLES: réservation naturelle, une question à la fois, multilangue.]";
               instructionsToSend = instructionsToSend.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - truncNote.length - 400) + truncNote;
             }
             openaiWs.send(JSON.stringify({
@@ -4630,7 +4684,9 @@ ${compactPersona}`;
           const restInitial = ``;
           const maxBaseInitial = REALTIME_INSTRUCTIONS_MAX_CHARS - restInitial.length - 400;
           const truncNoteInitial = effectiveSector === "restaurant"
-            ? "\n\n[RÈGLES: réservation naturelle, une question à la fois, multilangue.]"
+            ? (isSnackEstablishment
+              ? "\n\n[RÈGLES SNACK: aucune réservation de table, commande naturelle, une question à la fois.]"
+              : "\n\n[RÈGLES: réservation naturelle, une question à la fois, multilangue.]")
             : "\n\n[RÈGLES CRITIQUES: OBLIGATOIRE — appelle get_garage_pricing(prestation) AVANT tout tarif ou horaire. Ne JAMAIS inventer un prix ni des horaires. RDV: tarif+horaires AVANT jour. Jour PUIS matin/après-midi séparément. Plaque: oui=confirmation.]";
           initialInstructionsText = initialInstructionsText.slice(0, maxBaseInitial - truncNoteInitial.length) + truncNoteInitial + restInitial;
           console.warn("⚠️ Instructions session initiale limitées pour API (16384 tokens)", { length: initialInstructionsText.length });
@@ -4649,7 +4705,22 @@ ${compactPersona}`;
                   const restNowUpd = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
                   return `[Référence] Aujourd'hui: ${restNowUpd.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.`;
                 })();
-            const instr = buildRestaurantInstructions({
+            const instr = isSnackEstablishment ? buildSnackInstructions({
+              restaurantName: garageName,
+              assistantName,
+              menuText: String(menuSummary || (process.env.MENU_SUMMARY ?? faqsSummary ?? "")),
+              openingHoursText: garageHoursText || "Horaires non renseignés.",
+              todayDateLine: todayDateLineRestUpd,
+              allowTransfer,
+              consentRequired,
+              consentGiven: true,
+              garageTone,
+              takeawayDeliveryEnabled,
+              takeawayLunchOrderStart,
+              takeawayLunchOrderEnd,
+              takeawayDinnerOrderStart,
+              takeawayDinnerOrderEnd,
+            }) : buildRestaurantInstructions({
               restaurantName: garageName,
               establishmentType,
               assistantName,
@@ -4680,11 +4751,13 @@ ${compactPersona}`;
               takeawayDinnerOrderEnd,
             });
             const toSend = instr.length > REALTIME_INSTRUCTIONS_MAX_CHARS
-              ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES: réservation naturelle, une question à la fois.]"
+              ? instr.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + (isSnackEstablishment
+                ? "\n\n[RÈGLES SNACK: aucune réservation de table, une question à la fois.]"
+                : "\n\n[RÈGLES: réservation naturelle, une question à la fois.]")
               : instr;
             openaiWs.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: toSend, output_modalities: REALTIME_OUTPUT_MODALITIES, tools: restaurantTools, tool_choice: "auto" } }));
             ws.__sessionInstructions = String(toSend || "");
-            console.log("✅ Session mise à jour: consentement donné (restaurant)");
+            console.log(`✅ Session mise à jour: consentement donné (${isSnackEstablishment ? "snack" : "restaurant"})`);
             return;
           }
           const clientInfoSection = buildClientInfoLine();
@@ -7072,7 +7145,12 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalTakeawayDinnerOrderStart === "string" && /^\d{1,2}:\d{2}$/.test(String(finalTakeawayDinnerOrderStart).trim())) takeawayDinnerOrderStart = String(finalTakeawayDinnerOrderStart).trim();
         if (typeof finalTakeawayDinnerOrderEnd === "string" && /^\d{1,2}:\d{2}$/.test(String(finalTakeawayDinnerOrderEnd).trim())) takeawayDinnerOrderEnd = String(finalTakeawayDinnerOrderEnd).trim();
         tableReservationEnabled = typeof finalTableReservationEnabled === "string" && finalTableReservationEnabled.trim().toLowerCase() === "true";
-        establishmentType = finalEstablishmentType === "pizzeria" ? "pizzeria" : "restaurant";
+        establishmentType = finalEstablishmentType === "pizzeria"
+          ? "pizzeria"
+          : finalEstablishmentType === "snack"
+            ? "snack"
+            : "restaurant";
+        if (establishmentType === "snack") tableReservationEnabled = false;
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
@@ -7281,7 +7359,9 @@ But: être naturel et mettre le client en confiance.`,
                 const lowerType = String(establishmentType || "").toLowerCase();
                 const lbl = lowerType === "pizzeria"
                   ? (/^pizzeria\b/i.test(rawN) ? rawN : `pizzeria ${rawN}`)
-                  : (/^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`);
+                  : lowerType === "snack"
+                    ? (/^snack\b/i.test(rawN) ? rawN : `snack ${rawN}`)
+                    : (/^restaurant\b/i.test(rawN) ? rawN : `restaurant ${rawN}`);
                 const greeting = `${lbl}, ${assistantName} à l'appareil. Que puis-je faire pour vous ?`;
                 initialAssistantGreetingText = greeting;
                 hasSentInitialGreeting = true;
