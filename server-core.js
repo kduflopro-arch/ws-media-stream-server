@@ -7069,7 +7069,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalTableReservationEnabled = startParams.tableReservationEnabled || "true";
         const finalEstablishmentType = String(startParams.establishmentType || "restaurant").trim().toLowerCase() || "restaurant";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
-        if (finalGarageType === "restaurant") effectiveSector = "restaurant";
+        if (finalGarageType === "restaurant" || finalGarageType === "snack") effectiveSector = "restaurant";
         console.log("🏷️ Secteur effectif:", effectiveSector, "(garageType reçu:", finalGarageType || "non fourni", ")");
         callStartIso = startParams.callStartIso || "";
         console.log("🎬 Stream start:", {
