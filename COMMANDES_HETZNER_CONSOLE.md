@@ -94,7 +94,7 @@
 | `free -h` | Voir la RAM disponible |
 | `uptime` | Voir depuis combien de temps le serveur tourne |
 | `reboot` | Redémarrer le serveur |
-| `curl https://ws.server-kd.sslip.io/health` | Vérifier que le serveur répond bien |
+| `curl https://ws.server-kd.88-198-149-117.sslip.io/health` | Vérifier que le serveur répond bien |
 
 ---
 
