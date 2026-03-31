@@ -60,8 +60,8 @@ ssh root@88.198.149.117 "pm2 logs ws-server-kd"
 
 | Commande | Rôle |
 |----------|------|
-| `curl https://ws.88-198-149-117.sslip.io/health` | Vérifier que le serveur répond (`ok` = tout va bien) |
-| `curl -I https://ws.88-198-149-117.sslip.io` | Voir les headers HTTP (vérifier SSL) |
+| `curl https://ws.server-kd.sslip.io/health` | Vérifier que le serveur répond (`ok` = tout va bien) |
+| `curl -I https://ws.server-kd.sslip.io` | Voir les headers HTTP (vérifier SSL) |
 
 ---
 
@@ -123,7 +123,7 @@ ssh root@88.198.149.117 "pm2 logs ws-server-kd --lines 20 --nostream"
 
 ### Le serveur ne répond plus
 ```bash
-curl https://ws.88-198-149-117.sslip.io/health
+curl https://ws.server-kd.sslip.io/health
 # Si pas de réponse :
 ssh root@88.198.149.117 "pm2 restart ws-server-kd"
 ```
@@ -147,8 +147,8 @@ npx vercel --prod
 | Info | Valeur |
 |------|--------|
 | **IP Hetzner** | `88.198.149.117` |
-| **URL WSS** | `wss://ws.88-198-149-117.sslip.io` |
-| **Health check** | `https://ws.88-198-149-117.sslip.io/health` |
+| **URL WSS** | `wss://ws.server-kd.sslip.io` |
+| **Health check** | `https://ws.server-kd.sslip.io/health` |
 | **Dossier projet** | `/opt/ws-media-stream-server` |
 | **Process PM2** | `ws-server-kd` |
 | **Repo GitHub** | `github.com/kduflopro-arch/ws-media-stream-server` |
