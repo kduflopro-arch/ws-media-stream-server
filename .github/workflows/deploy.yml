@@ -19,4 +19,4 @@ jobs:
             cd /opt/ws-media-stream-server
             git pull origin main
             npm install --production
-            pm2 restart ws-restaurant
+            pm2 restart ws-server-kd
