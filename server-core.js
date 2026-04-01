@@ -4178,7 +4178,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return;
     }
     const isWaitForUserTrigger = reason === "watchdog_after_commit" || reason === "empty_response_retry" || reason === "after_response_done_pending_commit";
-    if (isWaitForUserTrigger && effectiveSector === "restaurant" && lastTtsEndAt > 0 && (now - lastTtsEndAt) < RESTAURANT_WAIT_AFTER_TTS_MS) {
+    // Snack : effectiveSector reste "restaurant" — ne pas bloquer le retry après réponse vide (sinon silence client).
+    const skipWaitAfterTtsForSnackRetry =
+      establishmentType === "snack" && reason === "empty_response_retry";
+    if (
+      isWaitForUserTrigger &&
+      effectiveSector === "restaurant" &&
+      !skipWaitAfterTtsForSnackRetry &&
+      lastTtsEndAt > 0 &&
+      (now - lastTtsEndAt) < RESTAURANT_WAIT_AFTER_TTS_MS
+    ) {
       if (LOG_VERBOSE) console.log("🗣️ response.create ignoré (restaurant): attendre réponse client après TTS", { reason, msSinceTtsEnd: now - lastTtsEndAt, waitMs: RESTAURANT_WAIT_AFTER_TTS_MS });
       return;
     }
@@ -5605,6 +5614,10 @@ But: être naturel et mettre le client en confiance.`,
             }
           }
           if (msg.type === "response.done") {
+            const emptyResponseRetryWindowMs =
+              establishmentType === "snack"
+                ? Number(process.env.SNACK_EMPTY_RESPONSE_WINDOW_MS ?? "30000")
+                : Number(process.env.EMPTY_RESPONSE_RETRY_WINDOW_MS ?? "8000");
             const rid = msg.response_id ?? msg.response?.id ?? null;
             const outputModalities = msg.response?.output_modalities || [];
             const hasAudioModality = Array.isArray(outputModalities) && outputModalities.includes("audio");
@@ -5641,6 +5654,13 @@ But: être naturel et mettre le client en confiance.`,
               const rawOutput = msg.response.output;
               try {
                 let extractedText = extractTextFromResponseOutput(rawOutput);
+                const streamedAccum = String(transcriptMap.get(rid) || "").trim();
+                if ((!extractedText || !extractedText.trim()) && streamedAccum && REALTIME_ELEVEN_CHUNKING_ENABLED) {
+                  extractedText = streamedAccum;
+                  if (establishmentType === "snack") {
+                    console.log("📝 response.done: texte TTS depuis transcriptMap (extraction response.output vide ou non parsée)");
+                  }
+                }
                 if (extractedText) {
                   extractedText = dedupeRepeatedPhrase(extractedText);
                   if (extractedText.trim() && !assistantTurnRids.has(rid)) {
@@ -5720,7 +5740,7 @@ But: être naturel et mettre le client en confiance.`,
                           }
                         }, 500);
                       }
-                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < emptyResponseRetryWindowMs && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
                       const isSnackMode = establishmentType === "snack" || effectiveSector === "snack";
                       if (effectiveSector === "restaurant" && !isSnackMode) {
                         if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (réponse vide = souvent bruit/écho, retry désactivé)");
@@ -5733,7 +5753,7 @@ But: être naturel et mettre le client en confiance.`,
                           }
                         }, 350);
                       }
-                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
+                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < emptyResponseRetryWindowMs && lastEmptyResponseRetryCommitAt === lastCommitAt) {
                       const isSnackMode = establishmentType === "snack" || effectiveSector === "snack";
                       if (effectiveSector === "restaurant" && !isSnackMode) {
                         console.log("ℹ️ Réponse vide après retry (restaurant) — pas de fallback TTS (anti-écho)");
@@ -5754,7 +5774,7 @@ But: être naturel et mettre le client en confiance.`,
                       console.error("❌ Impossible de sérialiser response.output pour debug:", jsonErr);
                     }
                     const now = nowMs();
-                    if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                    if (lastCommitAt > 0 && (now - lastCommitAt) < emptyResponseRetryWindowMs && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
                       if (effectiveSector === "restaurant" && establishmentType !== "snack") {
                         if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (pas de texte = souvent bruit/écho)");
                       } else {
@@ -5766,7 +5786,7 @@ But: être naturel et mettre le client en confiance.`,
                           }
                         }, 350);
                       }
-                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
+                    } else if (lastCommitAt > 0 && (now - lastCommitAt) < emptyResponseRetryWindowMs && lastEmptyResponseRetryCommitAt === lastCommitAt) {
                       if (effectiveSector === "restaurant" && establishmentType !== "snack") {
                         console.log("ℹ️ Pas de texte extrait après retry (restaurant) — pas de fallback TTS (anti-écho)");
                       } else {
@@ -5813,7 +5833,7 @@ But: être naturel et mettre le client en confiance.`,
                   } catch (_) { /* ignore */ }
                 }
                 const now = nowMs();
-                if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+                if (lastCommitAt > 0 && (now - lastCommitAt) < emptyResponseRetryWindowMs && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
                   if (effectiveSector === "restaurant" && establishmentType !== "snack") {
                     if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (erreur extraction)");
                   } else {
@@ -5829,7 +5849,7 @@ But: être naturel et mettre le client en confiance.`,
               }
             } else if (REALTIME_USE_ELEVEN && rid && (!msg.response?.output || (Array.isArray(msg.response.output) && msg.response.output.length === 0))) {
               const now = nowMs();
-              if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
+              if (lastCommitAt > 0 && (now - lastCommitAt) < emptyResponseRetryWindowMs && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
                 if (effectiveSector === "restaurant" && establishmentType !== "snack") {
                   if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (sans output)");
                 } else {
@@ -5857,6 +5877,20 @@ But: être naturel et mettre le client en confiance.`,
                   console.log("☎️ Realtime output_modalities: [\"text\"] →", PREMIUM_TTS_PROVIDER, { textPreview: buffered.substring(0, 80) });
                   enqueuePremiumTts(buffered, { interrupt: false, source: "response.done", responseId: rid, allowWithoutUser: true });
                 }
+              }
+            }
+            // Snack + chunking : si le texte est dans transcriptMap mais pas encore sorti (ex. parsing output incomplet).
+            if (
+              REALTIME_USE_ELEVEN &&
+              REALTIME_ELEVEN_CHUNKING_ENABLED &&
+              establishmentType === "snack" &&
+              rid &&
+              !spokenSet.has(rid)
+            ) {
+              const pendSnack = String(transcriptMap.get(rid) || "").trim();
+              if (pendSnack) {
+                console.log("🎙️ Snack: TTS secours depuis transcriptMap (fin response.done):", pendSnack.substring(0, 100));
+                flushRealtimeElevenChunks(rid, true);
               }
             }
           }
