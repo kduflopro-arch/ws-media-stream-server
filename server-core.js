@@ -1542,7 +1542,10 @@ wss.on("connection", (ws, req) => {
     if (shortValid.includes(stripped)) return false;
     // Snack: réponses mono-mot valides (boissons, ingrédients, sauces courants)
     if (effectiveSector === "snack" || establishmentType === "snack") {
-      const snackValid = /^(coca|fanta|sprite|eau|jus|oasis|pepsi|limonade|orangina|raclette|mayo|ketchup|harissa|algerienne|algérienne|fromage|emmental|cheddar|barbecue|bolognaise|blanche)$/i.test(stripped);
+      const snackValid =
+        /^(coca|fanta|sprite|eau|jus|oasis|pepsi|limonade|orangina|raclette|mayo|ketchup|harissa|algerienne|algérienne|fromage|emmental|cheddar|barbecue|bolognaise|blanche|poulet|agneau|merguez|kebab|tenders|nuggets|frites|galette|pain|tradition|complet|formule|menu|wrap|samurai|biggy|moyen|grand|petit|samourai|samouraï)$/i.test(
+          stripped
+        );
       if (snackValid) return false;
     }
     // Restaurant / pizzeria : articles menu souvent dits en un mot ou courte phrase (Deepgram + filtre anti-bruit).
@@ -1578,7 +1581,8 @@ wss.on("connection", (ws, req) => {
         // → ces réponses sont courtes mais portent une information critique (nombre de personnes) et ne doivent PAS être filtrées.
         const isCountPeople = /^\d+\s+(personnes?|convives?|clients?)$/i.test(t);
         if (!isCountPeople && words.some(w => w.length < 2)) return true;
-        const strictLenShortSentence = effectiveSector === "restaurant" ? 5 : 8;
+        const strictLenShortSentence =
+          establishmentType === "snack" ? 4 : effectiveSector === "restaurant" ? 5 : 8;
         if (NOISE_FILTER_STRICT && t.length < strictLenShortSentence) return true;
       }
     }
@@ -4388,16 +4392,39 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               "reine", "provençale", "provençal", "jambon", "fromage",
               "reservation", "reserve",
               "j'aimerais", "je voudrais", "pour", "personnes", "people", "guests",
+              ...(String(establishmentType || "").toLowerCase() === "snack"
+                ? [
+                    "poulet", "agneau", "merguez", "kebab", "galette", "pain", "tradition", "complet",
+                    "formule", "menu", "tenders", "nuggets", "frites", "moyen", "grand", "petit",
+                    "wrap", "samurai", "biggy", "barbecue",
+                  ]
+                : []),
             ];
             const deepgramAlreadyOpen = !!deepgramSession;
             const useKeytermForMulti = (process.env.DEEPGRAM_KEYTERM_MULTI ?? "false").trim().toLowerCase() === "true";
             const deepgramKeytermsEffective =
               deepgramLang === "multi" && !useKeytermForMulti ? [] : deepgramKeyterms;
             if (!deepgramAlreadyOpen) {
+              const isSnackStt = String(establishmentType || "").toLowerCase() === "snack";
+              const snackEp = Number(process.env.DEEPGRAM_SNACK_ENDPOINTING_MS);
+              const snackUe = Number(process.env.DEEPGRAM_SNACK_UTTERANCE_END_MS);
               deepgramSession = createDeepgramLiveSession({
                 language: deepgramLang,
                 model: process.env.DEEPGRAM_MODEL || "nova-3",
                 keyterm: deepgramKeytermsEffective,
+                // Snack : réponses courtes (viande, taille, sauce) — finaliser l’énoncé plus tôt (phrases longues peu utiles).
+                ...(isSnackStt
+                  ? {
+                      ...(deepgramLang !== "multi"
+                        ? {
+                            endpointing:
+                              Number.isFinite(snackEp) && snackEp > 0 ? Math.round(snackEp) : 200,
+                          }
+                        : {}),
+                      utteranceEndMs:
+                        Number.isFinite(snackUe) && snackUe >= 1000 ? Math.round(snackUe) : 1000,
+                    }
+                  : {}),
               });
               if (deepgramLang === "multi") {
                 console.log(
@@ -4409,11 +4436,21 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             if (deepgramSession && !deepgramAlreadyOpen) {
               const DEEPGRAM_ECHO_GUARD_MS = Number(process.env.DEEPGRAM_ECHO_GUARD_MS ?? "4000"); // après TTS, ignorer transcripts courts type écho (bonjour, menu, etc.)
               const DEEPGRAM_ECHO_WORDS = /^(bonjour|menu|salut|allo|allô|bienvenue|voilà|voila|rebonjour|bonsoir|coucou|hello|hi|hey|thanks|thank you|yes|no|ok|okay)$/i;
-              const DEEPGRAM_MERGE_WINDOW_MS = Number(process.env.DEEPGRAM_MERGE_WINDOW_MS ?? "500"); // fenêtre plus courte: réduit la latence tout en gardant la fusion des segments proches
-              const DEEPGRAM_RESPONSE_DELAY_MS = Number(process.env.DEEPGRAM_RESPONSE_DELAY_MS ?? "350"); // accélère la réponse après fin de phrase
+              const isSnackDg = String(establishmentType || "").toLowerCase() === "snack";
+              const DEEPGRAM_MERGE_WINDOW_MS = Number(
+                (isSnackDg ? process.env.DEEPGRAM_SNACK_MERGE_WINDOW_MS : process.env.DEEPGRAM_MERGE_WINDOW_MS) ??
+                  (isSnackDg ? "280" : "500")
+              ); // snack : fusion plus courte → moins d’attente pour phrases courtes
+              const DEEPGRAM_RESPONSE_DELAY_MS = Number(
+                (isSnackDg ? process.env.DEEPGRAM_SNACK_RESPONSE_DELAY_MS : process.env.DEEPGRAM_RESPONSE_DELAY_MS) ??
+                  (isSnackDg ? "220" : "350")
+              );
               const deepgramLongOrMultiWord = (txt) => {
                 const s = String(txt || "").trim();
                 if (!s) return false;
+                if (isSnackDg) {
+                  return s.length >= 12 || s.split(/\s+/).filter(Boolean).length >= 2;
+                }
                 return s.length >= 20 || s.split(/\s+/).filter(Boolean).length >= 3;
               };
               /** Aligné sur conversation.item.done : ne pas envoyer bruit/hallucinations (ex. « Rien » sans parole réelle). */

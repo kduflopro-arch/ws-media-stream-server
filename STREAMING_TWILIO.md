@@ -75,9 +75,13 @@ Les paramètres `input_audio_format=pcm16` et `output_audio_format=pcm16` sont d
 | `DEEPGRAM_API_KEY` | Clé API Deepgram (optionnel) | Clé pour activer le STT Deepgram à la place du STT Realtime |
 | `USE_DEEPGRAM_STT` | Activer le STT Deepgram | `true` pour pipeline STT Deepgram → LLM → TTS (à brancher dans le code) |
 | `DEEPGRAM_MODEL` | Modèle Deepgram | `nova-3` par défaut |
-| `DEEPGRAM_ENDPOINTING_MS` | Silences (ms) avant speech_final | 300 par défaut (doc: 300-500, plus court = plus réactif) |
-| `DEEPGRAM_UTTERANCE_END_MS` | Gap (ms) pour UtteranceEnd | 700 par défaut (doc min 1000, 700=plus réactif) |
-| `DEEPGRAM_MERGE_WINDOW_MS` | Fenêtre (ms) pour fusionner plusieurs finals en une phrase | 500 par défaut (plus court = envoi plus rapide à l'IA) |
+| `DEEPGRAM_ENDPOINTING_MS` | Silences (ms) avant speech_final (hors mode snack, langue mono) | 300 par défaut (plus court = plus réactif) |
+| `DEEPGRAM_UTTERANCE_END_MS` | Gap (ms) pour UtteranceEnd (min 1000 avec `interim_results`) | 1000 mono / 1200 multi par défaut |
+| `DEEPGRAM_MERGE_WINDOW_MS` | Fenêtre (ms) pour fusionner plusieurs finals en une phrase | 500 par défaut restaurant (plus court = envoi plus rapide à l’IA) |
+| `DEEPGRAM_SNACK_ENDPOINTING_MS` | Snack uniquement : endpointing mono (ms) — phrases courtes | Défaut **200** si non défini (ignoré si `STT_LANGUAGE=multi`) |
+| `DEEPGRAM_SNACK_UTTERANCE_END_MS` | Snack : utterance end (ms), ≥ 1000 | Défaut **1000** |
+| `DEEPGRAM_SNACK_MERGE_WINDOW_MS` | Snack : fusion entre segments finals (ms) | Défaut **280** |
+| `DEEPGRAM_SNACK_RESPONSE_DELAY_MS` | Snack : délai avant `response.create` après transcript | Défaut **220** |
 
 ## STT optionnel : Deepgram
 
@@ -86,6 +90,7 @@ Le module **Deepgram** est préparé pour un futur pipeline **STT Deepgram → L
 - **Prérequis** : `npm install` (dépendance `@deepgram/sdk`), variable d’environnement `DEEPGRAM_API_KEY`.
 - **Activation** : définir `USE_DEEPGRAM_STT=true` et `DEEPGRAM_API_KEY`. Le flux est alors : audio mulaw 8 kHz → Deepgram → transcript final → `conversation.item.create` (user) + `response.create` → Realtime LLM → TTS (ElevenLabs/Minimax/Cartesia).
 - **Format** : audio μ-law 8 kHz (Twilio), modèle `nova-3`, langue `fr`, `interim_results` et `smart_format` activés. Voir `deepgram-client.js` et [Live Streaming Audio](https://developers.deepgram.com/docs/live-streaming-audio).
+- **Établissement snack** (`establishmentType=snack`) : endpointing plus court, utterance end à 1000 ms, fusion et délai réponse réduits, keyterms et filtre anti-bruit adaptés aux réponses courtes (viande, taille, sauce, etc.).
 
 ## Minimax TTS : meilleur rendu et qualité (speech-2.8)
 

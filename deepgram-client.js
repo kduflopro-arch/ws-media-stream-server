@@ -41,6 +41,8 @@ const DEEPGRAM_API_KEY = (process.env.DEEPGRAM_API_KEY ?? "").trim();
  * @param {string[]} [options.keywords] - Mots à privilégier (Nova-2, ignoré si keyterm fourni avec nova-3)
  * @param {boolean} [options.interimResults=true]
  * @param {boolean} [options.smartFormat=true]
+ * @param {number} [options.endpointing] - ms de silence avant fin d'énoncé (override env / défauts)
+ * @param {number} [options.utteranceEndMs] - gap après le dernier mot (min 1000 avec interim_results)
  * @returns {{ sendAudio: (buf: Buffer) => void, onTranscript: (cb: (text: string, isFinal: boolean) => void) => void, close: () => void } | null}
  */
 export function createDeepgramLiveSession(options = {}) {
@@ -62,6 +64,8 @@ export function createDeepgramLiveSession(options = {}) {
     // Activer smart_format améliore généralement la lisibilité STT (nombres, formats),
     // au prix d'un léger coût de latence. Désactivable via DEEPGRAM_SMART_FORMAT=false.
     smartFormat = String(process.env.DEEPGRAM_SMART_FORMAT ?? "true").toLowerCase() === "true",
+    endpointing: endpointingOverride,
+    utteranceEndMs: utteranceEndMsOverride,
   } = options;
 
   const client = createClient(DEEPGRAM_API_KEY);
@@ -70,9 +74,13 @@ export function createDeepgramLiveSession(options = {}) {
   // En mono, recommandation Deepgram pour téléphonie temps réel : 300 ms.
   const endpointingMono = Number(process.env.DEEPGRAM_ENDPOINTING_MS);
   const endpointingMulti = Number(process.env.DEEPGRAM_ENDPOINTING_MS_MULTI);
-  const endpointing = isMulti
+  const endpointingDefault = isMulti
     ? (Number.isFinite(endpointingMulti) && endpointingMulti > 0 ? endpointingMulti : 110)
     : (Number.isFinite(endpointingMono) && endpointingMono > 0 ? endpointingMono : 300);
+  const endpointing =
+    Number.isFinite(endpointingOverride) && endpointingOverride > 0
+      ? Math.round(endpointingOverride)
+      : endpointingDefault;
   const connectOptions = {
     model,
     language,
@@ -87,7 +95,14 @@ export function createDeepgramLiveSession(options = {}) {
     filler_words: false,
     // Utterance end: gap après le dernier mot (min 1000 requis par Deepgram avec interim_results).
     // Légèrement plus long en multi pour laisser finir les phrases en anglais (pauses entre groupes de mots).
-    utterance_end_ms: Number(process.env.DEEPGRAM_UTTERANCE_END_MS) || (isMulti ? 1200 : 1000),
+    utterance_end_ms: (() => {
+      if (Number.isFinite(utteranceEndMsOverride) && utteranceEndMsOverride >= 1000) {
+        return Math.round(utteranceEndMsOverride);
+      }
+      const fromEnv = Number(process.env.DEEPGRAM_UTTERANCE_END_MS);
+      if (Number.isFinite(fromEnv) && fromEnv >= 1000) return fromEnv;
+      return isMulti ? 1200 : 1000;
+    })(),
     punctuate: true,
   };
   const useNova3 = /nova-3|flux/i.test(String(model));
@@ -162,7 +177,12 @@ export function createDeepgramLiveSession(options = {}) {
   connection.on(LiveTranscriptionEvents.Open, () => {
     isOpen = true;
     const keytermInfo = keyterm.length > 0 ? `, ${keyterm.length} keyterms` : "";
-    console.log("[Deepgram] Connexion live ouverte (mulaw 8kHz,", model + ",", language + keytermInfo + ", endpointing=" + endpointing + "ms)");
+    const ue = connectOptions.utterance_end_ms;
+    console.log(
+      "[Deepgram] Connexion live ouverte (mulaw 8kHz,",
+      model + ",",
+      language + keytermInfo + ", endpointing=" + endpointing + "ms, utterance_end_ms=" + ue + ")"
+    );
     flushQueue();
     // KeepAlive toutes les 4s pour éviter timeout 10s (doc Deepgram : si pas d'audio ni KeepAlive en 10s → NET-0001)
     const KEEPALIVE_MS = Number(process.env.DEEPGRAM_KEEPALIVE_MS) || 4000;
