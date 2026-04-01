@@ -8,6 +8,13 @@ import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
 import { RESTAURANT_CALL_ANALYSIS_PROMPT, RESTAURANT_CALL_ANALYSIS_SCHEMA, buildRestaurantInstructions } from "./config-restaurant.js";
 import { SNACK_CALL_ANALYSIS_PROMPT, SNACK_CALL_ANALYSIS_SCHEMA, buildSnackInstructions } from "./config-snack.js";
+import {
+  createVoiceChainState,
+  resetVoiceChainState,
+  processVoiceChainPcm8k,
+  mulawToPcm8kInt16,
+  pcm8kInt16ToMulawBuffer,
+} from "./voice-audio-chain.js";
 
 const PORT = process.env.PORT || 8080;
 const ACCOUNT_SECTOR = process.env.ACCOUNT_SECTOR || "garage";
@@ -725,6 +732,41 @@ wss.on("connection", (ws, req) => {
   const LOG_TTS = (process.env.LOG_TTS ?? "false").toLowerCase() === "true";
   const LOG_MINIMAX_CHUNKS = (process.env.LOG_MINIMAX_CHUNKS ?? "false").toLowerCase() === "true";
   const LOG_MINIMAX_CHUNK_EVERY = Number(process.env.LOG_MINIMAX_CHUNK_EVERY ?? "50");
+  const OUTPUT_GAIN_LOCAL = Number(process.env.OUTPUT_GAIN ?? "1.0");
+  const VOICE_CHAIN_ENABLED = (process.env.VOICE_CHAIN_ENABLED ?? "true").toLowerCase() === "true";
+  ws.__voiceChainState = createVoiceChainState();
+  function resetOutboundAudioChain() {
+    resetVoiceChainState(ws.__voiceChainState);
+  }
+  /** PCM 8 kHz → μ-law Twilio avec chaîne vocale (normalisation, compresseur, EQ). */
+  function pcm8kInt16ToMulawOutbound(pcm8k) {
+    const arr = pcm8k instanceof Int16Array ? pcm8k : Int16Array.from(pcm8k);
+    if (VOICE_CHAIN_ENABLED && ws.__voiceChainState) {
+      processVoiceChainPcm8k(arr, ws.__voiceChainState, {});
+    }
+    return pcm8kInt16ToMulawBuffer(arr, OUTPUT_GAIN_LOCAL);
+  }
+  function pcm24kToMulawOutbound(pcm24k) {
+    const outLen = Math.floor(pcm24k.length / 3);
+    const pcm8k = new Int16Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      pcm8k[i] = (((pcm24k[i * 3] + pcm24k[i * 3 + 1] + pcm24k[i * 3 + 2]) / 3) | 0);
+    }
+    return pcm8kInt16ToMulawOutbound(pcm8k);
+  }
+  function pcm16kBlockToMulawOutbound(pcm16kBlockBuf) {
+    const sampleCount = Math.floor(pcm16kBlockBuf.length / 2);
+    const pcm16k = new Int16Array(sampleCount);
+    for (let i = 0; i < sampleCount; i++) {
+      pcm16k[i] = pcm16kBlockBuf.readInt16LE(i * 2);
+    }
+    const outLen = Math.floor(pcm16k.length / 2);
+    const pcm8k = new Int16Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      pcm8k[i] = ((pcm16k[i * 2] + pcm16k[i * 2 + 1]) / 2) | 0;
+    }
+    return pcm8kInt16ToMulawOutbound(pcm8k);
+  }
   const LOG_TTS_VERBOSE = (process.env.LOG_TTS_VERBOSE ?? "false").toLowerCase() === "true";
   function ttsVerbose(...args) {
     if (LOG_TTS_VERBOSE) console.log(...args);
@@ -757,10 +799,10 @@ wss.on("connection", (ws, req) => {
   const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
   const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT ?? "pcm_16000";
   const ELEVENLABS_OPTIMIZE_STREAMING_LATENCY = Number(process.env.ELEVENLABS_OPTIMIZE_STREAMING_LATENCY ?? "3"); // 0..4
-  // Voix plus humaine : stabilité plus basse = plus de variation naturelle ; style plus haut = plus d'expressivité (Render: ELEVENLABS_STABILITY=0.35, ELEVENLABS_STYLE=0.55)
-  const ELEVENLABS_STABILITY = Number(process.env.ELEVENLABS_STABILITY ?? "0.35"); // 0..1 — plus bas = moins robotique
-  const ELEVENLABS_SIMILARITY_BOOST = Number(process.env.ELEVENLABS_SIMILARITY_BOOST ?? "0.78"); // 0..1 — clarté sans trop de rigidité
-  const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE ?? "0.55"); // 0..1 — plus haut = plus expressif (modèles qui le supportent)
+  // Défauts « une voix, ton stable, peu expressif » (téléphone pro). Surcharge via .env si besoin.
+  const ELEVENLABS_STABILITY = Number(process.env.ELEVENLABS_STABILITY ?? "0.68"); // 0..1 — plus haut = plus stable
+  const ELEVENLABS_SIMILARITY_BOOST = Number(process.env.ELEVENLABS_SIMILARITY_BOOST ?? "0.76");
+  const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE ?? "0.22"); // 0..1 — bas = moins théâtral
   const ELEVENLABS_USE_SPEAKER_BOOST = (process.env.ELEVENLABS_USE_SPEAKER_BOOST ?? "true").toLowerCase() === "true";
   // Inworld TTS
   const INWORLD_API_KEY = process.env.INWORLD_API_KEY ?? ""; // Base64(key:secret) depuis le portail Inworld
@@ -768,8 +810,8 @@ wss.on("connection", (ws, req) => {
   const INWORLD_VOICE_ID_DEFAULT = process.env.INWORLD_VOICE_ID ?? "Antoine";
   const INWORLD_VOICE_ID_FEMALE = process.env.INWORLD_VOICE_ID_FEMALE ?? "Charlotte";
   const INWORLD_VOICE_ID_MALE = process.env.INWORLD_VOICE_ID_MALE ?? "Antoine";
-  const INWORLD_SPEAKING_RATE = parseFloat(process.env.INWORLD_SPEAKING_RATE ?? "1.25"); // >1 = plus rapide
-  const INWORLD_TEMPERATURE = parseFloat(process.env.INWORLD_TEMPERATURE ?? "1.15"); // >1 = plus expressif/émotionnel
+  const INWORLD_SPEAKING_RATE = Math.max(0.9, Math.min(1.05, parseFloat(process.env.INWORLD_SPEAKING_RATE ?? "0.98")));
+  const INWORLD_TEMPERATURE = Math.max(0.6, Math.min(1.2, parseFloat(process.env.INWORLD_TEMPERATURE ?? "0.85"))); // plus bas = plus stable
   const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY ?? "";
   const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID ?? "";
   const MINIMAX_USE_BALANCE = (process.env.MINIMAX_USE_BALANCE ?? "true").toLowerCase() === "true"; // true = facturation sur le solde (pas de GroupId), false = utiliser MINIMAX_GROUP_ID si défini
@@ -777,8 +819,8 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_VOICE_ID_MALE = process.env.MINIMAX_VOICE_ID_MALE ?? "";
   const MINIMAX_VOICE_ID_FEMALE = process.env.MINIMAX_VOICE_ID_FEMALE ?? "";
   const MINIMAX_MODEL = process.env.MINIMAX_MODEL ?? "speech-2.8-hd";
-  // speed 1 = rythme normal (doc Minimax: 0.5-2.0). 1.1 peut sonner artificiel sur certains textes.
-  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "1");
+  // 0.9–1.05 recommandé pour un débit téléphone naturel (doc Minimax: 0.5-2.0).
+  const MINIMAX_SPEED = Number(process.env.MINIMAX_SPEED ?? "0.98");
   const MINIMAX_VOLUME = Number(process.env.MINIMAX_VOLUME ?? "1.0");
   const MINIMAX_PITCH = Number(process.env.MINIMAX_PITCH ?? "0");
   // emotion: "auto" (par défaut) laisse le modèle choisir l'intonation la plus naturelle pour éviter les micro-pauses artificielles.
@@ -802,7 +844,7 @@ wss.on("connection", (ws, req) => {
   const CARTESIA_VOICE_ID_FEMALE = process.env.CARTESIA_VOICE_ID_FEMALE ?? "";
   const CARTESIA_MODEL_ID = process.env.CARTESIA_MODEL_ID ?? "sonic-3-2026-01-12";
   const CARTESIA_API_VERSION = process.env.CARTESIA_API_VERSION ?? "2025-04-16";
-  const CARTESIA_SPEED = Number(process.env.CARTESIA_SPEED ?? "1.0");
+  const CARTESIA_SPEED = Number(process.env.CARTESIA_SPEED ?? "0.98");
   const CARTESIA_VOLUME = Number(process.env.CARTESIA_VOLUME ?? "1.0");
   const CARTESIA_LANGUAGE = process.env.CARTESIA_LANGUAGE ?? "fr";
   const CARTESIA_ENABLE_SSML_TAGS = (process.env.CARTESIA_ENABLE_SSML_TAGS ?? "false").toLowerCase() === "true";
@@ -816,7 +858,7 @@ wss.on("connection", (ws, req) => {
   const CARTESIA_OUTPUT_ENCODING = (process.env.CARTESIA_OUTPUT_ENCODING ?? "pcm_mulaw").toLowerCase();
   const CARTESIA_OUTPUT_SAMPLE_RATE = Number(process.env.CARTESIA_OUTPUT_SAMPLE_RATE ?? "8000");
   const CARTESIA_USE_BYTES_MODE = (process.env.CARTESIA_USE_BYTES_MODE ?? "true").toLowerCase() === "true";
-  const CARTESIA_USE_CONTINUATIONS = (process.env.CARTESIA_USE_CONTINUATIONS ?? "true").toLowerCase() === "true";
+  const CARTESIA_USE_CONTINUATIONS = (process.env.CARTESIA_USE_CONTINUATIONS ?? "false").toLowerCase() === "true";
   const LOG_CARTESIA_EVENTS = (process.env.LOG_CARTESIA_EVENTS ?? "false").toLowerCase() === "true";
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
@@ -1996,6 +2038,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       premiumTtsAbort = new AbortController();
       outboundQueue = [];
       outboundQueuedBytes = 0;
+      resetOutboundAudioChain();
     } else if (!premiumTtsAbort) {
       premiumTtsAbort = new AbortController();
     }
@@ -2109,7 +2152,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const emotionVal = allowedEmotions.includes(MINIMAX_EMOTION_RAW) ? MINIMAX_EMOTION_RAW : "calm";
       const voiceSetting = {
         voice_id: selectedVoiceId,
-        speed: Math.max(0.5, Math.min(2.0, MINIMAX_SPEED || 1)),
+        speed: Math.max(0.9, Math.min(1.05, MINIMAX_SPEED || 0.98)),
         vol: Math.max(0.01, Math.min(10, MINIMAX_VOLUME || 1)),
         pitch: Math.max(-12, Math.min(12, MINIMAX_PITCH || 0)),
         english_normalization: false,
@@ -2211,18 +2254,22 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               if (LOG_MINIMAX_EVENTS) {
                 console.log(`🎵 PCM reçu: ${pcmRaw.length} samples @ ${sampleRate}Hz`);
               }
-              let mulaw;
+              let pcm8kOut;
               if (sampleRate === 32000) {
-                mulaw = convertPcm32kToMulaw(pcmRaw);
-                if (LOG_MINIMAX_EVENTS) console.log(`🎵 32kHz → 8kHz μ-law: ${mulaw.length} bytes`);
+                const outLen = Math.floor(pcmRaw.length / 4);
+                pcm8kOut = new Int16Array(outLen);
+                for (let i = 0; i < outLen; i++) {
+                  pcm8kOut[i] = ((pcmRaw[i * 4] + pcmRaw[i * 4 + 1] + pcmRaw[i * 4 + 2] + pcmRaw[i * 4 + 3]) / 4) | 0;
+                }
+                if (LOG_MINIMAX_EVENTS) console.log(`🎵 32kHz → 8kHz PCM: ${pcm8kOut.length} samples`);
               } else if (sampleRate === 8000) {
-                mulaw = convertPcm8kToMulaw(pcmRaw);
-                if (LOG_MINIMAX_EVENTS) console.log(`🎵 8kHz → μ-law: ${mulaw.length} bytes`);
+                pcm8kOut = pcmRaw;
+                if (LOG_MINIMAX_EVENTS) console.log(`🎵 8kHz PCM: ${pcm8kOut.length} samples`);
               } else {
-                const pcm8k = resamplePcmTo8k(pcmRaw, sampleRate);
-                mulaw = convertPcm8kToMulaw(pcm8k);
-                if (LOG_MINIMAX_EVENTS) console.log(`🎵 ${sampleRate}Hz → 8kHz (resample) → μ-law: ${mulaw.length} bytes`);
+                pcm8kOut = resamplePcmTo8k(pcmRaw, sampleRate);
+                if (LOG_MINIMAX_EVENTS) console.log(`🎵 ${sampleRate}Hz → 8kHz PCM: ${pcm8kOut.length} samples`);
               }
+              const mulaw = pcm8kInt16ToMulawOutbound(pcm8kOut);
               const chunkSize = 160;
               for (let i = 0; i < mulaw.length; i += chunkSize) {
                 const chunk = mulaw.slice(i, i + chunkSize);
@@ -2310,6 +2357,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       premiumTtsAbort = new AbortController();
       outboundQueue = [];
       outboundQueuedBytes = 0;
+      resetOutboundAudioChain();
     } else if (!premiumTtsAbort) {
       premiumTtsAbort = new AbortController();
     }
@@ -2373,7 +2421,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           while (pcmBuf.length >= 160) {
             const frame = pcmBuf.subarray(0, 160);
             pcmBuf = pcmBuf.subarray(160);
-            enqueueOutboundMulaw(frame);
+            let outFrame = frame;
+            if (VOICE_CHAIN_ENABLED && ws.__voiceChainState) {
+              const pcm = mulawToPcm8kInt16(frame);
+              processVoiceChainPcm8k(pcm, ws.__voiceChainState, {});
+              outFrame = pcm8kInt16ToMulawBuffer(pcm, OUTPUT_GAIN_LOCAL);
+            }
+            enqueueOutboundMulaw(outFrame);
             while (outboundQueuedBytes > maxBacklogBytes) {
               await sleep(20);
             }
@@ -2382,7 +2436,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           while (pcmBuf.length >= 640) {
             const block = pcmBuf.subarray(0, 640);
             pcmBuf = pcmBuf.subarray(640);
-            const mulawFrame = convertPcm16kBlockToMulaw(block); // 160 bytes
+            const mulawFrame = pcm16kBlockToMulawOutbound(block);
             enqueueOutboundMulaw(mulawFrame);
             while (outboundQueuedBytes > maxBacklogBytes) {
               await sleep(20);
@@ -2446,6 +2500,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       premiumTtsAbort = new AbortController();
       outboundQueue = [];
       outboundQueuedBytes = 0;
+      resetOutboundAudioChain();
     } else if (!premiumTtsAbort) {
       premiumTtsAbort = new AbortController();
     }
@@ -2463,12 +2518,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       CARTESIA_OUTPUT_ENCODING === "pcm_mulaw" && CARTESIA_OUTPUT_SAMPLE_RATE === 8000;
     // Dynamic per-phrase emotion and speed detection (sonic-3 emotion values — plain strings)
     let dynamicEmotion = String(CARTESIA_STYLE_EMOTION || "content").trim();
-    let dynamicSpeed = Math.max(0.6, Math.min(1.5, CARTESIA_SPEED));
+    let dynamicSpeed = Math.max(0.9, Math.min(1.05, CARTESIA_SPEED));
     if (CARTESIA_EXPRESSIVE_MODE) {
       const lower = clean.toLowerCase();
       if (/\b(désolé|desole|pardon|excusez|je suis navré|je suis navree|malheureusement|je comprends)\b/.test(lower)) {
         dynamicEmotion = "apologetic";
-        dynamicSpeed = Math.max(0.6, dynamicSpeed - 0.05);
+        dynamicSpeed = Math.max(0.9, dynamicSpeed - 0.03);
       } else if (/\b(au revoir|bonne journée|à bientôt|bonne soirée)\b/.test(lower)) {
         dynamicEmotion = "content";
       } else if (/\?$/.test(clean.trim()) || /\b(souhaitez-vous|voulez-vous|que souhaitez-vous|quel|comment puis-je|puis-je vous aider|qu'est-ce)\b/.test(lower)) {
@@ -2479,6 +2534,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         dynamicEmotion = "happy";
       }
     }
+    dynamicSpeed = Math.max(0.9, Math.min(1.05, dynamicSpeed));
     const genRequest = {
       model_id: CARTESIA_MODEL_ID,
       transcript: textToSend,
@@ -2524,13 +2580,26 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         if (cartesiaTelephonyDirect) {
           const frameSize = 160; // 20ms mulaw 8kHz
           for (let i = 0; i + frameSize <= fullBuf.length; i += frameSize) {
-            enqueueOutboundMulaw(fullBuf.subarray(i, i + frameSize));
+            const frame = fullBuf.subarray(i, i + frameSize);
+            let outFrame = frame;
+            if (VOICE_CHAIN_ENABLED && ws.__voiceChainState) {
+              const pcm = mulawToPcm8kInt16(frame);
+              processVoiceChainPcm8k(pcm, ws.__voiceChainState, {});
+              outFrame = pcm8kInt16ToMulawBuffer(pcm, OUTPUT_GAIN_LOCAL);
+            }
+            enqueueOutboundMulaw(outFrame);
           }
           const rem = fullBuf.length % frameSize;
           if (rem > 0) {
             const padded = Buffer.alloc(frameSize, 0xff);
             fullBuf.copy(padded, 0, fullBuf.length - rem);
-            enqueueOutboundMulaw(padded);
+            let outFrame = padded;
+            if (VOICE_CHAIN_ENABLED && ws.__voiceChainState) {
+              const pcm = mulawToPcm8kInt16(padded);
+              processVoiceChainPcm8k(pcm, ws.__voiceChainState, {});
+              outFrame = pcm8kInt16ToMulawBuffer(pcm, OUTPUT_GAIN_LOCAL);
+            }
+            enqueueOutboundMulaw(outFrame);
           }
         } else {
           // PCM s16le 16kHz → mulaw 8kHz (même pipeline que ElevenLabs)
@@ -2538,14 +2607,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           let i = 0;
           for (; i + pcm16kBlockSize <= fullBuf.length; i += pcm16kBlockSize) {
             const block = fullBuf.subarray(i, i + pcm16kBlockSize);
-            const mulawFrame = convertPcm16kBlockToMulaw(block);
+            const mulawFrame = pcm16kBlockToMulawOutbound(block);
             enqueueOutboundMulaw(mulawFrame);
           }
           const rem = fullBuf.length - i;
           if (rem > 0) {
             const padded = Buffer.alloc(pcm16kBlockSize);
             fullBuf.copy(padded, 0, i);
-            const mulawFrame = convertPcm16kBlockToMulaw(padded);
+            const mulawFrame = pcm16kBlockToMulawOutbound(padded);
             enqueueOutboundMulaw(mulawFrame);
           }
         }
@@ -2621,8 +2690,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               let mulawBuf = mulawCarryOver.length > 0 ? Buffer.concat([mulawCarryOver, buf]) : buf;
               mulawCarryOver = Buffer.alloc(0);
               while (mulawBuf.length >= mulawFrameSize) {
-                enqueueOutboundMulaw(mulawBuf.subarray(0, mulawFrameSize));
+                const frame = mulawBuf.subarray(0, mulawFrameSize);
                 mulawBuf = mulawBuf.subarray(mulawFrameSize);
+                let outFrame = frame;
+                if (VOICE_CHAIN_ENABLED && ws.__voiceChainState) {
+                  const pcm = mulawToPcm8kInt16(frame);
+                  processVoiceChainPcm8k(pcm, ws.__voiceChainState, {});
+                  outFrame = pcm8kInt16ToMulawBuffer(pcm, OUTPUT_GAIN_LOCAL);
+                }
+                enqueueOutboundMulaw(outFrame);
               }
               if (mulawBuf.length > 0) mulawCarryOver = Buffer.from(mulawBuf);
             } else {
@@ -2632,7 +2708,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               while (pcmBuf.length >= pcm16kBlockSize) {
                 const block = pcmBuf.subarray(0, pcm16kBlockSize);
                 pcmBuf = pcmBuf.subarray(pcm16kBlockSize);
-                const mulawFrame = convertPcm16kBlockToMulaw(block);
+                const mulawFrame = pcm16kBlockToMulawOutbound(block);
                 enqueueOutboundMulaw(mulawFrame);
               }
               if (pcmBuf.length > 0) pcmCarryOver = Buffer.from(pcmBuf);
@@ -2648,11 +2724,17 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (cartesiaTelephonyDirect && mulawCarryOver.length > 0) {
         const padded = Buffer.alloc(mulawFrameSize, 0xff);
         mulawCarryOver.copy(padded, 0, 0, mulawCarryOver.length);
-        enqueueOutboundMulaw(padded);
+        let outFrame = padded;
+        if (VOICE_CHAIN_ENABLED && ws.__voiceChainState) {
+          const pcm = mulawToPcm8kInt16(padded);
+          processVoiceChainPcm8k(pcm, ws.__voiceChainState, {});
+          outFrame = pcm8kInt16ToMulawBuffer(pcm, OUTPUT_GAIN_LOCAL);
+        }
+        enqueueOutboundMulaw(outFrame);
       } else if (!cartesiaTelephonyDirect && pcmCarryOver.length > 0) {
         const padded = Buffer.alloc(pcm16kBlockSize);
         pcmCarryOver.copy(padded, 0, 0, pcmCarryOver.length);
-        const mulawFrame = convertPcm16kBlockToMulaw(padded);
+        const mulawFrame = pcm16kBlockToMulawOutbound(padded);
         enqueueOutboundMulaw(mulawFrame);
       }
       if (LOG_TTS) console.log(`[TTS-CARTESIA] Reçu ${totalBytes} octets (streaming)${useContinuations ? `, ${sentences.length} continuations` : ""}.`);
@@ -2726,6 +2808,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     premiumTtsQueue = [];
     try { premiumTtsAbort?.abort?.(); } catch (_) {}
     outboundQueue = []; outboundQueuedBytes = 0;
+    resetOutboundAudioChain();
     enqueuePremiumTts(CONSENT_REFUSAL_MESSAGE, {
       interrupt: true,
       source: "consent_refusal",
@@ -2951,6 +3034,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       premiumTtsAbort = new AbortController();
       outboundQueue = [];
       outboundQueuedBytes = 0;
+      resetOutboundAudioChain();
     } else if (!premiumTtsAbort) {
       premiumTtsAbort = new AbortController();
     }
@@ -2982,9 +3066,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const audioBuf = Buffer.from(audioContent, "base64");
       if (signal.aborted) return;
       const CHUNK_SIZE = 160; // 20ms @ mulaw 8kHz
-      for (let i = 0; i < audioBuf.length; i += CHUNK_SIZE) {
+      for (let i = 0; i + CHUNK_SIZE <= audioBuf.length; i += CHUNK_SIZE) {
         if (signal.aborted) break;
-        enqueueOutboundMulaw(audioBuf.subarray(i, i + CHUNK_SIZE));
+        const frame = audioBuf.subarray(i, i + CHUNK_SIZE);
+        let outFrame = frame;
+        if (VOICE_CHAIN_ENABLED && ws.__voiceChainState) {
+          const pcm = mulawToPcm8kInt16(frame);
+          processVoiceChainPcm8k(pcm, ws.__voiceChainState, {});
+          outFrame = pcm8kInt16ToMulawBuffer(pcm, OUTPUT_GAIN_LOCAL);
+        }
+        enqueueOutboundMulaw(outFrame);
       }
       console.log(`🎙️ Inworld TTS terminé. { chars: ${clean.length}, voice: ${selectedVoiceId}, model: ${INWORLD_MODEL_ID} }`);
     } catch (err) {
@@ -3257,6 +3348,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       premiumTtsAbort = new AbortController();
       outboundQueue = [];
       outboundQueuedBytes = 0;
+      resetOutboundAudioChain();
     } else if (!premiumTtsAbort) {
       premiumTtsAbort = new AbortController();
     }
@@ -4015,7 +4107,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     (PREMIUM_TTS_PROVIDER === "elevenlabs" || PREMIUM_TTS_PROVIDER === "minimax" || PREMIUM_TTS_PROVIDER === "cartesia" || PREMIUM_TTS_PROVIDER === "inworld");
   // Streaming: avec TTS OpenAI on demande audio pour envoi direct à Twilio ; avec ElevenLabs/Minimax on garde texte seul et on stream le TTS côté serveur.
   const REALTIME_OUTPUT_MODALITIES = REALTIME_USE_ELEVEN ? ["text"] : ["text", "audio"];
-  const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "true").toLowerCase() === "true";
+  const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "false").toLowerCase() === "true";
   const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
   const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "240");
   const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "450");
@@ -4071,6 +4163,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       activeResponseId = null;
       outboundQueue = [];
       outboundQueuedBytes = 0;
+      resetOutboundAudioChain();
       console.log("✋ Barge-in: response.cancel + purge outbound.");
     } catch (err) {
       console.error("❌ Erreur response.cancel:", err);
@@ -4237,8 +4330,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           output_modalities: REALTIME_OUTPUT_MODALITIES,
           stt: USE_DEEPGRAM_STT ? "Deepgram (transcript → Realtime)" : "streaming (input_audio_buffer.append)",
           llm: "streaming (Realtime)",
-          tts: REALTIME_USE_ELEVEN ? "streaming (ElevenLabs/Minimax/Cartesia + chunking)" : "streaming (OpenAI audio delta → Twilio)",
+          tts: REALTIME_USE_ELEVEN
+            ? (REALTIME_ELEVEN_CHUNKING_ENABLED
+              ? "premium TTS (texte découpé par phrases → plusieurs synthèses)"
+              : "premium TTS (une synthèse par réponse, flux HTTP continu → μ-law)")
+            : "OpenAI audio delta → chaîne vocale → Twilio",
           eleven_chunking: REALTIME_USE_ELEVEN ? REALTIME_ELEVEN_CHUNKING_ENABLED : "n/a",
+          voice_chain: VOICE_CHAIN_ENABLED,
         });
         if (USE_DEEPGRAM_STT && PIPELINE_MODE === "realtime") {
           try {
@@ -4828,6 +4926,14 @@ ${compactPersona}`;
                   eagerness: (process.env.TURN_DETECTION_EAGERNESS || (effectiveSector === "restaurant" ? "high" : "medium")),
                 },
               },
+              ...((process.env.OPENAI_REALTIME_AUDIO_OUTPUT_ENABLED ?? "true").toLowerCase() === "false"
+                ? {}
+                : {
+                    output: {
+                      voice: (process.env.OPENAI_REALTIME_VOICE ?? "marin").trim() || "marin",
+                      speed: Math.max(0.9, Math.min(1.05, Number(process.env.OPENAI_REALTIME_SPEED ?? "0.98"))),
+                    },
+                  }),
             },
           },
         };
@@ -6518,8 +6624,7 @@ But: être naturel et mettre le client en confiance.`,
                 pcm24kBuffer.byteOffset,
                 pcm24kBuffer.length / 2,
               );
-              const mulaw = convertPcm24kToMulaw(pcm24k);
-              const mulawBuf = Buffer.from(mulaw);
+              const mulawBuf = pcm24kToMulawOutbound(pcm24k);
               enqueueOutboundMulaw(mulawBuf);
               if (!loggedFirstAudioDelta) {
                 loggedFirstAudioDelta = true;
@@ -7983,6 +8088,7 @@ But: être naturel et mettre le client en confiance.`,
                   premiumTtsQueue = [];
                   outboundQueue = [];
                   outboundQueuedBytes = 0;
+                  resetOutboundAudioChain();
                   premiumTtsInFlight = false;
                   console.log("✋ Barge-in TTS: Cartesia interrompu + queue audio purgée.");
                 }

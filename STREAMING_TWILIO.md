@@ -44,7 +44,15 @@ PREMIUM_TTS_PROVIDER=elevenlabs
 REALTIME_ELEVEN_CHUNKING_ENABLED=true
 ```
 
-Avec `REALTIME_ELEVEN_CHUNKING_ENABLED=true` (défaut), les segments de texte sont envoyés au TTS au fur et à mesure (`output_audio_transcript.delta`), ce qui réduit la latence perçue.
+Avec `REALTIME_ELEVEN_CHUNKING_ENABLED=true`, les segments de texte sont envoyés au TTS au fur et à mesure (`output_text.delta`), ce qui réduit la latence au prix de **plusieurs synthèses** par réponse (jointures parfois audibles).
+
+**Défaut actuel : `REALTIME_ELEVEN_CHUNKING_ENABLED=false`** — une seule requête TTS par réponse (texte complet à `response.done`), flux audio HTTP **continu** vers le serveur puis frames μ-law vers Twilio.
+
+### Chaîne audio sortante (8 kHz)
+
+Après synthèse (ou delta OpenAI), le PCM est traité par **`voice-audio-chain.js`** (activable via `VOICE_CHAIN_ENABLED`, défaut `true`) : blocage DC / présence, compresseur léger, normalisation RMS lente, puis encodage μ-law avec `OUTPUT_GAIN`.
+
+Variables utiles : `OPENAI_REALTIME_VOICE`, `OPENAI_REALTIME_SPEED` (0,9–1,05), `OPENAI_REALTIME_AUDIO_OUTPUT_ENABLED=false` pour désactiver le bloc `session.audio.output` si l’API renvoie une erreur.
 
 ### 3. Format audio (déjà géré)
 
@@ -60,7 +68,7 @@ Les paramètres `input_audio_format=pcm16` et `output_audio_format=pcm16` sont d
 | `PIPELINE_MODE` | Choix du pipeline | `realtime` |
 | `REALTIME_TTS_MODE` | Qui produit la voix | `openai` (instantané) ou `elevenlabs` / `minimax` / `cartesia` |
 | `PREMIUM_TTS_ENABLED` | Activer un TTS externe | `false` pour OpenAI natif, `true` pour ElevenLabs etc. |
-| `REALTIME_ELEVEN_CHUNKING_ENABLED` | Envoi du texte au TTS par chunks | `true` (défaut) pour TTS streaming avec ElevenLabs/Minimax/Cartesia |
+| `REALTIME_ELEVEN_CHUNKING_ENABLED` | Découper le texte en plusieurs appels TTS | `false` (défaut) = une synthèse par réponse ; `true` = plus réactif mais moins homogène |
 | `INPUT_POST_TTS_GUARD_MS` | Délai (ms) après la fin du TTS pendant lequel le micro n’est pas envoyé au STT (anti-écho / bruit haut-parleur) | Défaut : **900** si Deepgram actif, **800** sinon. Augmenter à 1500-2000 si écho. |
 | `DEEPGRAM_ECHO_GUARD_MS` | Avec Deepgram : pendant cette durée (ms) après la fin du TTS, les transcripts d’un ou deux mots type « bonjour », « menu », « salut », « allo » sont ignorés (évite écho haut-parleur) | Défaut : **4000**. Réduire si le client dit vraiment un mot court juste après le TTS. |
 | `TURN_DETECTION_EAGERNESS` | Réactivité de la détection de fin de parole | `high` (défaut) pour réponses plus rapides |
