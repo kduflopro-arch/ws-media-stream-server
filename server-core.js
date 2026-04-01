@@ -7827,8 +7827,17 @@ But: être naturel et mettre le client en confiance.`,
               const isUserSpeech = avg > TWILIO_SPEECH_THRESHOLD;
               if (isUserSpeech) twilioSpeechFrames += 1;
               else twilioSpeechFrames = Math.max(0, twilioSpeechFrames - 1);
-              if (BARGE_IN_ENABLED && responseInProgress && twilioSpeechFrames >= BARGE_IN_FRAMES) {
+              const ttsCurrentlyPlaying = premiumTtsInFlight || outboundQueuedBytes > 0 || outboundQueue.length > 0;
+              if (BARGE_IN_ENABLED && (responseInProgress || ttsCurrentlyPlaying) && twilioSpeechFrames >= BARGE_IN_FRAMES) {
                 cancelResponseForBargeIn();
+                if (ttsCurrentlyPlaying) {
+                  try { premiumTtsAbort?.abort?.(); } catch {}
+                  premiumTtsQueue = [];
+                  outboundQueue = [];
+                  outboundQueuedBytes = 0;
+                  premiumTtsInFlight = false;
+                  console.log("✋ Barge-in TTS: Cartesia interrompu + queue audio purgée.");
+                }
                 twilioSpeechFrames = 0;
               }
               const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
