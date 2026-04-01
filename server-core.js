@@ -797,6 +797,11 @@ wss.on("connection", (ws, req) => {
   const CARTESIA_SPEED = Number(process.env.CARTESIA_SPEED ?? "1.0");
   const CARTESIA_VOLUME = Number(process.env.CARTESIA_VOLUME ?? "1.0");
   const CARTESIA_LANGUAGE = process.env.CARTESIA_LANGUAGE ?? "fr";
+  const CARTESIA_ENABLE_SSML_TAGS = (process.env.CARTESIA_ENABLE_SSML_TAGS ?? "true").toLowerCase() === "true";
+  const CARTESIA_STYLE_SPEED = Number(process.env.CARTESIA_STYLE_SPEED ?? "0.97");
+  const CARTESIA_STYLE_VOLUME = Number(process.env.CARTESIA_STYLE_VOLUME ?? "1.02");
+  const CARTESIA_STYLE_EMOTION = process.env.CARTESIA_STYLE_EMOTION ?? "content";
+  const CARTESIA_STYLE_BREAK_MS = Number(process.env.CARTESIA_STYLE_BREAK_MS ?? "120");
   const CARTESIA_USE_BYTES_MODE = (process.env.CARTESIA_USE_BYTES_MODE ?? "true").toLowerCase() === "true";
   const CARTESIA_USE_CONTINUATIONS = (process.env.CARTESIA_USE_CONTINUATIONS ?? "true").toLowerCase() === "true";
   const LOG_CARTESIA_EVENTS = (process.env.LOG_CARTESIA_EVENTS ?? "false").toLowerCase() === "true";
@@ -1904,7 +1909,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const rawTextBeforeNormalization = (text || "").trim();
     const clean = normalizeFrenchTtsText(rawTextBeforeNormalization);
     if (!clean) return;
-    const textToSend = sanitizeTextForMinimax(clean);
+    const textToSend = buildCartesiaNaturalTranscript(clean);
     if (!textToSend) return;
     const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
     if (premiumTtsLastText) {
@@ -2397,7 +2402,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       generation_config: {
         speed: Math.max(0.6, Math.min(1.5, CARTESIA_SPEED)),
         volume: Math.max(0.5, Math.min(2.0, CARTESIA_VOLUME)),
-        emotion: "neutral",
+        emotion: String(CARTESIA_STYLE_EMOTION || "content").trim(),
       },
     };
     try {
@@ -3289,6 +3294,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (LOG_TTS) console.log("[TTS-MINIMAX] Texte tronqué pour Minimax:", text.length, "->", s.length, "caractères");
     }
     return s;
+  }
+  function buildCartesiaNaturalTranscript(text) {
+    const base = sanitizeTextForMinimax(text);
+    if (!base) return "";
+    if (!CARTESIA_ENABLE_SSML_TAGS) return base;
+    const speed = Math.max(0.6, Math.min(1.5, CARTESIA_STYLE_SPEED));
+    const volume = Math.max(0.5, Math.min(2.0, CARTESIA_STYLE_VOLUME));
+    const pauseMs = Math.max(0, Math.min(1500, Math.floor(CARTESIA_STYLE_BREAK_MS)));
+    const emotion = String(CARTESIA_STYLE_EMOTION || "content").trim();
+    const withBreaks = pauseMs > 0
+      ? base.replace(/([,;:.!?])\s+/g, `$1<break time="${pauseMs}ms"/>`)
+      : base;
+    return `<speed ratio="${speed}"/><volume ratio="${volume}"/><emotion value="${emotion}"/>${withBreaks}`;
   }
   function normalizeFrenchTtsText(input) {
     let t = String(input || "").trim();
