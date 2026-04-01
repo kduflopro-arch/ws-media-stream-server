@@ -4242,6 +4242,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                       content: [{ type: "input_text", text: toSend.trim() }],
                     },
                   }));
+                  // Synchroniser lastCommitAt pour que le retry "réponse vide" fonctionne en mode Deepgram
+                  lastCommitAt = nowMs();
                   // Ne pas déclencher la réponse instantanément: on laisse une courte fenêtre
                   // pour capter une éventuelle suite de phrase utilisateur.
                   scheduleDeepgramResponseCreate();
