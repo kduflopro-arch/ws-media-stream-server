@@ -762,6 +762,12 @@ wss.on("connection", (ws, req) => {
   const ELEVENLABS_SIMILARITY_BOOST = Number(process.env.ELEVENLABS_SIMILARITY_BOOST ?? "0.78"); // 0..1 — clarté sans trop de rigidité
   const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE ?? "0.55"); // 0..1 — plus haut = plus expressif (modèles qui le supportent)
   const ELEVENLABS_USE_SPEAKER_BOOST = (process.env.ELEVENLABS_USE_SPEAKER_BOOST ?? "true").toLowerCase() === "true";
+  // Inworld TTS
+  const INWORLD_API_KEY = process.env.INWORLD_API_KEY ?? ""; // Base64(key:secret) depuis le portail Inworld
+  const INWORLD_MODEL_ID = process.env.INWORLD_MODEL_ID ?? "inworld-tts-1.5-mini"; // mini ($5/Mchars) ou max ($10/Mchars)
+  const INWORLD_VOICE_ID_DEFAULT = process.env.INWORLD_VOICE_ID ?? "Antoine";
+  const INWORLD_VOICE_ID_FEMALE = process.env.INWORLD_VOICE_ID_FEMALE ?? "Charlotte";
+  const INWORLD_VOICE_ID_MALE = process.env.INWORLD_VOICE_ID_MALE ?? "Antoine";
   const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY ?? "";
   const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID ?? "";
   const MINIMAX_USE_BALANCE = (process.env.MINIMAX_USE_BALANCE ?? "true").toLowerCase() === "true"; // true = facturation sur le solde (pas de GroupId), false = utiliser MINIMAX_GROUP_ID si défini
@@ -2916,6 +2922,70 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
     return t;
   }
+  async function speakWithInworldNow(text, { interrupt = true } = {}) {
+    if (!PREMIUM_TTS_ENABLED) return;
+    if (PREMIUM_TTS_PROVIDER !== "inworld") return;
+    if (nowMs() < premiumTtsBypassUntilMs) return;
+    const selectedVoiceId = assistantVoice === "male"
+      ? (INWORLD_VOICE_ID_MALE || INWORLD_VOICE_ID_DEFAULT)
+      : (INWORLD_VOICE_ID_FEMALE || INWORLD_VOICE_ID_DEFAULT);
+    if (!INWORLD_API_KEY || !selectedVoiceId) {
+      console.error("❌ PREMIUM_TTS activé mais INWORLD_API_KEY/INWORLD_VOICE_ID manquants.");
+      return;
+    }
+    const original = String(text || "").trim();
+    const clean = normalizeFrenchTtsText(original);
+    if (!clean) return;
+    callTtsCharsTotal += clean.length;
+    if (interrupt) {
+      try { premiumTtsAbort?.abort?.(); } catch { /* ignore */ }
+      premiumTtsAbort = new AbortController();
+      outboundQueue = [];
+      outboundQueuedBytes = 0;
+    } else if (!premiumTtsAbort) {
+      premiumTtsAbort = new AbortController();
+    }
+    premiumTtsInFlight = true;
+    try {
+      const signal = premiumTtsAbort.signal;
+      const response = await fetch("https://api.inworld.ai/tts/v1/voice", {
+        method: "POST",
+        signal,
+        headers: {
+          "Authorization": `Basic ${INWORLD_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: clean,
+          voiceId: selectedVoiceId,
+          modelId: INWORLD_MODEL_ID,
+          audio_config: { encoding: "MULAW", sampleRate: 8000 },
+        }),
+      });
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "");
+        throw new Error(`Inworld TTS HTTP ${response.status}: ${errText.substring(0, 200)}`);
+      }
+      const json = await response.json();
+      const audioContent = json.audioContent ?? json.audio_content ?? null;
+      if (!audioContent) throw new Error("Inworld TTS: audioContent vide dans la réponse");
+      const audioBuf = Buffer.from(audioContent, "base64");
+      if (signal.aborted) return;
+      const CHUNK_SIZE = 160; // 20ms @ mulaw 8kHz
+      for (let i = 0; i < audioBuf.length; i += CHUNK_SIZE) {
+        if (signal.aborted) break;
+        enqueueOutboundMulaw(audioBuf.subarray(i, i + CHUNK_SIZE));
+      }
+      console.log(`🎙️ Inworld TTS terminé. { chars: ${clean.length}, voice: ${selectedVoiceId}, model: ${INWORLD_MODEL_ID} }`);
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      console.error("❌ Erreur Inworld TTS:", err?.message ?? err);
+      premiumTtsLastError = err?.message ?? String(err);
+      premiumTtsBypassUntilMs = nowMs() + 2 * 60 * 1000;
+    } finally {
+      premiumTtsInFlight = false;
+    }
+  }
   function enqueuePremiumTts(text, { interrupt = true, source = "unknown", responseId = null, allowWithoutUser = false, onComplete = null } = {}) {
     if (ws.__consentRefused && source !== "consent_refusal") {
       if (LOG_TTS) console.log("[TTS] Ignoré (consentement refusé, seul le message de refus est joué).");
@@ -3283,6 +3353,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             await speakWithCartesiaNow(job.text, { interrupt: false });
           } else if (PREMIUM_TTS_PROVIDER === "elevenlabs") {
             await speakWithElevenLabsNow(job.text, { interrupt: false });
+          } else if (PREMIUM_TTS_PROVIDER === "inworld") {
+            await speakWithInworldNow(job.text, { interrupt: false });
           }
         } catch (drainErr) {
           const drainMsg = drainErr?.message || String(drainErr);
@@ -3928,7 +4000,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const REALTIME_USE_ELEVEN =
     PIPELINE_MODE === "realtime" &&
     PREMIUM_TTS_ENABLED &&
-    (PREMIUM_TTS_PROVIDER === "elevenlabs" || PREMIUM_TTS_PROVIDER === "minimax" || PREMIUM_TTS_PROVIDER === "cartesia");
+    (PREMIUM_TTS_PROVIDER === "elevenlabs" || PREMIUM_TTS_PROVIDER === "minimax" || PREMIUM_TTS_PROVIDER === "cartesia" || PREMIUM_TTS_PROVIDER === "inworld");
   // Streaming: avec TTS OpenAI on demande audio pour envoi direct à Twilio ; avec ElevenLabs/Minimax on garde texte seul et on stream le TTS côté serveur.
   const REALTIME_OUTPUT_MODALITIES = REALTIME_USE_ELEVEN ? ["text"] : ["text", "audio"];
   const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "true").toLowerCase() === "true";
