@@ -1,154 +1,142 @@
 # Commandes — Depuis ton Mac
 
-> Tout se fait depuis le Terminal de ton Mac, sans avoir besoin d'ouvrir la console Hetzner.
+Tout se fait depuis le Terminal de ton Mac, sans ouvrir la console Hetzner.
 
 ---
 
-## Connexion SSH au serveur
-
-| Commande | Rôle |
-|----------|------|
-| `ssh root@88.198.149.117` | Se connecter au serveur Hetzner |
-| `exit` | Se déconnecter du serveur |
-| `ssh root@88.198.149.117 "pm2 status"` | Exécuter une commande sur le serveur sans s'y connecter |
-
----
-
-## Voir les logs en direct (sans se connecter manuellement)
+## 1) Connexion rapide
 
 ```bash
+# Ouvrir un shell sur le serveur
+ssh root@88.198.149.117
+
+# Exécuter une commande distante sans ouvrir de shell
+ssh root@88.198.149.117 "pm2 status"
+```
+
+---
+
+## 2) Santé du serveur WS
+
+```bash
+# Health check public
+curl https://ws.server-kd.88-198-149-117.sslip.io/health
+
+# Vérifier SSL/headers
+curl -I https://ws.server-kd.88-198-149-117.sslip.io
+```
+
+---
+
+## 3) PM2 (process WS)
+
+```bash
+# État
+ssh root@88.198.149.117 "pm2 status"
+
+# Logs live (Ctrl+C pour sortir)
 ssh root@88.198.149.117 "pm2 logs ws-server-kd"
+
+# 30 dernières lignes
+ssh root@88.198.149.117 "pm2 logs ws-server-kd --lines 30 --nostream"
+
+# Redémarrer
+ssh root@88.198.149.117 "pm2 restart 0 --update-env"
+
+# Vérifier les variables réellement chargées par PM2
+ssh root@88.198.149.117 "pm2 env 0"
 ```
-> Affiche les logs en temps réel depuis ton Mac. Ctrl+C pour arrêter.
+
+> Utilise `pm2 restart 0 --update-env` après toute modif du `.env`.
 
 ---
 
-## Envoyer des fichiers sur le serveur (scp)
-
-| Commande | Rôle |
-|----------|------|
-| `scp fichier.txt root@88.198.149.117:/opt/ws-media-stream-server/` | Envoyer un fichier sur le serveur |
-| `scp /chemin/local/.env root@88.198.149.117:/opt/ws-media-stream-server/.env` | Mettre à jour le .env |
-| `scp -r /dossier/ root@88.198.149.117:/opt/ws-media-stream-server/` | Envoyer un dossier entier |
-
----
-
-## Récupérer des fichiers depuis le serveur
-
-| Commande | Rôle |
-|----------|------|
-| `scp root@88.198.149.117:/opt/ws-media-stream-server/.env ~/Downloads/` | Télécharger le .env sur ton Mac |
-| `scp root@88.198.149.117:/root/.pm2/logs/ws-server-kd-out.log ~/Desktop/` | Télécharger les logs |
-
----
-
-## Git — Déploiement du code
-
-| Commande | Rôle |
-|----------|------|
-| `cd /Users/kendrikduflo/Documents/AutoGuru/ws-media-stream-server` | Aller dans le projet WS |
-| `git status` | Voir les fichiers modifiés |
-| `git add .` | Ajouter tous les fichiers modifiés |
-| `git add fichier.js` | Ajouter un fichier spécifique |
-| `git commit -m "description"` | Créer un commit |
-| `git push origin main` | Pousser sur GitHub → **déclenche le déploiement automatique sur Hetzner** |
-| `git log --oneline -10` | Voir les 10 derniers commits |
-
----
-
-## Vérifier que le serveur fonctionne
-
-| Commande | Rôle |
-|----------|------|
-| `curl https://ws.server-kd.88-198-149-117.sslip.io/health` | Vérifier que le serveur répond (`ok` = tout va bien) |
-| `curl -I https://ws.server-kd.88-198-149-117.sslip.io` | Voir les headers HTTP (vérifier SSL) |
-
----
-
-## Gérer PM2 à distance (sans se connecter)
-
-| Commande | Rôle |
-|----------|------|
-| `ssh root@88.198.149.117 "pm2 status"` | Voir l'état du serveur |
-| `ssh root@88.198.149.117 "pm2 restart ws-server-kd"` | Redémarrer le serveur |
-| `ssh root@88.198.149.117 "pm2 logs ws-server-kd --lines 30 --nostream"` | Voir les 30 dernières lignes de logs |
-| `ssh root@88.198.149.117 "pm2 flush ws-server-kd"` | Vider les logs |
-
----
-
-## Mettre à jour le .env depuis ton Mac
+## 4) Variables d'environnement WS (`.env`)
 
 ```bash
-# 1. Modifie ton .env local
-nano /Users/kendrikduflo/Documents/AutoGuru/ws-media-stream-server/.env
+# Afficher toutes les variables
+ssh root@88.198.149.117 "cd /opt/ws-media-stream-server && cat .env"
 
-# 2. Envoie-le sur le serveur
-scp /Users/kendrikduflo/Documents/AutoGuru/ws-media-stream-server/.env root@88.198.149.117:/opt/ws-media-stream-server/.env
+# Afficher uniquement les noms de variables
+ssh root@88.198.149.117 "cd /opt/ws-media-stream-server && sed 's/=.*//' .env"
 
-# 3. Redémarre le serveur pour prendre en compte les nouvelles variables
-ssh root@88.198.149.117 "pm2 restart ws-server-kd"
+# Modifier une variable existante
+ssh root@88.198.149.117 "cd /opt/ws-media-stream-server && sed -i 's|^NOM_VARIABLE=.*|NOM_VARIABLE=nouvelle_valeur|' .env"
+
+# Ajouter une variable si elle n'existe pas
+ssh root@88.198.149.117 "cd /opt/ws-media-stream-server && echo 'NOM_VARIABLE=valeur' >> .env"
+
+# Redémarrer en rechargeant l'env
+ssh root@88.198.149.117 "pm2 restart 0 --update-env"
+
+# Contrôler la valeur dans le process PM2
+ssh root@88.198.149.117 "pm2 env 0 | grep '^NOM_VARIABLE:'"
 ```
 
 ---
 
-## Vercel — Gérer les variables d'environnement
+## 5) Transfert de fichiers (scp)
 
-| Commande | Rôle |
-|----------|------|
-| `cd /Users/kendrikduflo/Documents/AutoGuru/autoguru-ai` | Aller dans le projet Next.js |
-| `npx vercel env ls` | Voir toutes les variables d'environnement Vercel |
-| `npx vercel env add NOM_VARIABLE production` | Ajouter une variable (te demande la valeur) |
-| `npx vercel env rm NOM_VARIABLE` | Supprimer une variable |
-| `npx vercel --prod` | Redéployer en production |
+```bash
+# Envoyer un fichier
+scp fichier.txt root@88.198.149.117:/opt/ws-media-stream-server/
+
+# Envoyer un dossier
+scp -r dossier/ root@88.198.149.117:/opt/ws-media-stream-server/
+
+# Récupérer un fichier
+scp root@88.198.149.117:/opt/ws-media-stream-server/.env ~/Downloads/
+```
 
 ---
 
-## Scénarios courants depuis le Mac
+## 6) Déploiement Git du serveur WS
 
-### Déployer une mise à jour
 ```bash
 cd /Users/kendrikduflo/Documents/AutoGuru/ws-media-stream-server
+git status
 git add .
-git commit -m "description de la modif"
+git commit -m "description"
 git push origin main
-# → GitHub Actions déploie automatiquement sur Hetzner
 ```
 
-### Vérifier que le déploiement s'est bien passé
-```bash
-# 1. Aller sur github.com/kduflopro-arch/ws-media-stream-server → onglet Actions
-# 2. Ou vérifier les logs directement :
-ssh root@88.198.149.117 "pm2 logs ws-server-kd --lines 20 --nostream"
-```
+Le push sur `main` déclenche le workflow de déploiement vers Hetzner.
 
-### Le serveur ne répond plus
-```bash
-curl https://ws.server-kd.88-198-149-117.sslip.io/health
-# Si pas de réponse :
-ssh root@88.198.149.117 "pm2 restart ws-server-kd"
-```
+---
 
-### Ajouter une variable d'environnement
-```bash
-# Sur Hetzner (WS server) :
-scp .env root@88.198.149.117:/opt/ws-media-stream-server/.env
-ssh root@88.198.149.117 "pm2 restart ws-server-kd"
+## 7) Variables Vercel (autoguru-ai)
 
-# Sur Vercel (Next.js) :
+```bash
 cd /Users/kendrikduflo/Documents/AutoGuru/autoguru-ai
+
+# Lister
+npx vercel env ls production
+
+# Ajouter
 npx vercel env add NOM_VARIABLE production
+
+# Supprimer
+npx vercel env rm NOM_VARIABLE production
+
+# Déployer en prod
 npx vercel --prod
 ```
 
+Variable WS recommandée en prod :
+
+```bash
+WS_MEDIA_STREAM_URL_RESTAURANT=wss://ws.server-kd.88-198-149-117.sslip.io
+```
+
 ---
 
-## Infos serveur
+## 8) Infos utiles
 
 | Info | Valeur |
 |------|--------|
-| **IP Hetzner** | `88.198.149.117` |
-| **URL WSS** | `wss://ws.server-kd.88-198-149-117.sslip.io` |
-| **Health check** | `https://ws.server-kd.88-198-149-117.sslip.io/health` |
-| **Dossier projet** | `/opt/ws-media-stream-server` |
-| **Process PM2** | `ws-server-kd` |
-| **Repo GitHub** | `github.com/kduflopro-arch/ws-media-stream-server` |
+| IP Hetzner | `88.198.149.117` |
+| URL WSS | `wss://ws.server-kd.88-198-149-117.sslip.io` |
+| Health check | `https://ws.server-kd.88-198-149-117.sslip.io/health` |
+| Dossier serveur | `/opt/ws-media-stream-server` |
+| Process PM2 | `ws-server-kd` (`id: 0`) |
+| Repo | `github.com/kduflopro-arch/ws-media-stream-server` |

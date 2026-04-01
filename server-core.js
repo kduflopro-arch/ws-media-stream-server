@@ -721,7 +721,7 @@ wss.on("connection", (ws, req) => {
   const OUTPUT_USER_SPEECH_FRAMES = Number(process.env.OUTPUT_USER_SPEECH_FRAMES ?? "6"); // ~120ms
   const OUTPUT_USER_SILENCE_THRESHOLD = Number(process.env.OUTPUT_USER_SILENCE_THRESHOLD ?? "1100");
   const OUTPUT_USER_SILENCE_FRAMES = Number(process.env.OUTPUT_USER_SILENCE_FRAMES ?? "18"); // ~360ms
-  const ASSISTANT_RESPONSE_WINDOW_MS = Number(process.env.ASSISTANT_RESPONSE_WINDOW_MS ?? "20000"); // Augmenté à 20s pour être plus permissif
+  const ASSISTANT_RESPONSE_WINDOW_MS = Number(process.env.ASSISTANT_RESPONSE_WINDOW_MS ?? "12000"); // Fenêtre plus courte: évite les tours tardifs et améliore la réactivité
   const LOG_TTS = (process.env.LOG_TTS ?? "false").toLowerCase() === "true";
   const LOG_MINIMAX_CHUNKS = (process.env.LOG_MINIMAX_CHUNKS ?? "false").toLowerCase() === "true";
   const LOG_MINIMAX_CHUNK_EVERY = Number(process.env.LOG_MINIMAX_CHUNK_EVERY ?? "50");
@@ -740,8 +740,8 @@ wss.on("connection", (ws, req) => {
   const REALTIME_USER_STT_SPEECH_THRESHOLD = Number(process.env.REALTIME_USER_STT_SPEECH_THRESHOLD ?? "1500");
   const REALTIME_USER_STT_SPEECH_FRAMES = Number(process.env.REALTIME_USER_STT_SPEECH_FRAMES ?? "6");
   const REALTIME_USER_STT_SILENCE_THRESHOLD = Number(process.env.REALTIME_USER_STT_SILENCE_THRESHOLD ?? "650");
-  const REALTIME_USER_STT_SILENCE_FRAMES = Number(process.env.REALTIME_USER_STT_SILENCE_FRAMES ?? "32"); // ~640ms: laisser le client finir sa phrase avant de répondre
-  const REALTIME_USER_STT_MIN_AUDIO_MS = Number(process.env.REALTIME_USER_STT_MIN_AUDIO_MS ?? "500");
+  const REALTIME_USER_STT_SILENCE_FRAMES = Number(process.env.REALTIME_USER_STT_SILENCE_FRAMES ?? "22"); // ~440ms: fin de phrase détectée plus vite
+  const REALTIME_USER_STT_MIN_AUDIO_MS = Number(process.env.REALTIME_USER_STT_MIN_AUDIO_MS ?? "380");
   let rtSttSpeechFrames = 0;
   let rtSttSilenceFrames = 0;
   let rtSttActive = false;
@@ -780,7 +780,7 @@ wss.on("connection", (ws, req) => {
   const MINIMAX_LANGUAGE_BOOST = process.env.MINIMAX_LANGUAGE_BOOST ?? "French";
   const MINIMAX_TEXT_NORMALIZATION = (process.env.MINIMAX_TEXT_NORMALIZATION ?? "false").toLowerCase() === "true";
   // sample_rate: 32000 (défaut) ou 44100 pour qualité maximale (resample vers 8k pour Twilio). Doc: 8000, 16000, 22050, 24000, 32000, 44100.
-  const MINIMAX_SAMPLE_RATE = Math.min(44100, Math.max(8000, Number(process.env.MINIMAX_SAMPLE_RATE || "32000") || 32000));
+  const MINIMAX_SAMPLE_RATE = Math.min(44100, Math.max(8000, Number(process.env.MINIMAX_SAMPLE_RATE || "44100") || 44100));
   const MINIMAX_SAMPLE_RATE_VALID = [8000, 16000, 22050, 24000, 32000, 44100].includes(MINIMAX_SAMPLE_RATE) ? MINIMAX_SAMPLE_RATE : 32000;
   // voice_modify (pitch, intensity, timbre) n'est pas compatible avec format PCM — uniquement MP3/WAV/FLAC (doc Minimax)
   const MINIMAX_VOICE_MODIFY_PITCH = process.env.MINIMAX_VOICE_MODIFY_PITCH !== undefined ? Number(process.env.MINIMAX_VOICE_MODIFY_PITCH) : 0;
@@ -798,7 +798,7 @@ wss.on("connection", (ws, req) => {
   const CARTESIA_VOLUME = Number(process.env.CARTESIA_VOLUME ?? "1.0");
   const CARTESIA_LANGUAGE = process.env.CARTESIA_LANGUAGE ?? "fr";
   const CARTESIA_USE_BYTES_MODE = (process.env.CARTESIA_USE_BYTES_MODE ?? "true").toLowerCase() === "true";
-  const CARTESIA_USE_CONTINUATIONS = (process.env.CARTESIA_USE_CONTINUATIONS ?? "false").toLowerCase() === "true";
+  const CARTESIA_USE_CONTINUATIONS = (process.env.CARTESIA_USE_CONTINUATIONS ?? "true").toLowerCase() === "true";
   const LOG_CARTESIA_EVENTS = (process.env.LOG_CARTESIA_EVENTS ?? "false").toLowerCase() === "true";
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
@@ -1561,7 +1561,7 @@ wss.on("connection", (ws, req) => {
   let backchannelTimer = null;
   let lastBackchannelAt = 0;
   let llmInFlight = false;
-  const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "120");
+  const RESPONSE_CREATE_DEBOUNCE_MS = Number(process.env.RESPONSE_CREATE_DEBOUNCE_MS ?? "70");
   const WATCHDOG_AFTER_COMMIT_MS = Number(process.env.WATCHDOG_AFTER_COMMIT_MS ?? "50"); // plus court = réactivité (déclenche response.create plus vite après committed)
   let sttSpeechFrames = 0;
   let sttSilenceFrames = 0;
@@ -3742,16 +3742,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const { head } = splitTtsText(input, maxChars);
     return head;
   }
-  const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "false").toLowerCase() === "true";
-  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "15000"); // Seuil élevé pour éviter les faux positifs
-  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "35"); // ~700ms de parole continue nécessaire
+  const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "true").toLowerCase() === "true";
+  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "9000"); // Détection plus sensible de reprise client
+  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "20"); // ~400ms de parole continue
   let twilioSpeechFrames = 0;
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
   const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible; 900–1200: plus strict
   const SPEECH_STARTED_IGNORE_THRESHOLD = Number(process.env.SPEECH_STARTED_IGNORE_THRESHOLD ?? "150"); // seuil bas: on ignore speech_started seulement si bruit évident (<150)
-  const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "10"); // Augmenté de 6 à 10 (~200ms au lieu de 120ms)
+  const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "8"); // ~160ms: compromis réactivité/stabilité
   const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "450");
-  const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? (PIPELINE_MODE === "realtime" ? "38" : "20")); // ~760ms en realtime: laisser finir la phrase
+  const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? (PIPELINE_MODE === "realtime" ? "26" : "18")); // fin de parole plus rapide en realtime
   let inputSpeechFrames = 0;
   let inputSilenceFrames = 0;
   let inputActive = false; // on est en train d'envoyer une "prise de parole" à OpenAI
@@ -3763,7 +3763,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "2"); // ~40ms d'audio sortant
   const INPUT_SUPPRESS_BYPASS_THRESHOLD = Number(process.env.INPUT_SUPPRESS_BYPASS_THRESHOLD ?? "400"); // seuil audio pour ne pas supprimer (plus sensible = moins répétitions)
   // Délai après la fin du TTS pendant lequel on n'envoie pas l'audio au STT (évite écho / bruit haut-parleur transcrit). Avec Deepgram + haut-parleur : 1,5 s par défaut.
-  const INPUT_POST_TTS_GUARD_MS = Number(process.env.INPUT_POST_TTS_GUARD_MS ?? (USE_DEEPGRAM_STT ? "900" : "800"));
+  const INPUT_POST_TTS_GUARD_MS = Number(process.env.INPUT_POST_TTS_GUARD_MS ?? (USE_DEEPGRAM_STT ? "650" : "600"));
   const INPUT_SUPPRESS_OVERRIDE_THRESHOLD = Number(
     process.env.INPUT_SUPPRESS_OVERRIDE_THRESHOLD ?? String(Math.max(2500, Math.floor(INPUT_SPEECH_THRESHOLD * 1.5))),
   );
@@ -3777,15 +3777,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const REALTIME_ELEVEN_CHUNKING_ENABLED = (process.env.REALTIME_ELEVEN_CHUNKING_ENABLED ?? "true").toLowerCase() === "true";
   const REALTIME_ELEVEN_CHUNK_MIN_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MIN_CHARS ?? "40");
   const REALTIME_ELEVEN_CHUNK_MAX_CHARS = Number(process.env.REALTIME_ELEVEN_CHUNK_MAX_CHARS ?? "240");
-  const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "650");
+  const RESTAURANT_POST_TTS_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_GUARD_MS ?? "450");
   // Après la fin du TTS, ignorer speech_started pendant ce délai (écho) — plus court = réactivité, le client peut répondre plus tôt.
-  const RESTAURANT_POST_TTS_SPEECH_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_SPEECH_GUARD_MS ?? "700");
+  const RESTAURANT_POST_TTS_SPEECH_GUARD_MS = Number(process.env.RESTAURANT_POST_TTS_SPEECH_GUARD_MS ?? "450");
   // Délai après TTS pendant lequel on bloque response.create (anti-écho). Plus court = réponses plus rapides quand le client parle.
-  const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "900");
+  const RESTAURANT_WAIT_AFTER_TTS_MS = Number(process.env.RESTAURANT_WAIT_AFTER_TTS_MS ?? "450");
   // Seuil niveau audio pour considérer "client a parlé" en restaurant (plus élevé = moins de faux positifs bruit/écho). 2200 ≈ parole claire.
   const RESTAURANT_INPUT_SPEECH_THRESHOLD = Number(process.env.RESTAURANT_INPUT_SPEECH_THRESHOLD ?? "1800");
   // En restaurant : ne répondre après un commit que si le client a vraiment parlé récemment (speech_started dans les N ms). Évite que l'IA réponde au silence / improvise. 6,5 s pour laisser le temps au TTS de finir avant de considérer "parole récente".
-  const RESTAURANT_COMMIT_SPEECH_WINDOW_MS = Number(process.env.RESTAURANT_COMMIT_SPEECH_WINDOW_MS ?? "6500");
+  const RESTAURANT_COMMIT_SPEECH_WINDOW_MS = Number(process.env.RESTAURANT_COMMIT_SPEECH_WINDOW_MS ?? "5000");
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     const now = nowMs();
@@ -3822,7 +3822,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     }
   }
   function cancelResponseForBargeIn() {
-    if (effectiveSector === "restaurant") return; // pas de barge-in pour le restaurant
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     if (!responseInProgress) return;
     try {
