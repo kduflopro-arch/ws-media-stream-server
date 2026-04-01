@@ -802,6 +802,8 @@ wss.on("connection", (ws, req) => {
   const CARTESIA_STYLE_VOLUME = Number(process.env.CARTESIA_STYLE_VOLUME ?? "1.02");
   const CARTESIA_STYLE_EMOTION = process.env.CARTESIA_STYLE_EMOTION ?? "content";
   const CARTESIA_STYLE_BREAK_MS = Number(process.env.CARTESIA_STYLE_BREAK_MS ?? "120");
+  const CARTESIA_OUTPUT_ENCODING = (process.env.CARTESIA_OUTPUT_ENCODING ?? "pcm_mulaw").toLowerCase();
+  const CARTESIA_OUTPUT_SAMPLE_RATE = Number(process.env.CARTESIA_OUTPUT_SAMPLE_RATE ?? "8000");
   const CARTESIA_USE_BYTES_MODE = (process.env.CARTESIA_USE_BYTES_MODE ?? "true").toLowerCase() === "true";
   const CARTESIA_USE_CONTINUATIONS = (process.env.CARTESIA_USE_CONTINUATIONS ?? "true").toLowerCase() === "true";
   const LOG_CARTESIA_EVENTS = (process.env.LOG_CARTESIA_EVENTS ?? "false").toLowerCase() === "true";
@@ -2393,11 +2395,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       }
     }
     const apiKey = CARTESIA_API_KEY.startsWith("Bearer ") ? CARTESIA_API_KEY.substring(7) : CARTESIA_API_KEY;
+    const cartesiaTelephonyDirect =
+      CARTESIA_OUTPUT_ENCODING === "pcm_mulaw" && CARTESIA_OUTPUT_SAMPLE_RATE === 8000;
     const genRequest = {
       model_id: CARTESIA_MODEL_ID,
       transcript: textToSend,
       voice: { mode: "id", id: selectedVoiceId.trim() },
-      output_format: { container: "raw", encoding: "pcm_s16le", sample_rate: 16000 },
+      output_format: { container: "raw", encoding: CARTESIA_OUTPUT_ENCODING, sample_rate: CARTESIA_OUTPUT_SAMPLE_RATE },
       language: CARTESIA_LANGUAGE,
       generation_config: {
         speed: Math.max(0.6, Math.min(1.5, CARTESIA_SPEED)),
@@ -2435,14 +2439,35 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           }
           fullBuf = fullBuf.subarray(offset);
         }
-        // PCM s16le 16kHz → mulaw 8kHz (même pipeline que ElevenLabs, sans saccades)
-        const pcm16kBlockSize = 640; // 640 bytes PCM16k = 20ms = 160 bytes mulaw
-        for (let i = 0; i + pcm16kBlockSize <= fullBuf.length; i += pcm16kBlockSize) {
-          const block = fullBuf.subarray(i, i + pcm16kBlockSize);
-          const mulawFrame = convertPcm16kBlockToMulaw(block);
-          enqueueOutboundMulaw(mulawFrame);
+        if (cartesiaTelephonyDirect) {
+          const frameSize = 160; // 20ms mulaw 8kHz
+          for (let i = 0; i + frameSize <= fullBuf.length; i += frameSize) {
+            enqueueOutboundMulaw(fullBuf.subarray(i, i + frameSize));
+          }
+          const rem = fullBuf.length % frameSize;
+          if (rem > 0) {
+            const padded = Buffer.alloc(frameSize, 0xff);
+            fullBuf.copy(padded, 0, fullBuf.length - rem);
+            enqueueOutboundMulaw(padded);
+          }
+        } else {
+          // PCM s16le 16kHz → mulaw 8kHz (même pipeline que ElevenLabs)
+          const pcm16kBlockSize = 640; // 640 bytes PCM16k = 20ms = 160 bytes mulaw
+          let i = 0;
+          for (; i + pcm16kBlockSize <= fullBuf.length; i += pcm16kBlockSize) {
+            const block = fullBuf.subarray(i, i + pcm16kBlockSize);
+            const mulawFrame = convertPcm16kBlockToMulaw(block);
+            enqueueOutboundMulaw(mulawFrame);
+          }
+          const rem = fullBuf.length - i;
+          if (rem > 0) {
+            const padded = Buffer.alloc(pcm16kBlockSize);
+            fullBuf.copy(padded, 0, i);
+            const mulawFrame = convertPcm16kBlockToMulaw(padded);
+            enqueueOutboundMulaw(mulawFrame);
+          }
         }
-        if (LOG_TTS) console.log(`[TTS-CARTESIA] Bytes: ${fullBuf.length} octets PCM16k → mulaw enqueue.`);
+        if (LOG_TTS) console.log(`[TTS-CARTESIA] Bytes: ${fullBuf.length} octets ${cartesiaTelephonyDirect ? "mulaw8k natif" : "pcm16k"} → enqueue.`);
         if (fullBuf.length === 0) console.warn("⚠️ Cartesia TTS: 0 octet. Vérifier CARTESIA_API_KEY et voice ID.");
         if (premiumTtsBypassUntilMs > 0) {
           premiumTtsBypassUntilMs = 0;
@@ -2481,8 +2506,10 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         cartesiaWs.on("error", (err) => { clearTimeout(t); reject(err); });
       });
       const pcm16kBlockSize = 640; // 640 bytes PCM16k = 20ms = 160 bytes mulaw
+      const mulawFrameSize = 160;
       let totalBytes = 0;
       let pcmCarryOver = Buffer.alloc(0); // buffer pour les restes de chunks non alignés sur 640
+      let mulawCarryOver = Buffer.alloc(0);
       for (let si = 0; si < sentences.length && !premiumTtsAbort?.signal?.aborted; si++) {
         const seg = sentences[si];
         const isFirst = si === 0;
@@ -2508,16 +2535,26 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           const buf = Buffer.from(msg.data, "base64");
           if (buf.length > 0) {
             totalBytes += buf.length;
-            // PCM s16le 16kHz → mulaw 8kHz (même pipeline que ElevenLabs)
-            let pcmBuf = pcmCarryOver.length > 0 ? Buffer.concat([pcmCarryOver, buf]) : buf;
-            pcmCarryOver = Buffer.alloc(0);
-            while (pcmBuf.length >= pcm16kBlockSize) {
-              const block = pcmBuf.subarray(0, pcm16kBlockSize);
-              pcmBuf = pcmBuf.subarray(pcm16kBlockSize);
-              const mulawFrame = convertPcm16kBlockToMulaw(block);
-              enqueueOutboundMulaw(mulawFrame);
+            if (cartesiaTelephonyDirect) {
+              let mulawBuf = mulawCarryOver.length > 0 ? Buffer.concat([mulawCarryOver, buf]) : buf;
+              mulawCarryOver = Buffer.alloc(0);
+              while (mulawBuf.length >= mulawFrameSize) {
+                enqueueOutboundMulaw(mulawBuf.subarray(0, mulawFrameSize));
+                mulawBuf = mulawBuf.subarray(mulawFrameSize);
+              }
+              if (mulawBuf.length > 0) mulawCarryOver = Buffer.from(mulawBuf);
+            } else {
+              // PCM s16le 16kHz → mulaw 8kHz (même pipeline que ElevenLabs)
+              let pcmBuf = pcmCarryOver.length > 0 ? Buffer.concat([pcmCarryOver, buf]) : buf;
+              pcmCarryOver = Buffer.alloc(0);
+              while (pcmBuf.length >= pcm16kBlockSize) {
+                const block = pcmBuf.subarray(0, pcm16kBlockSize);
+                pcmBuf = pcmBuf.subarray(pcm16kBlockSize);
+                const mulawFrame = convertPcm16kBlockToMulaw(block);
+                enqueueOutboundMulaw(mulawFrame);
+              }
+              if (pcmBuf.length > 0) pcmCarryOver = Buffer.from(pcmBuf);
             }
-            if (pcmBuf.length > 0) pcmCarryOver = Buffer.from(pcmBuf);
           }
         }
         if (msg.type === "error") {
@@ -2525,6 +2562,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         }
         isDone = !!msg.done;
       }
+      }
+      if (cartesiaTelephonyDirect && mulawCarryOver.length > 0) {
+        const padded = Buffer.alloc(mulawFrameSize, 0xff);
+        mulawCarryOver.copy(padded, 0, 0, mulawCarryOver.length);
+        enqueueOutboundMulaw(padded);
+      } else if (!cartesiaTelephonyDirect && pcmCarryOver.length > 0) {
+        const padded = Buffer.alloc(pcm16kBlockSize);
+        pcmCarryOver.copy(padded, 0, 0, pcmCarryOver.length);
+        const mulawFrame = convertPcm16kBlockToMulaw(padded);
+        enqueueOutboundMulaw(mulawFrame);
       }
       if (LOG_TTS) console.log(`[TTS-CARTESIA] Reçu ${totalBytes} octets (streaming)${useContinuations ? `, ${sentences.length} continuations` : ""}.`);
       if (totalBytes === 0) {
