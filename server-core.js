@@ -1527,7 +1527,9 @@ wss.on("connection", (ws, req) => {
     if (/^(.)\1{4,}$/.test(stripped)) return true;
     const contextWords = ["parc", "plage", "mer", "montagne", "campagne", "ville", "rue", "avenue", "boulevard"];
     const garageRelated = ["voiture", "véhicule", "garage", "problème", "panne", "rendez-vous", "rdv", "diagnostic", "frein", "batterie", "moteur"];
-    if (contextWords.some(w => lower.includes(w)) && !garageRelated.some(w => lower.includes(w))) return true;
+    // Utiliser des mots entiers (word boundary) pour éviter de filtrer "merguez" à cause de "mer", "avenue" dans "lavande", etc.
+    const lowerWords = lower.split(/\s+/);
+    if (contextWords.some(w => lowerWords.includes(w)) && !garageRelated.some(w => lower.includes(w))) return true;
     return false;
   }
   function normalizeDeepgramTranscript(text) {
