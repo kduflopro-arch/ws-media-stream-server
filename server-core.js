@@ -813,6 +813,7 @@ wss.on("connection", (ws, req) => {
   let premiumTtsAbort = null;
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
+  let callTtsCharsTotal = 0; // Total caractères envoyés au TTS sur cet appel
   let lastTtsEndAt = 0; // Fin du dernier TTS (pour éviter response.create sur écho juste après notre parole — restaurant)
   let premiumTtsLastError = null;
   let premiumTtsQueue = []; // Array<{ text: string, interrupt: boolean }>
@@ -2281,6 +2282,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const original = String(text || "").trim();
     const clean = normalizeFrenchTtsText(original);
     if (!clean) return;
+    callTtsCharsTotal += clean.length;
     if (LOG_TTS) {
       console.log("[TTS] ElevenLabs model_id utilisé:", ELEVENLABS_MODEL_ID);
       console.log("[TTS] Texte avant normalisation (avec tags potentiels):", original.substring(0, 200));
@@ -2414,6 +2416,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!clean) return;
     const textToSend = sanitizeTextForMinimax(clean);
     if (!textToSend) return;
+    callTtsCharsTotal += textToSend.length;
     if (premiumTtsLastText) {
       const lastNormalized = normalizeFrenchTtsText(premiumTtsLastText).toLowerCase().replace(/[.,!?;:]/g, "").trim();
       const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
@@ -7995,6 +7998,15 @@ But: être naturel et mettre le client en confiance.`,
         }
       } else if (msg.event === "stop") {
         console.log("🛑 Stream stop");
+        {
+          const provider = PREMIUM_TTS_PROVIDER || "unknown";
+          const isEleven = provider === "elevenlabs";
+          const elevenV3OrFlash = isEleven && /eleven_v3|eleven_flash/i.test(String(ELEVENLABS_MODEL_ID || ""));
+          const creditsPerChar = elevenV3OrFlash ? 0.5 : 1;
+          const credits = isEleven ? Math.ceil(callTtsCharsTotal * creditsPerChar) : null;
+          const cartesiaCost = !isEleven ? `$${(callTtsCharsTotal * 0.000015).toFixed(5)}` : null;
+          console.log(`💰 TTS bilan appel: ${callTtsCharsTotal} caractères | provider: ${provider}${isEleven ? ` (${ELEVENLABS_MODEL_ID}) → ~${credits} crédits ElevenLabs` : ` → ~${cartesiaCost}`}`);
+        }
         if (deepgramSession) {
           try { deepgramSession.close(); } catch (_) {}
           deepgramSession = null;
