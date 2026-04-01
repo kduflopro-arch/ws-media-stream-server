@@ -59,9 +59,9 @@ export function createDeepgramLiveSession(options = {}) {
     keyterm = [],
     keywords = [],
     interimResults = true,
-    // smart_format peut retarder la finalisation sur du live audio.
-    // Pour des appels vocaux temps réel, on préfère une config plus réactive.
-    smartFormat = false,
+    // Activer smart_format améliore généralement la lisibilité STT (nombres, formats),
+    // au prix d'un léger coût de latence. Désactivable via DEEPGRAM_SMART_FORMAT=false.
+    smartFormat = String(process.env.DEEPGRAM_SMART_FORMAT ?? "true").toLowerCase() === "true",
   } = options;
 
   const client = createClient(DEEPGRAM_API_KEY);
