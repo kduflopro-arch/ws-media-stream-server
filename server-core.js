@@ -768,6 +768,8 @@ wss.on("connection", (ws, req) => {
   const INWORLD_VOICE_ID_DEFAULT = process.env.INWORLD_VOICE_ID ?? "Antoine";
   const INWORLD_VOICE_ID_FEMALE = process.env.INWORLD_VOICE_ID_FEMALE ?? "Charlotte";
   const INWORLD_VOICE_ID_MALE = process.env.INWORLD_VOICE_ID_MALE ?? "Antoine";
+  const INWORLD_SPEAKING_RATE = parseFloat(process.env.INWORLD_SPEAKING_RATE ?? "1.25"); // >1 = plus rapide
+  const INWORLD_TEMPERATURE = parseFloat(process.env.INWORLD_TEMPERATURE ?? "1.15"); // >1 = plus expressif/émotionnel
   const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY ?? "";
   const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID ?? "";
   const MINIMAX_USE_BALANCE = (process.env.MINIMAX_USE_BALANCE ?? "true").toLowerCase() === "true"; // true = facturation sur le solde (pas de GroupId), false = utiliser MINIMAX_GROUP_ID si défini
@@ -2959,7 +2961,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           text: clean,
           voiceId: selectedVoiceId,
           modelId: INWORLD_MODEL_ID,
-          audioConfig: { audioEncoding: "MULAW", sampleRateHertz: 8000 },
+          temperature: INWORLD_TEMPERATURE,
+          audioConfig: { audioEncoding: "MULAW", sampleRateHertz: 8000, speakingRate: INWORLD_SPEAKING_RATE },
         }),
       });
       if (!response.ok) {
