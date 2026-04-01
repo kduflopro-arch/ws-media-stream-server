@@ -1450,7 +1450,21 @@ wss.on("connection", (ws, req) => {
     const lower = t.toLowerCase();
     if (!t) return true;
     // Restaurant / takeaway : réponses courtes critiques à ne jamais filtrer (ex. "non merci" = fin d'ajout commande)
-    const criticalShortPhrases = ["non merci", "oui merci", "c'est tout", "rien d'autre", "non c'est tout", "voilà c'est tout"];
+    const criticalShortPhrases = [
+      "non merci",
+      "oui merci",
+      "c'est tout",
+      "rien d'autre",
+      "non c'est tout",
+      "voilà c'est tout",
+      "a emporter",
+      "à emporter",
+      "sur place",
+      "livraison",
+      "en livraison",
+      "a livrer",
+      "à livrer",
+    ];
     const normalizedForMatch = lower.replace(/\s+/g, " ").replace(/[.!?,;:]*$/, "").trim();
     if (criticalShortPhrases.some(p => normalizedForMatch === p || normalizedForMatch.startsWith(p + " "))) return false;
     // Restaurant: certaines réponses très courtes sont des préfixes utiles
@@ -1482,7 +1496,12 @@ wss.on("connection", (ws, req) => {
       if (NOISE_FILTER_STRICT && words[0].length < strictLenOneWord && !oneWordOk.includes(words[0].toLowerCase())) return true;
     }
     if (words.length <= 2 && t.length < 12) {
-      const commonFrench = ["oui", "ouais", "ouai", "non", "oui oui", "non non", "oui merci", "non merci", "d'accord", "ok ok", "bonjour oui", "oui s'il vous plaît", "euh oui", "ben oui", "ah oui", "ouais oui", "c'est bon", "c'est ça"];
+      const commonFrench = [
+        "oui", "ouais", "ouai", "non", "oui oui", "non non", "oui merci", "non merci",
+        "d'accord", "ok ok", "bonjour oui", "oui s'il vous plaît", "euh oui", "ben oui",
+        "ah oui", "ouais oui", "c'est bon", "c'est ça",
+        "a emporter", "à emporter", "sur place", "livraison", "en livraison", "a livrer", "à livrer",
+      ];
       const normalized = lower.replace(/\s+/g, " ").trim();
       if (!commonFrench.some(phrase => normalized === phrase || normalized.startsWith(phrase + " ") || normalized.endsWith(" " + phrase))) {
         // Cas important restaurant : réponses du type "8 personnes", "4 convives", "2 clients"
@@ -1500,6 +1519,18 @@ wss.on("connection", (ws, req) => {
     const garageRelated = ["voiture", "véhicule", "garage", "problème", "panne", "rendez-vous", "rdv", "diagnostic", "frein", "batterie", "moteur"];
     if (contextWords.some(w => lower.includes(w)) && !garageRelated.some(w => lower.includes(w))) return true;
     return false;
+  }
+  function normalizeDeepgramTranscript(text) {
+    let t = String(text || "").trim();
+    if (!t) return "";
+    if (effectiveSector === "restaurant") {
+      // Corrections fréquentes en téléphonie (mulaw 8k) pour la prise de commande.
+      t = t.replace(/\b(grand|petit|un|une)?\s*coca\s+et\s+(serra|sera|zera|zéra|zero)\b/gi, (_, size) => `${size ? size + " " : ""}coca zero`);
+      t = t.replace(/\bcoca\s+(serra|sera|zera|zéra)\b/gi, "coca zero");
+      t = t.replace(/\bau nom de ma[\s-]?sim(e)?\b/gi, "au nom de Maxime");
+      t = t.replace(/\bau nom de ma[\s-]?xim(e)?\b/gi, "au nom de Maxime");
+    }
+    return t.replace(/\s+/g, " ").trim();
   }
   async function pollPlateSmsStatus() {
     try {
@@ -1798,7 +1829,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       let answer = "";
       try {
         llmInFlight = true;
-        if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED && effectiveSector !== "restaurant") {
+        if (BACKCHANNEL_ENABLED && PREMIUM_TTS_ENABLED) {
           const now = nowMs();
           const canPlay = (now - lastBackchannelAt) >= BACKCHANNEL_MIN_INTERVAL_MS;
           if (canPlay) {
@@ -2518,8 +2549,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         const seg = sentences[si];
         const isFirst = si === 0;
         const req = isFirst
-          ? { ...genRequest, transcript: seg, context_id: contextId }
-          : { ...genRequest, transcript: (seg.startsWith(" ") ? seg : " " + seg), context_id: contextId, continue: true };
+          ? { ...genRequest, transcript: seg, context_id: contextId, max_buffer_delay_ms: 80 }
+          : { ...genRequest, transcript: (seg.startsWith(" ") ? seg : " " + seg), context_id: contextId, continue: true, max_buffer_delay_ms: 80 };
         cartesiaWs.send(JSON.stringify(req));
         let isDone = false;
       while (!isDone && !premiumTtsAbort?.signal?.aborted) {
@@ -3357,15 +3388,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const lower = base.toLowerCase();
 
     if (CARTESIA_EXPRESSIVE_MODE) {
-      if (/\b(désolé|desole|pardon|excusez|je suis navré|je suis navree)\b/.test(lower)) {
-        emotion = "sad";
+      if (/\b(désolé|desole|pardon|excusez|je suis navré|je suis navree|malheureusement|je comprends)\b/.test(lower)) {
+        emotion = "sadness";
         speed = Math.max(0.6, speed - 0.05);
-      } else if (/\?$/.test(base) || /\b(souhaitez-vous|voulez-vous|qu'est-ce que|que souhaitez-vous|quel)\b/.test(lower)) {
-        emotion = "curious";
-      } else if (/\b(parfait|super|génial|genial|avec plaisir|bien sûr|bien sur|excellent)\b/.test(lower)) {
-        emotion = "enthusiastic";
-      } else if (/\b(très bien|tres bien|c'est noté|c est noté|je note|merci)\b/.test(lower)) {
-        emotion = "content";
+      } else if (/\?$/.test(base) || /\b(souhaitez-vous|voulez-vous|qu'est-ce que|que souhaitez-vous|quel|comment puis-je|puis-je vous aider)\b/.test(lower)) {
+        emotion = "curiosity";
+      } else if (/\b(parfait|super|génial|genial|avec plaisir|bien sûr|bien sur|excellent|fantastique|formidable)\b/.test(lower)) {
+        emotion = "positivity:high";
+      } else if (/\b(très bien|tres bien|c'est noté|c est noté|je note|merci|d'accord|entendu|absolument)\b/.test(lower)) {
+        emotion = "positivity";
       }
     }
 
@@ -3374,8 +3405,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       : base;
 
     const canAddLaughter = CARTESIA_ENABLE_LAUGHTER && cartesiaLaughterCount < Math.max(0, CARTESIA_LAUGHTER_MAX_PER_CALL);
-    const isFriendlyMoment = /\b(parfait|super|génial|genial|avec plaisir|haha|très bien|tres bien)\b/.test(lower);
-    if (canAddLaughter && isFriendlyMoment && /!/.test(base)) {
+    const isFriendlyMoment = /\b(parfait|super|génial|genial|avec plaisir|haha|très bien|tres bien|excellent|fantastique)\b/.test(lower);
+    if (canAddLaughter && isFriendlyMoment) {
       withBreaks = `[laughter] ${withBreaks}`;
       cartesiaLaughterCount += 1;
     }
@@ -4106,6 +4137,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               "treize heures demi", "quatorze heures demi", "demie",
               "réservation", "réserver", "table", "commander", "commande", "emporter", "à emporter", "au comptoir", "sur place",
               "livraison", "à livrer", "delivery", "takeaway", "pickup", "order", "deliver",
+              "coca", "coca zero", "coca zéro", "grand coca", "petit coca",
+              "Maxime", "maxime",
               "reservation", "reserve",
               "j'aimerais", "je voudrais", "pour", "personnes", "people", "guests",
             ];
@@ -4187,7 +4220,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               deepgramSession.onTranscript((text, isFinal) => {
                 if (!isFinal || !text || !text.trim()) return;
                 if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-                const trimmed = text.trim();
+                const trimmed = normalizeDeepgramTranscript(text);
                 const now = nowMs();
                 // Une fois "au revoir" détecté, ignorer les transcripts (évite écho du message de clôture type "Au nom de Stéphanie" qui coupe le TTS)
                 if (goodbyeDetected) {
