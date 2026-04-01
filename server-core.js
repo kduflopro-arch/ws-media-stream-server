@@ -802,6 +802,9 @@ wss.on("connection", (ws, req) => {
   const CARTESIA_STYLE_VOLUME = Number(process.env.CARTESIA_STYLE_VOLUME ?? "1.02");
   const CARTESIA_STYLE_EMOTION = process.env.CARTESIA_STYLE_EMOTION ?? "content";
   const CARTESIA_STYLE_BREAK_MS = Number(process.env.CARTESIA_STYLE_BREAK_MS ?? "120");
+  const CARTESIA_EXPRESSIVE_MODE = (process.env.CARTESIA_EXPRESSIVE_MODE ?? "true").toLowerCase() === "true";
+  const CARTESIA_ENABLE_LAUGHTER = (process.env.CARTESIA_ENABLE_LAUGHTER ?? "true").toLowerCase() === "true";
+  const CARTESIA_LAUGHTER_MAX_PER_CALL = Number(process.env.CARTESIA_LAUGHTER_MAX_PER_CALL ?? "1");
   const CARTESIA_OUTPUT_ENCODING = (process.env.CARTESIA_OUTPUT_ENCODING ?? "pcm_mulaw").toLowerCase();
   const CARTESIA_OUTPUT_SAMPLE_RATE = Number(process.env.CARTESIA_OUTPUT_SAMPLE_RATE ?? "8000");
   const CARTESIA_USE_BYTES_MODE = (process.env.CARTESIA_USE_BYTES_MODE ?? "true").toLowerCase() === "true";
@@ -864,6 +867,7 @@ wss.on("connection", (ws, req) => {
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let lastUserMessageText = ""; // Dernier texte client (pour safeguard hangup : ne pas raccrocher si demande devis/RDV)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
+  let cartesiaLaughterCount = 0; // garde-fou pour éviter les non-verbaux trop fréquents
   let userSpeakCount = 0; // Nombre de fois que le client a parlé (conversation.item.done user) → si < 1 au finalize = no_request
   let assistantTurnCount = 0; // Nombre de réponses IA (response.done avec texte) ; si >= 2 on considère que le client a parlé (secours si userSpeakCount reste 0)
   const assistantTurnRids = new Set(); // Éviter double comptage par response_id
@@ -3346,13 +3350,36 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const base = sanitizeTextForMinimax(text);
     if (!base) return "";
     if (!CARTESIA_ENABLE_SSML_TAGS) return base;
-    const speed = Math.max(0.6, Math.min(1.5, CARTESIA_STYLE_SPEED));
-    const volume = Math.max(0.5, Math.min(2.0, CARTESIA_STYLE_VOLUME));
+    let speed = Math.max(0.6, Math.min(1.5, CARTESIA_STYLE_SPEED));
+    let volume = Math.max(0.5, Math.min(2.0, CARTESIA_STYLE_VOLUME));
     const pauseMs = Math.max(0, Math.min(1500, Math.floor(CARTESIA_STYLE_BREAK_MS)));
-    const emotion = String(CARTESIA_STYLE_EMOTION || "content").trim();
-    const withBreaks = pauseMs > 0
+    let emotion = String(CARTESIA_STYLE_EMOTION || "content").trim();
+    const lower = base.toLowerCase();
+
+    if (CARTESIA_EXPRESSIVE_MODE) {
+      if (/\b(désolé|desole|pardon|excusez|je suis navré|je suis navree)\b/.test(lower)) {
+        emotion = "sad";
+        speed = Math.max(0.6, speed - 0.05);
+      } else if (/\?$/.test(base) || /\b(souhaitez-vous|voulez-vous|qu'est-ce que|que souhaitez-vous|quel)\b/.test(lower)) {
+        emotion = "curious";
+      } else if (/\b(parfait|super|génial|genial|avec plaisir|bien sûr|bien sur|excellent)\b/.test(lower)) {
+        emotion = "enthusiastic";
+      } else if (/\b(très bien|tres bien|c'est noté|c est noté|je note|merci)\b/.test(lower)) {
+        emotion = "content";
+      }
+    }
+
+    let withBreaks = pauseMs > 0
       ? base.replace(/([,;:.!?])\s+/g, `$1<break time="${pauseMs}ms"/>`)
       : base;
+
+    const canAddLaughter = CARTESIA_ENABLE_LAUGHTER && cartesiaLaughterCount < Math.max(0, CARTESIA_LAUGHTER_MAX_PER_CALL);
+    const isFriendlyMoment = /\b(parfait|super|génial|genial|avec plaisir|haha|très bien|tres bien)\b/.test(lower);
+    if (canAddLaughter && isFriendlyMoment && /!/.test(base)) {
+      withBreaks = `[laughter] ${withBreaks}`;
+      cartesiaLaughterCount += 1;
+    }
+
     return `<speed ratio="${speed}"/><volume ratio="${volume}"/><emotion value="${emotion}"/>${withBreaks}`;
   }
   function normalizeFrenchTtsText(input) {
