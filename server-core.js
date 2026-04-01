@@ -2432,6 +2432,22 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const apiKey = CARTESIA_API_KEY.startsWith("Bearer ") ? CARTESIA_API_KEY.substring(7) : CARTESIA_API_KEY;
     const cartesiaTelephonyDirect =
       CARTESIA_OUTPUT_ENCODING === "pcm_mulaw" && CARTESIA_OUTPUT_SAMPLE_RATE === 8000;
+    // Dynamic per-phrase emotion and speed detection
+    let dynamicEmotion = String(CARTESIA_STYLE_EMOTION || "positivity").trim();
+    let dynamicSpeed = Math.max(0.6, Math.min(1.5, CARTESIA_SPEED));
+    if (CARTESIA_EXPRESSIVE_MODE) {
+      const lower = clean.toLowerCase();
+      if (/\b(désolé|desole|pardon|excusez|je suis navré|je suis navree|malheureusement|je comprends)\b/.test(lower)) {
+        dynamicEmotion = "sadness";
+        dynamicSpeed = Math.max(0.6, dynamicSpeed - 0.05);
+      } else if (/\?$/.test(clean.trim()) || /\b(souhaitez-vous|voulez-vous|que souhaitez-vous|quel|comment puis-je|puis-je vous aider)\b/.test(lower)) {
+        dynamicEmotion = "curiosity";
+      } else if (/\b(parfait|super|génial|genial|avec plaisir|bien sûr|bien sur|excellent|fantastique|formidable)\b/.test(lower)) {
+        dynamicEmotion = "positivity:high";
+      } else if (/\b(très bien|tres bien|c'est noté|je note|merci|d'accord|entendu|absolument)\b/.test(lower)) {
+        dynamicEmotion = "positivity";
+      }
+    }
     const genRequest = {
       model_id: CARTESIA_MODEL_ID,
       transcript: textToSend,
@@ -2439,9 +2455,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       output_format: { container: "raw", encoding: CARTESIA_OUTPUT_ENCODING, sample_rate: CARTESIA_OUTPUT_SAMPLE_RATE },
       language: CARTESIA_LANGUAGE,
       generation_config: {
-        speed: Math.max(0.6, Math.min(1.5, CARTESIA_SPEED)),
+        speed: dynamicSpeed,
         volume: Math.max(0.5, Math.min(2.0, CARTESIA_VOLUME)),
-        emotion: String(CARTESIA_STYLE_EMOTION || "content").trim(),
+        emotion: dynamicEmotion,
       },
     };
     try {
