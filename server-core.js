@@ -4241,6 +4241,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               "demain", "aujourd'hui", "tomorrow", "today",
               "12h", "13h", "14h", "19h", "20h", "21h", "midi", "soir", "matin", "après-midi",
               "douze heures", "treize heures", "quatorze heures", "dix-neuf heures", "vingt heures",
+              // Tailles snack (lettres isolées souvent mal reconnues)
+              "S", "M", "L", "XL", "XXL", "XS",
               "douze", "treize", "quatorze",
               "treize heures et demie", "quatorze heures et demie",
               "treize heures demi", "quatorze heures demi", "demie",
@@ -4373,23 +4375,23 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                     }
                   }, DEEPGRAM_MERGE_WINDOW_MS);
                 } else {
-                  if (buf.mergeTimer) {
-                    clearTimeout(buf.mergeTimer);
-                    buf.mergeTimer = null;
-                  }
+                  // Flush tout buffer existant
+                  if (buf.mergeTimer) { clearTimeout(buf.mergeTimer); buf.mergeTimer = null; }
                   if (buf.parts.length > 0) {
                     const merged = buf.parts.join(" ").replace(/\s+/g, " ").trim();
                     buf.parts = [];
                     if (merged) sendToRealtime(merged);
                   }
+                  // Envoyer immédiatement (phrase isolée — pas besoin d'attendre MERGE_WINDOW)
+                  // Un court timer reste actif pour capter une éventuelle suite rapide de Deepgram
                   buf.parts = [trimmed];
                   buf.lastAt = now;
+                  sendToRealtime(trimmed);
                   buf.mergeTimer = setTimeout(() => {
-                    const merged = buf.parts.join(" ").replace(/\s+/g, " ").trim();
+                    // Si une suite est arrivée entretemps (buf.parts.length > 1), elle a déjà été fusionnée
                     buf.parts = [];
                     buf.lastAt = 0;
                     buf.mergeTimer = null;
-                    if (merged) sendToRealtime(merged);
                   }, DEEPGRAM_MERGE_WINDOW_MS);
                 }
               });
@@ -7964,7 +7966,19 @@ But: être naturel et mettre le client en confiance.`,
                 return;
               }
               if (USE_DEEPGRAM_STT && deepgramSession) {
-                deepgramSession.sendAudio(mulawBuffer);
+                // Noise gate : envoyer silence mulaw si niveau trop bas (évite transcription bruit ambiant)
+                const DEEPGRAM_NOISE_GATE = Number(process.env.DEEPGRAM_NOISE_GATE_THRESHOLD ?? "280");
+                const DEEPGRAM_HANGOVER_FRAMES = Number(process.env.DEEPGRAM_HANGOVER_FRAMES ?? "10"); // ~200ms
+                if (!ws.__dgHangover) ws.__dgHangover = 0;
+                if (avg >= DEEPGRAM_NOISE_GATE) {
+                  ws.__dgHangover = DEEPGRAM_HANGOVER_FRAMES;
+                  deepgramSession.sendAudio(mulawBuffer);
+                } else if (ws.__dgHangover > 0) {
+                  ws.__dgHangover--;
+                  deepgramSession.sendAudio(mulawBuffer); // Hangover : laisser passer la fin du mot
+                } else {
+                  deepgramSession.sendAudio(Buffer.alloc(mulawBuffer.length, 0xFF)); // Silence mulaw
+                }
                 return;
               }
               if (mediaCount <= 3) {
