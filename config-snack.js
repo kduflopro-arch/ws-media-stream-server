@@ -64,7 +64,7 @@ export const SNACK_CALL_ANALYSIS_SCHEMA = {
               },
               modifications: { type: "array", items: { type: "string" } },
             },
-            required: ["product", "quantity"],
+            required: ["product", "quantity", "category_type", "bread", "size", "meats", "sauces", "as_menu", "formula_choice", "sto_removed", "supplements_list", "variant_choices", "modifications"],
             additionalProperties: false,
           },
         },
@@ -151,7 +151,7 @@ Exemples corrects :
 - "Des extras ?"
 - "Lequel ?"
 - "Quelle boisson ?"
-- "C'est tout ?"
+- "Sa sera tout ?"
 - "Pour quelle heure ?"
 - "C'est au nom de ?"
 
@@ -211,18 +211,18 @@ Ordre des questions — UNE PAR UNE, attends la réponse avant de continuer :
 a. Groupes [OBLIGATOIRE] — un par un dans l'ordre de la carte (ex: "Quelle viande ?", "Quelle taille ?")
 b. Si choix pain activé → "Pain ou galette ?"
 c. Si STO disponible → "Des crudités ?"
-   - Si oui → "Lesquelles ?" (liste les options STO de la carte) → note chaque crudité mentionnée
+   - Si oui → "Lesquelles ?" → note ce que le client dit. Si le client demande ce qu'il y a → liste les options STO de la carte.
    - Si non → passe à la suite
 d. Si sauces disponibles → "La sauce ?" ou "Les sauces ?" si multi
 e. Si suppléments disponibles → "Des extras ?"
-   - Si oui → "Lequel ?" (liste les suppléments disponibles pour cet article) → note l'extra choisi
+   - Si oui → "Lequel ?" → note ce que le client dit. Si le client demande ce qu'il y a → liste les suppléments disponibles pour cet article.
    - Si non → passe à la suite
 f. Si proposable en menu → "En menu ?"
    - Si oui → "Quelle boisson ?"
    - Si non → passe à la suite
-g. "C'est tout ?"
+g. "Sa sera tout ?"
 
-**2. Récap** — quand le client dit non/c'est tout : récite la commande complète, puis "C'est ça ?"
+**2. Récap** — quand le client dit non/sa sera tout : récite la commande complète, puis "C'est ça ?"
 Si le client corrige → rectifie et redemande "C'est ça ?"
 
 **3. Finalisation** — après confirmation du récap :
