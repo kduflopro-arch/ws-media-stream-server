@@ -1482,13 +1482,13 @@ wss.on("connection", (ws, req) => {
     const stripped = lower.replace(/[\s\p{P}\p{S}]/gu, "");
     if (stripped.length < 3) {
       // Snack: lettres de taille valides (L, M, S, XL, XXL, XS)
-      if (effectiveSector === "snack" && /^(l|m|s|xl|xs|xxl)$/i.test(stripped)) return false;
+      if ((effectiveSector === "snack" || establishmentType === "snack") && /^(l|m|s|xl|xs|xxl)$/i.test(stripped)) return false;
       return true;
     }
     const shortValid = ["oui", "ouais", "ouai", "oua", "ok", "non", "nan", "nope", "dac", "daccord", "voila", "voilà", "allo", "allô"];
     if (shortValid.includes(stripped)) return false;
     // Snack: réponses mono-mot valides (boissons, ingrédients, sauces courants)
-    if (effectiveSector === "snack") {
+    if (effectiveSector === "snack" || establishmentType === "snack") {
       const snackValid = /^(coca|fanta|sprite|eau|jus|oasis|pepsi|limonade|orangina|raclette|mayo|ketchup|harissa|algerienne|algérienne|fromage|emmental|cheddar|barbecue|bolognaise|blanche)$/i.test(stripped);
       if (snackValid) return false;
     }
@@ -5394,7 +5394,8 @@ But: être naturel et mettre le client en confiance.`,
                         }, 500);
                       }
                     } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                      if (effectiveSector === "restaurant") {
+                      const isSnackMode = establishmentType === "snack" || effectiveSector === "snack";
+                      if (effectiveSector === "restaurant" && !isSnackMode) {
                         if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (réponse vide = souvent bruit/écho, retry désactivé)");
                       } else {
                         lastEmptyResponseRetryCommitAt = lastCommitAt;
@@ -5406,7 +5407,8 @@ But: être naturel et mettre le client en confiance.`,
                         }, 350);
                       }
                     } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
-                      if (effectiveSector === "restaurant") {
+                      const isSnackMode = establishmentType === "snack" || effectiveSector === "snack";
+                      if (effectiveSector === "restaurant" && !isSnackMode) {
                         console.log("ℹ️ Réponse vide après retry (restaurant) — pas de fallback TTS (anti-écho)");
                       } else {
                         const fallbackPhrase = "D'accord, je vous écoute.";
@@ -5426,7 +5428,7 @@ But: être naturel et mettre le client en confiance.`,
                     }
                     const now = nowMs();
                     if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                      if (effectiveSector === "restaurant") {
+                      if (effectiveSector === "restaurant" && establishmentType !== "snack") {
                         if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (pas de texte = souvent bruit/écho)");
                       } else {
                         lastEmptyResponseRetryCommitAt = lastCommitAt;
@@ -5438,7 +5440,7 @@ But: être naturel et mettre le client en confiance.`,
                         }, 350);
                       }
                     } else if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt === lastCommitAt) {
-                      if (effectiveSector === "restaurant") {
+                      if (effectiveSector === "restaurant" && establishmentType !== "snack") {
                         console.log("ℹ️ Pas de texte extrait après retry (restaurant) — pas de fallback TTS (anti-écho)");
                       } else {
                         const fallbackPhrase = "D'accord, je vous écoute.";
@@ -5485,7 +5487,7 @@ But: être naturel et mettre le client en confiance.`,
                 }
                 const now = nowMs();
                 if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                  if (effectiveSector === "restaurant") {
+                  if (effectiveSector === "restaurant" && establishmentType !== "snack") {
                     if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (erreur extraction)");
                   } else {
                     lastEmptyResponseRetryCommitAt = lastCommitAt;
@@ -5501,7 +5503,7 @@ But: être naturel et mettre le client en confiance.`,
             } else if (REALTIME_USE_ELEVEN && rid && (!msg.response?.output || (Array.isArray(msg.response.output) && msg.response.output.length === 0))) {
               const now = nowMs();
               if (lastCommitAt > 0 && (now - lastCommitAt) < 8000 && lastEmptyResponseRetryCommitAt !== lastCommitAt) {
-                if (effectiveSector === "restaurant") {
+                if (effectiveSector === "restaurant" && establishmentType !== "snack") {
                   if (LOG_VERBOSE) console.log("ℹ️ Restaurant: pas de empty_response_retry (sans output)");
                 } else {
                   lastEmptyResponseRetryCommitAt = lastCommitAt;
