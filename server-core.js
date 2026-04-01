@@ -864,7 +864,10 @@ wss.on("connection", (ws, req) => {
   let premiumTtsBypassUntilMs = 0; // si TTS premium échoue, on laisse passer l'audio OpenAI un moment
   let premiumTtsInFlight = false;
   let callTtsCharsTotal = 0; // Total caractères envoyés au TTS sur cet appel
-  let lastTtsEndAt = 0; // Fin du dernier TTS (pour éviter response.create sur écho juste après notre parole — restaurant)
+  /** Fin réelle de la lecture haut-parleur : mis à jour quand la file Twilio est vide (pas à la fin de l’API TTS). */
+  let lastTtsEndAt = 0;
+  let hadOutboundAssistantAudio = false;
+  let lastTtsPlaybackEndTimer = null;
   let premiumTtsLastError = null;
   let premiumTtsQueue = []; // Array<{ text: string, interrupt: boolean }>
   let premiumTtsDrainInFlight = false;
@@ -3472,7 +3475,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         if (typeof job.onComplete === "function") {
           try { job.onComplete(); } catch (e) { console.error("TTS onComplete error:", e); }
         }
-        lastTtsEndAt = Date.now();
+        // Ne PAS mettre lastTtsEndAt ici : l’audio peut encore être dans outboundQueue (coupures / écho / barge-in fantôme).
       }
     } finally {
       premiumTtsDrainInFlight = false;
@@ -4074,17 +4077,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     return head;
   }
   const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "true").toLowerCase() === "true";
-  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "9000"); // Détection plus sensible de reprise client
-  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "20"); // ~400ms de parole continue
+  // Seuil plus haut par défaut : l’écho du HP sur le micro déclenchait souvent une fausse coupure avant la fin de phrase.
+  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "12500");
+  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "28"); // ~560ms de parole continue
   /** Frames supplémentaires exigées pour couper le TTS (évite coupures par bruit / écho HP). */
-  const BARGE_IN_TTS_EXTRA_FRAMES = Number(process.env.BARGE_IN_TTS_EXTRA_FRAMES ?? "12");
+  const BARGE_IN_TTS_EXTRA_FRAMES = Number(process.env.BARGE_IN_TTS_EXTRA_FRAMES ?? "22");
   let twilioSpeechFrames = 0;
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
   const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible; 900–1200: plus strict
   const SPEECH_STARTED_IGNORE_THRESHOLD = Number(process.env.SPEECH_STARTED_IGNORE_THRESHOLD ?? "150"); // seuil bas: on ignore speech_started seulement si bruit évident (<150)
   const INPUT_SPEECH_FRAMES = Number(process.env.INPUT_SPEECH_FRAMES ?? "8"); // ~160ms: compromis réactivité/stabilité
   const INPUT_SILENCE_THRESHOLD = Number(process.env.INPUT_SILENCE_THRESHOLD ?? "450");
-  const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? (PIPELINE_MODE === "realtime" ? "26" : "18")); // fin de parole plus rapide en realtime
+  // Un peu plus long en realtime : laisse finir les finales de mots avant commit (moins de phrases « coupées » côté STT).
+  const INPUT_SILENCE_FRAMES = Number(process.env.INPUT_SILENCE_FRAMES ?? (PIPELINE_MODE === "realtime" ? "34" : "18"));
   let inputSpeechFrames = 0;
   let inputSilenceFrames = 0;
   let inputActive = false; // on est en train d'envoyer une "prise de parole" à OpenAI
@@ -4096,7 +4101,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "2"); // ~40ms d'audio sortant
   const INPUT_SUPPRESS_BYPASS_THRESHOLD = Number(process.env.INPUT_SUPPRESS_BYPASS_THRESHOLD ?? "400"); // seuil audio pour ne pas supprimer (plus sensible = moins répétitions)
   // Délai après la fin du TTS pendant lequel on n'envoie pas l'audio au STT (évite écho / bruit haut-parleur transcrit). Avec Deepgram + haut-parleur : 1,5 s par défaut.
-  const INPUT_POST_TTS_GUARD_MS = Number(process.env.INPUT_POST_TTS_GUARD_MS ?? (USE_DEEPGRAM_STT ? "650" : "600"));
+  const INPUT_POST_TTS_GUARD_MS = Number(process.env.INPUT_POST_TTS_GUARD_MS ?? (USE_DEEPGRAM_STT ? "850" : "750"));
   const INPUT_SUPPRESS_OVERRIDE_THRESHOLD = Number(
     process.env.INPUT_SUPPRESS_OVERRIDE_THRESHOLD ?? String(Math.max(2500, Math.floor(INPUT_SPEECH_THRESHOLD * 1.5))),
   );
@@ -4164,6 +4169,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       outboundQueue = [];
       outboundQueuedBytes = 0;
       resetOutboundAudioChain();
+      hadOutboundAssistantAudio = false;
+      if (lastTtsPlaybackEndTimer) {
+        clearTimeout(lastTtsPlaybackEndTimer);
+        lastTtsPlaybackEndTimer = null;
+      }
+      lastTtsEndAt = Date.now();
       console.log("✋ Barge-in: response.cancel + purge outbound.");
     } catch (err) {
       console.error("❌ Erreur response.cancel:", err);
@@ -4171,6 +4182,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
   function enqueueOutboundMulaw(buf) {
     if (!buf || buf.length === 0) return;
+    hadOutboundAssistantAudio = true;
     const SOFT_MAX_BACKLOG_BYTES = 160 * 500; // ~10s @ 20ms
     const HARD_MAX_BACKLOG_BYTES = 160 * 1500; // ~30s @ 20ms
     if (outboundQueuedBytes > HARD_MAX_BACKLOG_BYTES) {
@@ -4195,6 +4207,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
   function sendOutboundFrames(maxFrames = 1) {
     if (!twilioStreamSid) return;
+    const hadQueueBeforeSend = outboundQueuedBytes > 0 || outboundQueue.length > 0;
     const minBufferFrames = Number(process.env.OUTBOUND_MIN_BUFFER_FRAMES ?? "5");
     const backlogFrames = Math.floor(outboundQueuedBytes / 160);
     const wouldSkip = premiumTtsInFlight && minBufferFrames > 0 && backlogFrames < minBufferFrames && outboundQueue.length > 0;
@@ -4237,6 +4250,20 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
         outboundQueuedBytes,
         queueLen: outboundQueue.length,
       });
+    }
+    // lastTtsEndAt = fin de lecture côté Twilio (transition file non vide → vide), pas fin API TTS.
+    const emptyAfterSend = outboundQueuedBytes === 0 && outboundQueue.length === 0;
+    if (hadQueueBeforeSend && emptyAfterSend && hadOutboundAssistantAudio) {
+      if (premiumTtsInFlight || premiumTtsQueue.length > 0 || responseInProgress) return;
+      const debounceMs = Number(process.env.TTS_PLAYBACK_END_DEBOUNCE_MS ?? "160");
+      if (lastTtsPlaybackEndTimer) clearTimeout(lastTtsPlaybackEndTimer);
+      lastTtsPlaybackEndTimer = setTimeout(() => {
+        lastTtsPlaybackEndTimer = null;
+        if (outboundQueuedBytes > 0 || outboundQueue.length > 0) return;
+        if (premiumTtsInFlight || premiumTtsQueue.length > 0 || responseInProgress) return;
+        lastTtsEndAt = Date.now();
+        hadOutboundAssistantAudio = false;
+      }, debounceMs);
     }
   }
   async function connectToOpenAI() {
@@ -4923,7 +4950,7 @@ ${compactPersona}`;
                   type: "semantic_vad",
                   // Restaurant: "high" pour déclencher plus vite la réponse après la fin de phrase.
                   // Garage: "medium" par défaut.
-                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || (effectiveSector === "restaurant" ? "high" : "medium")),
+                  eagerness: (process.env.TURN_DETECTION_EAGERNESS || (effectiveSector === "restaurant" ? "high" : "low")),
                 },
               },
               ...((process.env.OPENAI_REALTIME_AUDIO_OUTPUT_ENABLED ?? "true").toLowerCase() === "false"
@@ -8089,8 +8116,14 @@ But: être naturel et mettre le client en confiance.`,
                   outboundQueue = [];
                   outboundQueuedBytes = 0;
                   resetOutboundAudioChain();
+                  hadOutboundAssistantAudio = false;
+                  if (lastTtsPlaybackEndTimer) {
+                    clearTimeout(lastTtsPlaybackEndTimer);
+                    lastTtsPlaybackEndTimer = null;
+                  }
+                  lastTtsEndAt = Date.now();
                   premiumTtsInFlight = false;
-                  console.log("✋ Barge-in TTS: Cartesia interrompu + queue audio purgée.");
+                  console.log("✋ Barge-in TTS: interrompu + queue audio purgée.");
                 }
                 twilioSpeechFrames = 0;
               }

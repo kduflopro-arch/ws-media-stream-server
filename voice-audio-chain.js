@@ -68,9 +68,9 @@ export function processVoiceChainPcm8k(samples, state, opts = {}) {
 
   const fs = 8000;
   const dcCoef = opts.dcCoef ?? 0.995;
-  const presence = opts.presence ?? 0.14;
-  const targetRms = opts.targetRms ?? 0.072;
-  const normAlpha = opts.normAlpha ?? 0.12;
+  const presence = opts.presence ?? 0.1;
+  const targetRms = opts.targetRms ?? 0.07;
+  const normAlpha = opts.normAlpha ?? 0.07;
   const compThresh = opts.compThreshold ?? 0.2;
   const compRatio = opts.compRatio ?? 2.2;
   const compMix = opts.compMix ?? 0.45;
