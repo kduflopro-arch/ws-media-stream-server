@@ -1479,9 +1479,18 @@ wss.on("connection", (ws, req) => {
     if (lower.includes("sous-titrage société") || /sous[- ]?titrage\s*(société\s+)?radio[- ]?canada/i.test(t)) return true;
     if (/^[\s.\u2026\u00A0\-–—,;:!?]*$/.test(t) || /^(\s*[.\u2026]\s*)+$/.test(t)) return true;
     const stripped = lower.replace(/[\s\p{P}\p{S}]/gu, "");
-    if (stripped.length < 3) return true;
+    if (stripped.length < 3) {
+      // Snack: lettres de taille valides (L, M, S, XL, XXL, XS)
+      if (effectiveSector === "snack" && /^(l|m|s|xl|xs|xxl)$/i.test(stripped)) return false;
+      return true;
+    }
     const shortValid = ["oui", "ouais", "ouai", "oua", "ok", "non", "nan", "nope", "dac", "daccord", "voila", "voilà", "allo", "allô"];
     if (shortValid.includes(stripped)) return false;
+    // Snack: réponses mono-mot valides (boissons, ingrédients, sauces courants)
+    if (effectiveSector === "snack") {
+      const snackValid = /^(coca|fanta|sprite|eau|jus|oasis|pepsi|limonade|orangina|raclette|mayo|ketchup|harissa|algerienne|algérienne|fromage|emmental|cheddar|barbecue|bolognaise|blanche)$/i.test(stripped);
+      if (snackValid) return false;
+    }
     const strictLenStripped = effectiveSector === "restaurant" ? 3 : 5;
     if (NOISE_FILTER_STRICT && stripped.length < strictLenStripped) return true;
     const isolatedNoise = /^(ah|eh|oh|mm|hmm|euh|hum|huh|uh|mh|hm|hein|quoi|bah|ben|a|e|i|o|u|euh euh|ah ah|oh oh|mhm|mmm)$/i.test(lower);
@@ -5284,6 +5293,14 @@ But: être naturel et mettre le client en confiance.`,
               const isFailed = status === 'failed';
               const isRateLimit = isFailed && statusDetails?.error?.code === 'rate_limit_exceeded';
               if (!isFailed) rateLimitRetryCount = 0; // Réussite → reset compteur retries rate limit
+              // Barge-in: réponse annulée mais message utilisateur récent → relancer après délai
+              if (status === "cancelled" && lastCommittedAt > 0 && (nowMs() - lastCommittedAt) < 8000) {
+                setTimeout(() => {
+                  if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || responseInProgress) return;
+                  console.log("🔄 Barge-in annulé: relance response.create (message utilisateur en attente)");
+                  requestResponseCreate("barge_in_retry");
+                }, 450);
+              }
             } catch (e) { /* ignore */ }
             if (!hasAudioModality && !REALTIME_USE_ELEVEN) {
               console.error("❌ ERREUR: response.done sans modalité audio et REALTIME_USE_ELEVEN=false - pas d'audio possible !");
