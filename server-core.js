@@ -2959,7 +2959,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           text: clean,
           voiceId: selectedVoiceId,
           modelId: INWORLD_MODEL_ID,
-          audio_config: { encoding: "MULAW", sampleRate: 8000 },
+          audio_config: { encoding: "LINEAR16", sampleRate: 8000 },
         }),
       });
       if (!response.ok) {
@@ -2969,12 +2969,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       const json = await response.json();
       const audioContent = json.audioContent ?? json.audio_content ?? null;
       if (!audioContent) throw new Error("Inworld TTS: audioContent vide dans la réponse");
-      const audioBuf = Buffer.from(audioContent, "base64");
+      // Inworld renvoie LINEAR16 PCM 8kHz — convertir en mulaw avant envoi Twilio
+      const pcmBuf = Buffer.from(audioContent, "base64");
+      const sampleCount = Math.floor(pcmBuf.length / 2);
+      const pcm8k = new Int16Array(sampleCount);
+      for (let i = 0; i < sampleCount; i++) {
+        pcm8k[i] = pcmBuf.readInt16LE(i * 2);
+      }
+      const mulawBuf = convertPcm8kToMulaw(pcm8k);
       if (signal.aborted) return;
       const CHUNK_SIZE = 160; // 20ms @ mulaw 8kHz
-      for (let i = 0; i < audioBuf.length; i += CHUNK_SIZE) {
+      for (let i = 0; i < mulawBuf.length; i += CHUNK_SIZE) {
         if (signal.aborted) break;
-        enqueueOutboundMulaw(audioBuf.subarray(i, i + CHUNK_SIZE));
+        enqueueOutboundMulaw(Buffer.from(mulawBuf.subarray(i, i + CHUNK_SIZE)));
       }
       console.log(`🎙️ Inworld TTS terminé. { chars: ${clean.length}, voice: ${selectedVoiceId}, model: ${INWORLD_MODEL_ID} }`);
     } catch (err) {
