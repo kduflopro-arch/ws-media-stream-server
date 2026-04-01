@@ -92,15 +92,31 @@ scp root@88.198.149.117:/opt/ws-media-stream-server/.env ~/Downloads/
 
 ## 6) Déploiement Git du serveur WS
 
+### Depuis ton Mac (repo local → GitHub)
+
 ```bash
 cd /Users/kendrikduflo/Documents/AutoGuru/ws-media-stream-server
 git status
-git add .
+git add <fichiers>   # ou git add -p pour choisir les hunks
 git commit -m "description"
 git push origin main
 ```
 
-Le push sur `main` déclenche le workflow de déploiement vers Hetzner.
+### Mettre à jour le code sur la VM Hetzner (sans ouvrir la console)
+
+Après le push, le serveur **ne se met pas à jour tout seul** : il faut tirer `main` sur la machine et redémarrer PM2.
+
+```bash
+ssh root@88.198.149.117 "cd /opt/ws-media-stream-server && git pull origin main && pm2 restart ws-server-kd --update-env"
+```
+
+Si `git pull` refuse à cause de fichiers modifiés sur le serveur :
+
+```bash
+ssh root@88.198.149.117 "cd /opt/ws-media-stream-server && git stash push -m 'local' && git pull origin main && pm2 restart ws-server-kd --update-env"
+```
+
+Puis vérifier le health (section 2).
 
 ---
 
