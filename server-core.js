@@ -1500,6 +1500,13 @@ wss.on("connection", (ws, req) => {
       const snackValid = /^(coca|fanta|sprite|eau|jus|oasis|pepsi|limonade|orangina|raclette|mayo|ketchup|harissa|algerienne|algérienne|fromage|emmental|cheddar|barbecue|bolognaise|blanche)$/i.test(stripped);
       if (snackValid) return false;
     }
+    // Restaurant / pizzeria : articles menu souvent dits en un mot ou courte phrase (Deepgram + filtre anti-bruit).
+    if (effectiveSector === "restaurant") {
+      const menuWord = /^(tacos?|pizza|panini|kebab|burger|sandwich|wrap|salade|reine|texane|tex-mex|provencal|provençal|oriental|kefta|merguez|steak|boeuf|bœuf|jambon|chorizo|veggie|végé|végétarien)$/i.test(stripped);
+      if (menuWord) return false;
+      const menuShort = /^(steak\s+de\s+boeuf|steak\s+de\s+bœuf|tacos\s+[slm]|taco\s+[slm]|pizza\s+\w+)$/i.test(lower.replace(/\s+/g, " ").trim());
+      if (menuShort) return false;
+    }
     const strictLenStripped = effectiveSector === "restaurant" ? 3 : 5;
     if (NOISE_FILTER_STRICT && stripped.length < strictLenStripped) return true;
     const isolatedNoise = /^(ah|eh|oh|mm|hmm|euh|hum|huh|uh|mh|hm|hein|quoi|bah|ben|a|e|i|o|u|euh euh|ah ah|oh oh|mhm|mmm)$/i.test(lower);
@@ -3977,6 +3984,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "true").toLowerCase() === "true";
   const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "9000"); // Détection plus sensible de reprise client
   const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "20"); // ~400ms de parole continue
+  /** Frames supplémentaires exigées pour couper le TTS (évite coupures par bruit / écho HP). */
+  const BARGE_IN_TTS_EXTRA_FRAMES = Number(process.env.BARGE_IN_TTS_EXTRA_FRAMES ?? "12");
   let twilioSpeechFrames = 0;
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
   const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible; 900–1200: plus strict
@@ -4250,6 +4259,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               "livraison", "à livrer", "delivery", "takeaway", "pickup", "order", "deliver",
               "coca", "coca zero", "coca zéro", "grand coca", "petit coca",
               "Maxime", "maxime",
+              "tacos", "taco", "Tacos", "steak", "boeuf", "bœuf", "steak de boeuf", "steak de bœuf",
+              "reine", "provençale", "provençal", "jambon", "fromage",
               "reservation", "reserve",
               "j'aimerais", "je voudrais", "pour", "personnes", "people", "guests",
             ];
@@ -4330,37 +4341,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                   console.error("[Deepgram] Erreur envoi transcript → Realtime:", e?.message ?? e);
                 }
               };
-              deepgramSession.onTranscript((text, isFinal) => {
-                if (!isFinal || !text || !text.trim()) return;
-                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
-                const trimmed = normalizeDeepgramTranscript(text);
+              /** Une seule voie d'envoi : toujours debounce MERGE_WINDOW (évite double envoi partiel + fusion). */
+              const feedDeepgramUtterance = (rawUtterance) => {
+                const u = String(rawUtterance || "").trim();
+                if (!u) return;
                 const now = nowMs();
-                // Une fois "au revoir" détecté, ignorer les transcripts (évite écho du message de clôture type "Au nom de Stéphanie" qui coupe le TTS)
-                if (goodbyeDetected) {
-                  console.log("[Deepgram] Transcript ignoré (au revoir détecté, évite écho):", trimmed.substring(0, 60));
-                  return;
-                }
-                // Restaurant: pendant que Minimax/TTS lit, on ignore toute parole Deepgram
-                const ttsIsActive = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueuedBytes > 0 || outboundQueue.length > 0;
-                if (effectiveSector === "restaurant" && ttsIsActive) {
-                  if (LOG_VERBOSE) console.log("[Deepgram] Transcript ignoré (TTS en cours):", trimmed.substring(0, 40));
-                  return;
-                }
-                if (lastTtsEndAt > 0 && (now - lastTtsEndAt) < INPUT_POST_TTS_GUARD_MS) {
-                  if (LOG_VERBOSE) console.log("[Deepgram] Transcript ignoré (trop tôt après TTS):", trimmed.substring(0, 40));
-                  return;
-                }
-                const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
-                if (wordCount <= 2 && DEEPGRAM_ECHO_WORDS.test(trimmed) && lastTtsEndAt > 0 && (now - lastTtsEndAt) < DEEPGRAM_ECHO_GUARD_MS) {
-                  console.log("[Deepgram] Transcript ignoré (écho/bruit probable après TTS):", trimmed.substring(0, 50));
-                  return;
-                }
-                // Buffer de fusion : si un final arrive peu après le précédent, fusionner (réduit découpage Deepgram)
                 if (!ws.__deepgramMergeBuffer) ws.__deepgramMergeBuffer = { parts: [], lastAt: 0 };
                 const buf = ws.__deepgramMergeBuffer;
                 const elapsed = buf.lastAt > 0 ? now - buf.lastAt : DEEPGRAM_MERGE_WINDOW_MS + 1;
                 if (elapsed <= DEEPGRAM_MERGE_WINDOW_MS && buf.parts.length > 0) {
-                  buf.parts.push(trimmed);
+                  buf.parts.push(u);
                   buf.lastAt = now;
                   if (buf.mergeTimer) clearTimeout(buf.mergeTimer);
                   buf.mergeTimer = setTimeout(() => {
@@ -4375,25 +4365,79 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                     }
                   }, DEEPGRAM_MERGE_WINDOW_MS);
                 } else {
-                  // Flush tout buffer existant
-                  if (buf.mergeTimer) { clearTimeout(buf.mergeTimer); buf.mergeTimer = null; }
+                  if (buf.mergeTimer) {
+                    clearTimeout(buf.mergeTimer);
+                    buf.mergeTimer = null;
+                  }
                   if (buf.parts.length > 0) {
                     const merged = buf.parts.join(" ").replace(/\s+/g, " ").trim();
                     buf.parts = [];
                     if (merged) sendToRealtime(merged);
                   }
-                  // Envoyer immédiatement (phrase isolée — pas besoin d'attendre MERGE_WINDOW)
-                  // Un court timer reste actif pour capter une éventuelle suite rapide de Deepgram
-                  buf.parts = [trimmed];
+                  buf.parts = [u];
                   buf.lastAt = now;
-                  sendToRealtime(trimmed);
                   buf.mergeTimer = setTimeout(() => {
-                    // Si une suite est arrivée entretemps (buf.parts.length > 1), elle a déjà été fusionnée
+                    const merged = buf.parts.join(" ").replace(/\s+/g, " ").trim();
                     buf.parts = [];
                     buf.lastAt = 0;
                     buf.mergeTimer = null;
+                    if (merged) sendToRealtime(merged);
                   }, DEEPGRAM_MERGE_WINDOW_MS);
                 }
+              };
+              const scheduleRestaurantDeepgramFlush = () => {
+                if (effectiveSector !== "restaurant") return;
+                if (ws.__restaurantDeferTimer) clearTimeout(ws.__restaurantDeferTimer);
+                ws.__restaurantDeferTimer = setTimeout(() => {
+                  ws.__restaurantDeferTimer = null;
+                  if (!ws.__restaurantDgDeferred?.length) return;
+                  const ttsNow = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueuedBytes > 0 || outboundQueue.length > 0;
+                  const tGuard = nowMs();
+                  const postNow = lastTtsEndAt > 0 && (tGuard - lastTtsEndAt) < INPUT_POST_TTS_GUARD_MS;
+                  if (ttsNow || postNow) {
+                    scheduleRestaurantDeepgramFlush();
+                    return;
+                  }
+                  const mergedDefer = ws.__restaurantDgDeferred.splice(0).join(" ").replace(/\s+/g, " ").trim();
+                  if (mergedDefer) {
+                    console.log("[Deepgram] File restaurant flush → Realtime:", mergedDefer.substring(0, 80));
+                    feedDeepgramUtterance(mergedDefer);
+                  }
+                }, 150);
+              };
+              deepgramSession.onTranscript((text, isFinal) => {
+                if (!isFinal || !text || !text.trim()) return;
+                if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+                const trimmed = normalizeDeepgramTranscript(text);
+                const now = nowMs();
+                // Une fois "au revoir" détecté, ignorer les transcripts (évite écho du message de clôture type "Au nom de Stéphanie" qui coupe le TTS)
+                if (goodbyeDetected) {
+                  console.log("[Deepgram] Transcript ignoré (au revoir détecté, évite écho):", trimmed.substring(0, 60));
+                  return;
+                }
+                const ttsIsActive = premiumTtsInFlight || premiumTtsQueue.length > 0 || outboundQueuedBytes > 0 || outboundQueue.length > 0;
+                const postTtsGuardBlocks = lastTtsEndAt > 0 && (now - lastTtsEndAt) < INPUT_POST_TTS_GUARD_MS;
+                // Restaurant : ne pas perdre "Tacos" / "steak" pendant la lecture TTS ou l'anti-écho court — mise en file puis flush.
+                if (effectiveSector === "restaurant" && (ttsIsActive || postTtsGuardBlocks)) {
+                  if (!ws.__restaurantDgDeferred) ws.__restaurantDgDeferred = [];
+                  ws.__restaurantDgDeferred.push(trimmed);
+                  if (ws.__restaurantDgDeferred.length > 12) ws.__restaurantDgDeferred.shift();
+                  if (LOG_VERBOSE) console.log("[Deepgram] Restaurant: transcript mis en file (TTS ou garde anti-écho):", trimmed.substring(0, 50));
+                  scheduleRestaurantDeepgramFlush();
+                  return;
+                }
+                if (effectiveSector === "restaurant" && ws.__restaurantDgDeferred?.length) {
+                  const batch = ws.__restaurantDgDeferred.splice(0).join(" ").replace(/\s+/g, " ").trim();
+                  const combined = batch ? `${batch} ${trimmed}`.trim() : trimmed;
+                  feedDeepgramUtterance(combined);
+                  return;
+                }
+                const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+                if (wordCount <= 2 && DEEPGRAM_ECHO_WORDS.test(trimmed) && lastTtsEndAt > 0 && (now - lastTtsEndAt) < DEEPGRAM_ECHO_GUARD_MS) {
+                  console.log("[Deepgram] Transcript ignoré (écho/bruit probable après TTS):", trimmed.substring(0, 50));
+                  return;
+                }
+                feedDeepgramUtterance(trimmed);
               });
               console.log("🎤 Deepgram STT actif (transcript final → Realtime LLM)");
             }
@@ -7931,7 +7975,8 @@ But: être naturel et mettre le client en confiance.`,
               if (isUserSpeech) twilioSpeechFrames += 1;
               else twilioSpeechFrames = Math.max(0, twilioSpeechFrames - 1);
               const ttsCurrentlyPlaying = premiumTtsInFlight || outboundQueuedBytes > 0 || outboundQueue.length > 0;
-              if (BARGE_IN_ENABLED && (responseInProgress || ttsCurrentlyPlaying) && twilioSpeechFrames >= BARGE_IN_FRAMES) {
+              const bargeInFramesNeeded = ttsCurrentlyPlaying ? (BARGE_IN_FRAMES + BARGE_IN_TTS_EXTRA_FRAMES) : BARGE_IN_FRAMES;
+              if (BARGE_IN_ENABLED && (responseInProgress || ttsCurrentlyPlaying) && twilioSpeechFrames >= bargeInFramesNeeded) {
                 cancelResponseForBargeIn();
                 if (ttsCurrentlyPlaying) {
                   try { premiumTtsAbort?.abort?.(); } catch {}
