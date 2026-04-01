@@ -2432,20 +2432,22 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const apiKey = CARTESIA_API_KEY.startsWith("Bearer ") ? CARTESIA_API_KEY.substring(7) : CARTESIA_API_KEY;
     const cartesiaTelephonyDirect =
       CARTESIA_OUTPUT_ENCODING === "pcm_mulaw" && CARTESIA_OUTPUT_SAMPLE_RATE === 8000;
-    // Dynamic per-phrase emotion and speed detection
-    let dynamicEmotion = String(CARTESIA_STYLE_EMOTION || "positivity").trim();
+    // Dynamic per-phrase emotion and speed detection (sonic-3 emotion values — plain strings)
+    let dynamicEmotion = String(CARTESIA_STYLE_EMOTION || "content").trim();
     let dynamicSpeed = Math.max(0.6, Math.min(1.5, CARTESIA_SPEED));
     if (CARTESIA_EXPRESSIVE_MODE) {
       const lower = clean.toLowerCase();
       if (/\b(désolé|desole|pardon|excusez|je suis navré|je suis navree|malheureusement|je comprends)\b/.test(lower)) {
-        dynamicEmotion = "sadness";
+        dynamicEmotion = "apologetic";
         dynamicSpeed = Math.max(0.6, dynamicSpeed - 0.05);
-      } else if (/\?$/.test(clean.trim()) || /\b(souhaitez-vous|voulez-vous|que souhaitez-vous|quel|comment puis-je|puis-je vous aider)\b/.test(lower)) {
-        dynamicEmotion = "curiosity";
-      } else if (/\b(parfait|super|génial|genial|avec plaisir|bien sûr|bien sur|excellent|fantastique|formidable)\b/.test(lower)) {
-        dynamicEmotion = "positivity:high";
-      } else if (/\b(très bien|tres bien|c'est noté|je note|merci|d'accord|entendu|absolument)\b/.test(lower)) {
-        dynamicEmotion = "positivity";
+      } else if (/\b(au revoir|bonne journée|à bientôt|bonne soirée)\b/.test(lower)) {
+        dynamicEmotion = "content";
+      } else if (/\?$/.test(clean.trim()) || /\b(souhaitez-vous|voulez-vous|que souhaitez-vous|quel|comment puis-je|puis-je vous aider|qu'est-ce)\b/.test(lower)) {
+        dynamicEmotion = "curious";
+      } else if (/\b(parfait|super|génial|genial|avec plaisir|excellent|fantastique|formidable)\b/.test(lower)) {
+        dynamicEmotion = "excited";
+      } else if (/\b(très bien|tres bien|c'est noté|je note|merci|d'accord|entendu|absolument|bien sûr|bien sur)\b/.test(lower)) {
+        dynamicEmotion = "happy";
       }
     }
     const genRequest = {
@@ -3405,14 +3407,16 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
 
     if (CARTESIA_EXPRESSIVE_MODE) {
       if (/\b(désolé|desole|pardon|excusez|je suis navré|je suis navree|malheureusement|je comprends)\b/.test(lower)) {
-        emotion = "sadness";
+        emotion = "apologetic";
         speed = Math.max(0.6, speed - 0.05);
+      } else if (/\b(au revoir|bonne journée|à bientôt|bonne soirée)\b/.test(lower)) {
+        emotion = "content";
       } else if (/\?$/.test(base) || /\b(souhaitez-vous|voulez-vous|qu'est-ce que|que souhaitez-vous|quel|comment puis-je|puis-je vous aider)\b/.test(lower)) {
-        emotion = "curiosity";
+        emotion = "curious";
       } else if (/\b(parfait|super|génial|genial|avec plaisir|bien sûr|bien sur|excellent|fantastique|formidable)\b/.test(lower)) {
-        emotion = "positivity:high";
+        emotion = "excited";
       } else if (/\b(très bien|tres bien|c'est noté|c est noté|je note|merci|d'accord|entendu|absolument)\b/.test(lower)) {
-        emotion = "positivity";
+        emotion = "happy";
       }
     }
 
