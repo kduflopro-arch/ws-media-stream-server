@@ -4077,11 +4077,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     return head;
   }
   const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "true").toLowerCase() === "true";
-  // Seuil plus haut par défaut : l’écho du HP sur le micro déclenchait souvent une fausse coupure avant la fin de phrase.
-  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "12500");
-  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "28"); // ~560ms de parole continue
+  // Défaut : barge-in réactif ; sur écho HP fréquent, monter BARGE_IN_THRESHOLD ou les frames via .env.
+  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "9800");
+  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "22"); // ~440ms de parole continue
   /** Frames supplémentaires exigées pour couper le TTS (évite coupures par bruit / écho HP). */
-  const BARGE_IN_TTS_EXTRA_FRAMES = Number(process.env.BARGE_IN_TTS_EXTRA_FRAMES ?? "22");
+  const BARGE_IN_TTS_EXTRA_FRAMES = Number(process.env.BARGE_IN_TTS_EXTRA_FRAMES ?? "14");
   let twilioSpeechFrames = 0;
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
   const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible; 900–1200: plus strict
