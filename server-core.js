@@ -4037,8 +4037,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             if (deepgramSession && !deepgramAlreadyOpen) {
               const DEEPGRAM_ECHO_GUARD_MS = Number(process.env.DEEPGRAM_ECHO_GUARD_MS ?? "4000"); // après TTS, ignorer transcripts courts type écho (bonjour, menu, etc.)
               const DEEPGRAM_ECHO_WORDS = /^(bonjour|menu|salut|allo|allô|bienvenue|voilà|voila|rebonjour|bonsoir|coucou|hello|hi|hey|thanks|thank you|yes|no|ok|okay)$/i;
-              const DEEPGRAM_MERGE_WINDOW_MS = Number(process.env.DEEPGRAM_MERGE_WINDOW_MS ?? "850"); // fusionner finals proches pour éviter réponses sur fragments ("bonjour...", puis suite)
-              const DEEPGRAM_RESPONSE_DELAY_MS = Number(process.env.DEEPGRAM_RESPONSE_DELAY_MS ?? "700"); // petite attente après final avant response.create
+              const DEEPGRAM_MERGE_WINDOW_MS = Number(process.env.DEEPGRAM_MERGE_WINDOW_MS ?? "500"); // fenêtre plus courte: réduit la latence tout en gardant la fusion des segments proches
+              const DEEPGRAM_RESPONSE_DELAY_MS = Number(process.env.DEEPGRAM_RESPONSE_DELAY_MS ?? "350"); // accélère la réponse après fin de phrase
               const deepgramLongOrMultiWord = (txt) => {
                 const s = String(txt || "").trim();
                 if (!s) return false;
@@ -4549,7 +4549,7 @@ ${compactPersona}`;
             },
           },
         };
-        if (REALTIME_INPUT_TRANSCRIPTION_ENABLED) {
+        if (REALTIME_INPUT_TRANSCRIPTION_ENABLED && !USE_DEEPGRAM_STT) {
           sessionUpdate.session.input_audio_transcription = {
             model: REALTIME_INPUT_TRANSCRIPTION_MODEL,
             language: REALTIME_INPUT_TRANSCRIPTION_LANGUAGE,
