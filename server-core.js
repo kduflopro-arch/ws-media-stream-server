@@ -1521,6 +1521,30 @@ wss.on("connection", (ws, req) => {
     ];
     const normalizedForMatch = lower.replace(/\s+/g, " ").replace(/[.!?,;:]*$/, "").trim();
     if (criticalShortPhrases.some(p => normalizedForMatch === p || normalizedForMatch.startsWith(p + " "))) return false;
+    // Snack / resto : article + taille une lettre ("tacos l", "pizza m") — ne pas rejeter à cause de w.length < 2 sur "L".
+    if (establishmentType === "snack" || effectiveSector === "restaurant") {
+      const n = normalizedForMatch;
+      if (
+        /^(tacos?|pizza|panini|kebab|burger|sandwich|wrap|salade|menu|formule|nuggets?|tenders?|boisson)\s+(s|m|l|xl|xxl|xs)\b/i.test(
+          n
+        )
+      ) {
+        return false;
+      }
+      if (/^\d{1,2}\s+(tacos?|pizzas?|menus?|burgers?|sandwichs?|wraps?)\b/i.test(n)) return false;
+      if (/^(menu|formule)\s+\d{1,2}\b/i.test(n)) return false;
+    }
+    // Snack : réponses d'un mot souvent entendues seules (STT téléphone)
+    if (establishmentType === "snack") {
+      const sOne = normalizedForMatch.replace(/[.!?]+$/g, "").trim();
+      if (
+        /^(tacos?|pizza|panini|kebab|burger|coca|sprite|fanta|eau|jus|menu|formule|galette|pain|wrap|salade|frites)$/i.test(
+          sOne
+        )
+      ) {
+        return false;
+      }
+    }
     // Restaurant: certaines réponses très courtes sont des préfixes utiles
     // ("On préfère une table en intérieur/terrasse...") et ne doivent pas être filtrées.
     if (/^on$/i.test(t)) return false;
@@ -1552,7 +1576,9 @@ wss.on("connection", (ws, req) => {
     if (effectiveSector === "restaurant") {
       const menuWord = /^(tacos?|pizza|panini|kebab|burger|sandwich|wrap|salade|reine|texane|tex-mex|provencal|provençal|oriental|kefta|merguez|steak|boeuf|bœuf|jambon|chorizo|veggie|végé|végétarien)$/i.test(stripped);
       if (menuWord) return false;
-      const menuShort = /^(steak\s+de\s+boeuf|steak\s+de\s+bœuf|tacos\s+[slm]|taco\s+[slm]|pizza\s+\w+)$/i.test(lower.replace(/\s+/g, " ").trim());
+      const menuShort = /^(steak\s+de\s+boeuf|steak\s+de\s+bœuf|tacos?\s+(?:xl|xxl|xs|[slm])\b|taco\s+(?:xl|xxl|xs|[slm])\b|pizza\s+\w+)$/i.test(
+        lower.replace(/\s+/g, " ").trim()
+      );
       if (menuShort) return false;
     }
     const strictLenStripped = effectiveSector === "restaurant" ? 3 : 5;
@@ -1580,7 +1606,15 @@ wss.on("connection", (ws, req) => {
         // Cas important restaurant : réponses du type "8 personnes", "4 convives", "2 clients"
         // → ces réponses sont courtes mais portent une information critique (nombre de personnes) et ne doivent PAS être filtrées.
         const isCountPeople = /^\d+\s+(personnes?|convives?|clients?)$/i.test(t);
-        if (!isCountPeople && words.some(w => w.length < 2)) return true;
+        const isMenuPlusSizeShort =
+          (establishmentType === "snack" || effectiveSector === "restaurant") &&
+          /^(tacos?|pizza|panini|kebab|burger|sandwich|wrap|salade|menu|formule|nuggets?|tenders?)\s+(s|m|l|xl|xxl|xs)\b/i.test(
+            normalized
+          );
+        const isQtyMenuShort =
+          (establishmentType === "snack" || effectiveSector === "restaurant") &&
+          /^\d{1,2}\s+(tacos?|pizzas?|menus?|burgers?)\b/i.test(normalized);
+        if (!isCountPeople && !isMenuPlusSizeShort && !isQtyMenuShort && words.some(w => w.length < 2)) return true;
         const strictLenShortSentence =
           establishmentType === "snack" ? 4 : effectiveSector === "restaurant" ? 5 : 8;
         if (NOISE_FILTER_STRICT && t.length < strictLenShortSentence) return true;
