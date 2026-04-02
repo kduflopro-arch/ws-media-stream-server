@@ -4247,8 +4247,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     if (!responseInProgress) return;
     try {
       openaiWs.send(JSON.stringify({ type: "response.cancel" }));
-      responseInProgress = false;
-      activeResponseId = null;
       outboundQueue = [];
       outboundQueuedBytes = 0;
       resetOutboundAudioChain();
@@ -7442,9 +7440,13 @@ But: être naturel et mettre le client en confiance.`,
             }, 30000);
           }
           if (msg.type === "response.done") {
-            const doneRid = activeResponseId;
-            responseInProgress = false;
-            activeResponseId = null;
+            const ridFromMsg = msg.response_id ?? msg.response?.id ?? null;
+            const shouldClearTrackedResponse = Boolean(activeResponseId && ridFromMsg && ridFromMsg === activeResponseId);
+            const doneRid = ridFromMsg || activeResponseId;
+            if (shouldClearTrackedResponse) {
+              responseInProgress = false;
+              activeResponseId = null;
+            }
             if (pendingDeepgramResponseCreate && openaiWs && openaiWs.readyState === WebSocket.OPEN) {
               pendingDeepgramResponseCreate = false;
               setTimeout(() => {
