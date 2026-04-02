@@ -2399,6 +2399,19 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       return "content";
     };
     const elevenEmotion = detectElevenLabsEmotion(clean);
+    // ElevenLabs n'a pas d'émotion explicite sur ce endpoint : on influence la prosodie via "style" (0..1).
+    const eleStyleBase = Math.max(0, Math.min(1, ELEVENLABS_STYLE));
+    const elevenStyleFinal = (() => {
+      const deltaByEmotion = {
+        apologetic: -0.08,
+        curious: 0.06,
+        happy: 0.12,
+        excited: 0.18,
+        content: 0,
+      };
+      const delta = deltaByEmotion[elevenEmotion] ?? 0;
+      return Math.max(0, Math.min(1, eleStyleBase + delta));
+    })();
     console.log(`[TTS][ElevenLabs][emotion=${elevenEmotion}] ${clean.substring(0, 70)}${clean.length > 70 ? "…" : ""}`);
     if (LOG_TTS) {
       console.log("[TTS] ElevenLabs model_id utilisé:", ELEVENLABS_MODEL_ID);
@@ -2445,7 +2458,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           voice_settings: {
             stability: Math.max(0, Math.min(1, ELEVENLABS_STABILITY)),
             similarity_boost: Math.max(0, Math.min(1, ELEVENLABS_SIMILARITY_BOOST)),
-            style: Math.max(0, Math.min(1, ELEVENLABS_STYLE)),
+            style: elevenStyleFinal,
             use_speaker_boost: ELEVENLABS_USE_SPEAKER_BOOST,
           },
         }),
