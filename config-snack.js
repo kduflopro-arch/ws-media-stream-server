@@ -209,7 +209,7 @@ Pour chaque article, crée mentalement une liste de ses groupes [OBLIGATOIRE] **
 - Pas de STO dans les options globales → pas de question crudités.
 - **Viande** : tu poses "Quelle viande ?" / "Lesquelles ?" (viandes) **uniquement** si, **sous le • de l'article choisi**, la carte comporte une ligne **[OBLIGATOIRE]** ou **[optionnel]** dont le groupe concerne la viande (libellé du type « Viande », « Viandes », choix de viandes).
 - **INTERDIT** : "Quelle viande ?" pour un article **sans** tel groupe sur sa fiche (ex. burger « 2 steaks », « filet de poulet » fixe dans la description — la composition est déjà définie).
-- **OPTIONS GLOBALES — Bibliothèque viandes** et les lignes « Viandes : » au niveau d'une **catégorie** (ex. tacos) = aide pour les articles qui ont un **groupe Viande sur leur fiche** ; **ça ne crée pas** un choix viande pour les autres articles (burgers sans groupe Viande, etc.).
+- Les lignes « Viandes : » au niveau d'une **catégorie** (ex. tacos) = aide pour les articles qui ont un **groupe Viande sur leur fiche** ; **ça ne crée pas** un choix viande pour les autres articles (burgers sans groupe Viande, etc.).
 Tu lis ce que la carte dit pour CET article. Rien de plus.
 
 # RÈGLE 7 — SAUCE [OBLIGATOIRE SI PRÉSENT SUR LA CARTE]
