@@ -2388,6 +2388,18 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const clean = normalizeFrenchTtsText(original);
     if (!clean) return;
     callTtsCharsTotal += clean.length;
+    // Tag d'emotion (logs) pour debug : sert à comprendre l'intonation choisie quand ElevenLabs est actif.
+    const detectElevenLabsEmotion = (t) => {
+      const lower = String(t || "").toLowerCase();
+      if (/\b(désolé|desole|pardon|excusez|je suis navré|je suis navree|malheureusement|je comprends)\b/.test(lower)) return "apologetic";
+      if (/\b(au revoir|bonne journée|à bientôt|bonne soirée)\b/.test(lower)) return "content";
+      if (/\?$/.test(String(t || "").trim()) || /\b(souhaitez-vous|voulez-vous|qu'est-ce que|quel|comment puis-je|puis-je)\b/.test(lower)) return "curious";
+      if (/\b(parfait|super|génial|genial|avec plaisir|bien sûr|bien sur|entendu|absolument|c'est noté|je note|merci)\b/.test(lower)) return "happy";
+      if (/\b(formidable|fantastique|excellent|excité|excitee)\b/.test(lower)) return "excited";
+      return "content";
+    };
+    const elevenEmotion = detectElevenLabsEmotion(clean);
+    console.log(`[TTS][ElevenLabs][emotion=${elevenEmotion}] ${clean.substring(0, 70)}${clean.length > 70 ? "…" : ""}`);
     if (LOG_TTS) {
       console.log("[TTS] ElevenLabs model_id utilisé:", ELEVENLABS_MODEL_ID);
       console.log("[TTS] Texte avant normalisation (avec tags potentiels):", original.substring(0, 200));
@@ -4116,11 +4128,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   }
   const BARGE_IN_ENABLED = (process.env.BARGE_IN_ENABLED ?? "true").toLowerCase() === "true";
   // Défaut : barge-in réactif ; sur écho HP fréquent, monter BARGE_IN_THRESHOLD ou les frames via .env.
-  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? "9800");
-  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "22"); // ~440ms de parole continue
+  // En snack, on monte un peu les seuils pour éviter que le TTS lui-même (écho) coupe les fins de phrases.
+  const IS_SNACK_SESSION_EVAL = String(establishmentType || "").toLowerCase() === "snack";
+  const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? (IS_SNACK_SESSION_EVAL ? "12000" : "9800"));
+  const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? (IS_SNACK_SESSION_EVAL ? "30" : "22")); // ~440ms de parole continue
   /** Frames supplémentaires exigées pour couper le TTS (évite coupures par bruit / écho HP). */
-  const BARGE_IN_TTS_EXTRA_FRAMES = Number(process.env.BARGE_IN_TTS_EXTRA_FRAMES ?? "14");
-  const IS_SNACK_SESSION = String(establishmentType || "").toLowerCase() === "snack";
+  const BARGE_IN_TTS_EXTRA_FRAMES = Number(
+    process.env.BARGE_IN_TTS_EXTRA_FRAMES ?? (IS_SNACK_SESSION_EVAL ? "18" : "14"),
+  );
+  const IS_SNACK_SESSION = IS_SNACK_SESSION_EVAL;
   let twilioSpeechFrames = 0;
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
   const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible; 900–1200: plus strict
@@ -8223,6 +8239,11 @@ But: être naturel et mettre le client en confiance.`,
               const ttsCurrentlyPlaying = premiumTtsInFlight || outboundQueuedBytes > 0 || outboundQueue.length > 0;
               const bargeInFramesNeeded = ttsCurrentlyPlaying ? (BARGE_IN_FRAMES + BARGE_IN_TTS_EXTRA_FRAMES) : BARGE_IN_FRAMES;
               if (BARGE_IN_ENABLED && (responseInProgress || ttsCurrentlyPlaying) && twilioSpeechFrames >= bargeInFramesNeeded) {
+                const cooldownMs = IS_SNACK_SESSION ? 1200 : 800;
+                if (ws.__lastBargeInAt && Date.now() - ws.__lastBargeInAt < cooldownMs) {
+                  // Écho/résidu : éviter d'interrompre 2 fois de suite la même sortie TTS.
+                  twilioSpeechFrames = 0;
+                } else {
                 cancelResponseForBargeIn();
                 if (ttsCurrentlyPlaying) {
                   try { premiumTtsAbort?.abort?.(); } catch {}
@@ -8240,6 +8261,7 @@ But: être naturel et mettre le client en confiance.`,
                   console.log("✋ Barge-in TTS: interrompu + queue audio purgée.");
                 }
                 twilioSpeechFrames = 0;
+                }
               }
               const assistantBacklogFrames = Math.floor(outboundQueuedBytes / 160);
               const assistantIsReallyTalking =
