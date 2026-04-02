@@ -4201,6 +4201,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
     const now = nowMs();
+    if (ws.__openaiResponseCreateBlockedUntil && now < ws.__openaiResponseCreateBlockedUntil) {
+      if (LOG_VERBOSE) {
+        console.log("🧯 response.create bloqué (OpenAI active response).", {
+          reason,
+          blockedMs: Math.round(ws.__openaiResponseCreateBlockedUntil - now),
+        });
+      }
+      return;
+    }
     if (responseInProgress) {
       if (reason === "deepgram_final" && USE_DEEPGRAM_STT) {
         pendingDeepgramResponseCreate = true;
@@ -5940,8 +5949,31 @@ But: être naturel et mettre le client en confiance.`,
           }
           if (msg.type === "response.output_audio_transcript.done" || msg.type === "response.audio_transcript.done") {
             const rid = msg.response_id ?? msg.response?.id ?? null;
-            const doneText = (typeof msg.transcript === "string" ? msg.transcript : "") || (rid ? (transcriptMap.get(rid) || "") : "");
+            let doneText = (typeof msg.transcript === "string" ? msg.transcript : "") || (rid ? (transcriptMap.get(rid) || "") : "");
             if (REALTIME_USE_ELEVEN && doneText && doneText.trim()) {
+              // Sécurité snack: si le serveur n'a pas encore le nom et que l'IA finalise,
+              // on force la question "C'est au nom de ?" pour éviter les oublis.
+              if (establishmentType === "snack" || effectiveSector === "snack") {
+                const low0 = String(doneText || "").toLowerCase();
+                const hasOrderName = !!String(ws.__snackOrderName || "").trim();
+                const looksLikeFinalSnackConclusion =
+                  /\b(c'est noté|c'est note)\b/.test(low0) ||
+                  /\bje vous envoie un message\b/.test(low0) ||
+                  (low0.includes("snack") && low0.includes("à bientôt")) ||
+                  (low0.includes("a bientot") && low0.includes("snack"));
+                const asksOrderName = /\b(c'est au nom de|au nom de)\b/.test(low0) && /\bnom\b/.test(low0);
+
+                if (asksOrderName) {
+                  ws.__awaitingSnackOrderName = true;
+                  ws.__awaitingSnackOrderNameAt = nowMs();
+                } else if (!hasOrderName && looksLikeFinalSnackConclusion) {
+                  console.log("🛑 Snack: nom commande manquant avant finalisation → je force 'C'est au nom de ?'.");
+                  ws.__awaitingSnackOrderName = true;
+                  ws.__awaitingSnackOrderNameAt = nowMs();
+                  const forcedDoneText = "C'est au nom de ?";
+                  doneText = forcedDoneText;
+                }
+              }
               if (lastUserTextPendingIngest && lastUserTextPendingIngest.trim()) {
                 enqueueIngest("user", lastUserTextPendingIngest);
                 lastUserTextPendingIngest = null;
@@ -6219,8 +6251,14 @@ But: être naturel et mettre le client en confiance.`,
                     ws.__awaitingReservationName === true &&
                     typeof ws.__awaitingReservationNameAt === "number" &&
                     (nowMs() - ws.__awaitingReservationNameAt) < 30_000;
+                  const awaitingSnackOrderName =
+                    establishmentType === "snack" &&
+                    ws.__awaitingSnackOrderName === true &&
+                    typeof ws.__awaitingSnackOrderNameAt === "number" &&
+                    (nowMs() - ws.__awaitingSnackOrderNameAt) < 30_000;
                   const considerValidUserSpeech = userText && userText.trim() && (
                     awaitingReservationName ||
+                    awaitingSnackOrderName ||
                     !isJunkTranscript(userText) ||
                     (USE_DEEPGRAM_STT && longOrMultiWord(userText))
                   );
@@ -6229,6 +6267,12 @@ But: être naturel et mettre le client en confiance.`,
                       ws.__awaitingReservationName = false;
                       ws.__awaitingReservationNameAt = null;
                       if (LOG_VERBOSE) console.log("[RESTAURANT] Nom reçu -> bypass bruit désactivé.");
+                    }
+                    if (awaitingSnackOrderName) {
+                      ws.__awaitingSnackOrderName = false;
+                      ws.__awaitingSnackOrderNameAt = null;
+                      ws.__snackOrderName = String(userText || "").trim().slice(0, 80);
+                      if (LOG_VERBOSE) console.log("[SNACK] Nom commande reçu ->", ws.__snackOrderName);
                     }
                     const norm = userText.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
                     const dedupKey = "speak_" + norm;
@@ -7346,6 +7390,15 @@ But: être naturel et mettre le client en confiance.`,
           if (msg.type === "error") {
             const err = msg.error || {};
             console.error("❌ Erreur OpenAI:", err.code || "?", err.message || err, err.param ? `(param: ${err.param})` : "");
+            if (typeof err?.message === "string" && err.message.includes("conversation_already_has_active_response")) {
+              // Evite de relancer response.create trop tôt : OpenAI garde une réponse active en parallèle.
+              const match = err.message.match(/in progress:\s*(resp_[A-Za-z0-9]+)/i);
+              ws.__openaiResponseCreateBlockedUntil = Date.now() + 1500;
+              console.warn("🧯 OpenAI active response — blocage response.create temporaire.", {
+                activeResponseId: match?.[1] || null,
+              });
+              return;
+            }
             const errParam = String(msg?.error?.param ?? "");
             const errCode = String(msg?.error?.code ?? "");
             if (errCode === "unknown_parameter" && errParam.startsWith("session.")) {
