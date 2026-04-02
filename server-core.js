@@ -4120,6 +4120,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? "22"); // ~440ms de parole continue
   /** Frames supplémentaires exigées pour couper le TTS (évite coupures par bruit / écho HP). */
   const BARGE_IN_TTS_EXTRA_FRAMES = Number(process.env.BARGE_IN_TTS_EXTRA_FRAMES ?? "14");
+  const IS_SNACK_SESSION = String(establishmentType || "").toLowerCase() === "snack";
   let twilioSpeechFrames = 0;
   const INPUT_GATE_ENABLED = (process.env.INPUT_GATE_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
   const INPUT_SPEECH_THRESHOLD = Number(process.env.INPUT_SPEECH_THRESHOLD ?? "600"); // 600: sensible; 900–1200: plus strict
@@ -4137,9 +4138,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const LOCAL_COMMIT_ENABLED = (process.env.LOCAL_COMMIT_ENABLED ?? (PIPELINE_MODE === "realtime" ? "true" : "false")).toLowerCase() === "true";
   const INPUT_SUPPRESS_WHILE_TALKING = (process.env.INPUT_SUPPRESS_WHILE_TALKING ?? "true").toLowerCase() === "true";
   const INPUT_SUPPRESS_BACKLOG_FRAMES = Number(process.env.INPUT_SUPPRESS_BACKLOG_FRAMES ?? "2"); // ~40ms d'audio sortant
-  const INPUT_SUPPRESS_BYPASS_THRESHOLD = Number(process.env.INPUT_SUPPRESS_BYPASS_THRESHOLD ?? "400"); // seuil audio pour ne pas supprimer (plus sensible = moins répétitions)
+  // En snack, les réponses 1 mot peuvent être plus faibles : on baisse le seuil pour éviter de suppress inutilement.
+  const INPUT_SUPPRESS_BYPASS_THRESHOLD = Number(
+    process.env.INPUT_SUPPRESS_BYPASS_THRESHOLD ?? (IS_SNACK_SESSION ? "250" : "400"),
+  ); // seuil audio pour ne pas supprimer (plus sensible = moins répétitions)
   // Délai après la fin du TTS pendant lequel on n'envoie pas l'audio au STT (évite écho / bruit haut-parleur transcrit). Avec Deepgram + haut-parleur : 1,5 s par défaut.
-  const INPUT_POST_TTS_GUARD_MS = Number(process.env.INPUT_POST_TTS_GUARD_MS ?? (USE_DEEPGRAM_STT ? "850" : "750"));
+  const INPUT_POST_TTS_GUARD_MS = Number(
+    process.env.INPUT_POST_TTS_GUARD_MS ??
+      (IS_SNACK_SESSION ? "250" : USE_DEEPGRAM_STT ? "850" : "750"),
+  );
   const INPUT_SUPPRESS_OVERRIDE_THRESHOLD = Number(
     process.env.INPUT_SUPPRESS_OVERRIDE_THRESHOLD ?? String(Math.max(2500, Math.floor(INPUT_SPEECH_THRESHOLD * 1.5))),
   );
@@ -4217,6 +4224,8 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       outboundQueuedBytes = 0;
       resetOutboundAudioChain();
       hadOutboundAssistantAudio = false;
+      // Permet à Deepgram de recevoir rapidement un mot isolé juste après interruption.
+      ws.__lastBargeInAt = Date.now();
       if (lastTtsPlaybackEndTimer) {
         clearTimeout(lastTtsPlaybackEndTimer);
         lastTtsPlaybackEndTimer = null;
@@ -8245,7 +8254,13 @@ But: être naturel et mettre le client en confiance.`,
               const premiumTtsPlaying = premiumTtsInFlight || outboundQueuedBytes > 0 || outboundQueue.length > 0;
               const postTtsGuardActive = lastTtsEndAt > 0 && (Date.now() - lastTtsEndAt) < INPUT_POST_TTS_GUARD_MS;
               const userSpeakingNow = avg > INPUT_SUPPRESS_BYPASS_THRESHOLD;
-              const suppressInputNow = INPUT_SUPPRESS_WHILE_TALKING && (premiumTtsPlaying || postTtsGuardActive) && !userSpeakingNow;
+              let suppressInputNow =
+                INPUT_SUPPRESS_WHILE_TALKING && (premiumTtsPlaying || postTtsGuardActive) && !userSpeakingNow;
+              // Après un barge-in sur snack, on évite de suppress tout de suite :
+              // sinon un mot isolé peut ne jamais être forward.
+              if (IS_SNACK_SESSION && ws.__lastBargeInAt && Date.now() - ws.__lastBargeInAt < 800) {
+                suppressInputNow = false;
+              }
               if (suppressInputNow) {
                 if (typeof ws.__suppressLogCount === "undefined") ws.__suppressLogCount = 0;
                 ws.__suppressLogCount = (ws.__suppressLogCount || 0) + 1;
