@@ -1019,6 +1019,9 @@ wss.on("connection", (ws, req) => {
   let servicesIncludesSummary = "";
   let faqsSummary = "";
   let menuSummary = "";
+  let patrimoineSpecialisations = [];
+  let patrimoineConseillerNom = "";
+  let patrimoineCabinetDescription = "";
   let ingestSeq = 0;
   let ingestChain = Promise.resolve();
   function recordAssistantQuestionIntent(text) {
@@ -5003,6 +5006,41 @@ ${compactPersona}`;
           { type: "function", name: "get_restaurant_info", description: "Récupère menu, horaires d'ouverture et informations du restaurant. À appeler pour questions sur le menu, les horaires, l'adresse.", parameters: { type: "object", properties: {} } },
           ...(allowTransfer ? [{ type: "function", name: "transfer_to_restaurant", description: "Transfère l'appel vers le restaurant (un humain). À appeler quand le client demande à parler à quelqu'un.", parameters: { type: "object", properties: {} } }] : []),
         ];
+        const patrimoineTools = [
+          { type: "function", name: "get_opening_hours", description: "Récupère les horaires d'ouverture du cabinet. À appeler pour une question d'horaires.", parameters: { type: "object", properties: {} } },
+          { type: "function", name: "get_garage_faq", description: "Récupère les questions fréquentes du cabinet. À appeler pour les questions générales, sans conseil d'investissement personnalisé.", parameters: { type: "object", properties: {} } },
+          ...(allowTransfer ? [{ type: "function", name: "transfer_to_garage", description: "Transfère l'appel vers le conseiller humain. À appeler quand le client demande une information réglementée, des montants précis, ou un avis personnalisé.", parameters: { type: "object", properties: {} } }] : []),
+        ];
+        const mapPatrimoineDossiersForPrompt = (ci) => {
+          const raw = ci?.patrimoine_dossiers;
+          if (!Array.isArray(raw) || raw.length === 0) return [];
+          const statusFr = { actif: "actif", en_attente: "en attente", cloture: "clôturé", suspendu: "suspendu" };
+          return raw.map((d) => {
+            const notes = d.notes ? String(d.notes).trim() : "";
+            const notesShort = notes.length > 280 ? notes.slice(0, 280) + "…" : notes;
+            return {
+              title: String(d.title || "").trim() || "Dossier",
+              type: String(d.type || "divers"),
+              status: statusFr[d.status] || String(d.status || ""),
+              notes: notesShort,
+              prochaine_revue: d.prochaine_revue ? String(d.prochaine_revue).slice(0, 10) : "",
+              reference: d.reference ? String(d.reference).trim() : "",
+            };
+          });
+        };
+        const buildPatrimoineInstructionsPayload = (ci) => buildPatrimoineInstructions({
+          cabinetName: garageName,
+          assistantName,
+          conseillerNom: patrimoineConseillerNom || process.env.PATRIMOINE_CONSEILLER_NOM || "votre conseiller",
+          specialisations: patrimoineSpecialisations,
+          openingHoursText: garageHoursText || "Contactez-nous pour nos horaires.",
+          cabinetDescription: patrimoineCabinetDescription,
+          consentRequired,
+          allowTransfer,
+          clientDossiers: mapPatrimoineDossiersForPrompt(ci),
+          callerRecognizedInCrm: Boolean(ci && ci.id),
+          callerDisplayName: ci?.name ? String(ci.name).trim() : "",
+        });
         const restNow = (callStartIso && !isNaN(new Date(callStartIso).getTime())) ? new Date(callStartIso) : new Date();
         // Restaurant sans référence date/heure : utiliser le fuseau du restaurant (Europe/Paris) pour éviter "aujourd'hui" = mauvais jour (ex. 00h40 Paris = lundi, serveur UTC = encore dimanche)
         const restaurantTz = process.env.RESTAURANT_TIMEZONE || "Europe/Paris";
@@ -5022,17 +5060,7 @@ ${compactPersona}`;
           console.log("🍽️ [Restaurant] Build prompt avec:", { lunchFullToday, dinnerFullToday, lunchPassedForToday, dinnerPassedForToday });
         }
         const isSnackEstablishment = String(establishmentType || "").toLowerCase() === "snack";
-        const patrimoineInstructions = effectiveSector === "patrimoine" ? buildPatrimoineInstructions({
-          cabinetName: garageName,
-          assistantName,
-          conseillerNom: process.env.PATRIMOINE_CONSEILLER_NOM || "votre conseiller",
-          specialisations: [],
-          openingHoursText: garageHoursText || "Contactez-nous pour nos horaires.",
-          cabinetDescription: "",
-          consentRequired,
-          allowTransfer,
-          clientDossiers: [],
-        }) : "";
+        const patrimoineInstructions = effectiveSector === "patrimoine" ? buildPatrimoineInstructionsPayload(clientInfo) : "";
         const hospitalityInstructions = effectiveSector === "restaurant" ? (isSnackEstablishment ? buildSnackInstructions({
           restaurantName: garageName,
           assistantName,
@@ -5078,7 +5106,11 @@ ${compactPersona}`;
           takeawayDinnerOrderStart,
           takeawayDinnerOrderEnd,
         })) : "";
-        const activeTools = (effectiveSector === "restaurant" || effectiveSector === "patrimoine") ? restaurantTools : garageTools;
+        const activeTools = effectiveSector === "restaurant"
+          ? restaurantTools
+          : effectiveSector === "patrimoine"
+            ? patrimoineTools
+            : garageTools;
         let initialInstructionsText = effectiveSector === "restaurant"
           ? hospitalityInstructions
           : effectiveSector === "patrimoine"
@@ -5131,6 +5163,29 @@ ${compactPersona}`;
           }
           if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) {
             console.warn("⚠️ OpenAI WebSocket pas connecté (état:", openaiWs?.readyState, ")");
+            return;
+          }
+          if (effectiveSector === "patrimoine") {
+            let instructionsToSend = buildPatrimoineInstructionsPayload(clientInfo);
+            if (instructionsToSend.length > REALTIME_INSTRUCTIONS_MAX_CHARS) {
+              const trunc = "\n\n[RÈGLES PATRIMOINE : une question à la fois, pas de conseil personnalisé.]";
+              instructionsToSend = instructionsToSend.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - trunc.length - 200) + trunc;
+            }
+            openaiWs.send(JSON.stringify({
+              type: "session.update",
+              session: {
+                type: "realtime",
+                instructions: instructionsToSend,
+                output_modalities: REALTIME_OUTPUT_MODALITIES,
+                tools: patrimoineTools,
+                tool_choice: "auto",
+              },
+            }));
+            ws.__sessionInstructions = String(instructionsToSend || "");
+            console.log("✅ Prompt patrimoine mis à jour (dossiers client)", {
+              dossiersCount: mapPatrimoineDossiersForPrompt(clientInfo).length,
+              clientName: clientInfo?.name || "N/A",
+            });
             return;
           }
           if (effectiveSector === "restaurant" && clientInfo?.name) {
@@ -5318,6 +5373,16 @@ ${compactPersona}`;
             openaiWs.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: toSend, output_modalities: REALTIME_OUTPUT_MODALITIES, tools: restaurantTools, tool_choice: "auto" } }));
             ws.__sessionInstructions = String(toSend || "");
             console.log(`✅ Session mise à jour: consentement donné (${isSnackEstablishment ? "snack" : "restaurant"})`);
+            return;
+          }
+          if (effectiveSector === "patrimoine") {
+            let instrP = buildPatrimoineInstructionsPayload(clientInfo);
+            const toSendP = instrP.length > REALTIME_INSTRUCTIONS_MAX_CHARS
+              ? instrP.slice(0, REALTIME_INSTRUCTIONS_MAX_CHARS - 200) + "\n\n[RÈGLES PATRIMOINE: dossiers fournis, pas de conseil personnalisé.]"
+              : instrP;
+            openaiWs.send(JSON.stringify({ type: "session.update", session: { type: "realtime", instructions: toSendP, output_modalities: REALTIME_OUTPUT_MODALITIES, tools: patrimoineTools, tool_choice: "auto" } }));
+            ws.__sessionInstructions = String(toSendP || "");
+            console.log("✅ Session mise à jour: consentement donné (patrimoine)");
             return;
           }
           const clientInfoSection = buildClientInfoLine();
@@ -7687,6 +7752,9 @@ But: être naturel et mettre le client en confiance.`,
         const finalServicesIncludesSummary = startParams.servicesIncludesSummary || "";
         const finalFaqsSummary = startParams.faqsSummary || "";
         const finalMenuSummary = startParams.menuSummary || "";
+        const finalPatrimoineSpecialisations = startParams.patrimoineSpecialisations || "";
+        const finalPatrimoineConseillerNom = startParams.patrimoineConseillerNom || "";
+        const finalPatrimoineCabinetDescription = startParams.patrimoineCabinetDescription || "";
         const finalClosedDaysText = startParams.closedDaysText || "";
         const finalCallToken = startParams.callToken || "";
         const finalLunchFullToday = startParams.lunchFullToday || "";
@@ -7816,6 +7884,14 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalServicesIncludesSummary === "string") servicesIncludesSummary = String(finalServicesIncludesSummary || "").trim();
         if (typeof finalFaqsSummary === "string") faqsSummary = String(finalFaqsSummary || "").trim();
         if (typeof finalMenuSummary === "string") menuSummary = String(finalMenuSummary || "").trim();
+        if (typeof finalPatrimoineSpecialisations === "string") {
+          patrimoineSpecialisations = String(finalPatrimoineSpecialisations || "")
+            .split("|")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        }
+        if (typeof finalPatrimoineConseillerNom === "string") patrimoineConseillerNom = String(finalPatrimoineConseillerNom || "").trim();
+        if (typeof finalPatrimoineCabinetDescription === "string") patrimoineCabinetDescription = String(finalPatrimoineCabinetDescription || "").trim();
         if (typeof finalCallToken === "string" && finalCallToken.trim()) callToken = String(finalCallToken).trim();
         if (transferFailed) {
           const transferFailedMsg = validationDevisByClient

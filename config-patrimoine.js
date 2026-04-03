@@ -96,6 +96,8 @@ export const PATRIMOINE_CALL_ANALYSIS_SCHEMA = {
  * @param {boolean} ctx.consentRequired - Consentement RGPD requis
  * @param {boolean} ctx.allowTransfer - Transfert vers conseiller humain autorisé
  * @param {object[]} ctx.clientDossiers - Dossiers du client appelant (si identifié)
+ * @param {boolean} ctx.callerRecognizedInCrm - true si le numéro correspond à une fiche client
+ * @param {string} [ctx.callerDisplayName] - nom affichage client (si connu)
  */
 export function buildPatrimoineInstructions(ctx) {
   const {
@@ -108,6 +110,8 @@ export function buildPatrimoineInstructions(ctx) {
     consentRequired = false,
     allowTransfer = true,
     clientDossiers = [],
+    callerRecognizedInCrm = false,
+    callerDisplayName = "",
   } = ctx;
 
   const specsText = specialisations.length > 0
@@ -115,10 +119,19 @@ export function buildPatrimoineInstructions(ctx) {
     : "";
 
   const dossiersSection = clientDossiers.length > 0
-    ? `\n\n[DOSSIERS CLIENT EN COURS]\nLe client qui appelle a les dossiers suivants :\n${clientDossiers.map((d, i) =>
-        `${i + 1}. ${d.title} (${d.type.replace(/_/g, " ")}) — statut : ${d.status}${d.notes ? ` — Note : ${d.notes}` : ""}${d.prochaine_revue ? ` — Prochaine revue : ${d.prochaine_revue}` : ""}`
-      ).join("\n")}\nTu peux répondre aux questions générales sur ces dossiers. Pour toute information confidentielle ou décision, oriente vers ${conseillerNom}.`
+    ? `\n\n[DOSSIERS CLIENT — DONNÉES FOURNIES PAR LE CABINET]\nLe numéro d'appel correspond à un client enregistré. Dossiers patrimoniaux liés :\n${clientDossiers.map((d, i) => {
+        const typeLabel = String(d.type || "").replace(/_/g, " ");
+        const ref = d.reference ? ` — réf. ${d.reference}` : "";
+        const rev = d.prochaine_revue ? ` — prochaine revue : ${d.prochaine_revue}` : "";
+        const note = d.notes ? ` — suivi interne (résumer brièvement au client si demandé, sans montants ni données bancaires) : ${d.notes}` : "";
+        return `${i + 1}. « ${d.title} » (type : ${typeLabel}) — statut : ${d.status}${ref}${rev}${note}`;
+      }).join("\n")}\n\nRÈGLE ABSOLUE : Si le client demande des nouvelles sur « son dossier », « où en est-on », le statut, ou la prochaine revue, tu DOIS t'appuyer sur cette liste. Réponds de façon claire et rassurante avec le titre, le statut, la prochaine revue si indiquée, et un bref rappel du suivi interne si utile (sans chiffres confidentiels).\nINTERDIT : dire que tu ne peux pas l'aider sur une demande spécifique de dossier tant que l'information figure ci-dessus.\nSi aucun dossier ne correspond à sa question ou si la demande est un conseil d'investissement / une décision : oriente vers ${conseillerNom}.`
     : "";
+
+  const noDossierButClientKnown =
+    callerRecognizedInCrm && (!clientDossiers || clientDossiers.length === 0)
+      ? `\n\n[CLIENT IDENTIFIÉ — AUCUN DOSSIER PATRIMOINE LIÉ]\nLe numéro correspond à une fiche client${callerDisplayName ? ` (« ${callerDisplayName} »)` : ""}, mais aucun dossier patrimoine n'est associé dans l'application. Si le client demande l'avancement d'un dossier, indique qu'aucun dossier n'apparaît sur son compte pour l'instant et propose un rendez-vous ou un rappel de ${conseillerNom} pour faire le lien.`
+      : "";
 
   const consentBlock = consentRequired
     ? `\n\nRGPD : Avant de collecter des informations personnelles, informe le client que cet appel peut être enregistré à des fins de qualité et demande son accord ("Puis-je enregistrer cet appel pour améliorer notre service ?"). Si refus : continue sans enregistrement, note le refus.`
@@ -141,7 +154,7 @@ TON ET STYLE :
 
 HORAIRES :
 ${openingHoursText || "Contactez-nous pour connaître nos horaires."}
-${dossiersSection}
+${dossiersSection}${noDossierButClientKnown}
 ${consentBlock}
 ${transferBlock}
 
@@ -150,7 +163,7 @@ FLUX DE L'APPEL :
 2. IDENTIFICATION DU BESOIN : Écoute et identifie : prise de RDV, question sur un dossier, information générale, autre.
 3. TRAITEMENT :
    - Prise de RDV → Collecte : nom, date/heure souhaitée, objet de la demande (ex : "bilan patrimonial", "point assurance-vie"), téléphone de confirmation.
-   - Question sur un dossier → Si le dossier est dans la liste fournie : réponds avec les informations disponibles et non-confidentielles. Sinon : "Je vais transmettre votre demande à ${conseillerNom} qui vous recontactera."
+   - Question sur un dossier → Utilise la section [DOSSIERS CLIENT] ci-dessus. Si des dossiers sont listés : réponds avec titre, statut, prochaine revue, résumé factuel des notes (sans montants). Sinon : propose qu'un conseiller le rappelle pour lier son dossier ou prendre un rendez-vous.
    - Information générale → Réponds avec des généralités professionnelles, sans conseil personnalisé.
 4. CONFIRMATION : Récapitule la demande ou le RDV pris.
 5. CLÔTURE : "Merci de votre confiance. N'hésitez pas à nous rappeler si besoin. Bonne journée."
@@ -159,5 +172,8 @@ RÈGLES IMPORTANTES :
 - Ne jamais donner de conseil financier personnalisé (interdit réglementairement sans agrément en séance).
 - Ne jamais révéler de montants, de taux ou de performances passées spécifiques à un dossier.
 - En cas de doute sur une information : "Je préfère vous orienter vers ${conseillerNom} pour vous donner une réponse précise."
-- Si le client est en détresse financière ou mentionne une urgence grave : proposer immédiatement un rappel prioritaire.`;
+- Si le client demande une recommandation de placement, une allocation, un arbitrage ou une prévision de marché : ne réponds pas sur le fond, transfère vers ${conseillerNom}.
+- Si le client demande un solde, un montant précis, un identifiant de contrat ou un document confidentiel : ne divulgue pas ces données par téléphone via l'assistant.
+- Si le client est en détresse financière ou mentionne une urgence grave : proposer immédiatement un rappel prioritaire.
+- Après chaque appel à enjeu réglementaire, rappelle que la validation finale est faite par un conseiller humain.`;
 }
