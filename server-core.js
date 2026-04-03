@@ -8,6 +8,7 @@ import { Readable } from "stream";
 import { createClient } from "@supabase/supabase-js";
 import { RESTAURANT_CALL_ANALYSIS_PROMPT, RESTAURANT_CALL_ANALYSIS_SCHEMA, buildRestaurantInstructions } from "./config-restaurant.js";
 import { SNACK_CALL_ANALYSIS_PROMPT, SNACK_CALL_ANALYSIS_SCHEMA, buildSnackInstructions } from "./config-snack.js";
+import { PATRIMOINE_CALL_ANALYSIS_PROMPT, PATRIMOINE_CALL_ANALYSIS_SCHEMA, buildPatrimoineInstructions } from "./config-patrimoine.js";
 import {
   createVoiceChainState,
   resetVoiceChainState,
@@ -135,6 +136,7 @@ async function handleRunAnalysis(callId, res) {
     .eq("id", call.garage_id)
     .maybeSingle();
   const isRestaurant = garageRow?.type === "restaurant";
+  const isPatrimoine = garageRow?.type === "patrimoine";
   let isSnack = false;
   if (call.garage_id && isRestaurant) {
     const { data: settingsType } = await supabase
@@ -146,7 +148,7 @@ async function handleRunAnalysis(callId, res) {
     isSnack = String(settingsType?.establishment_type || "").toLowerCase() === "snack";
   }
   let appointmentMode = "request";
-  if (call.garage_id && !isRestaurant) {
+  if (call.garage_id && !isRestaurant && !isPatrimoine) {
     const { data: settings } = await supabase
       .schema("autoguru")
       .from("garage_settings")
@@ -191,18 +193,22 @@ async function handleRunAnalysis(callId, res) {
     ? SNACK_CALL_ANALYSIS_PROMPT
     : isRestaurant
       ? RESTAURANT_CALL_ANALYSIS_PROMPT
-      : CALL_ANALYSIS_PROMPT;
+      : isPatrimoine
+        ? PATRIMOINE_CALL_ANALYSIS_PROMPT
+        : CALL_ANALYSIS_PROMPT;
   const analysisSchema = JSON.parse(JSON.stringify(
     isSnack
       ? SNACK_CALL_ANALYSIS_SCHEMA
       : isRestaurant
         ? RESTAURANT_CALL_ANALYSIS_SCHEMA
-        : CALL_ANALYSIS_SCHEMA
+        : isPatrimoine
+          ? PATRIMOINE_CALL_ANALYSIS_SCHEMA
+          : CALL_ANALYSIS_SCHEMA
   ));
-  const userInput = (isRestaurant || isSnack)
+  const userInput = (isRestaurant || isSnack || isPatrimoine)
     ? `Transcription: ${transcript}\n${callDateIso ? `Date de l'appel: ${callDateIso}\n` : ""}`
     : `Transcription: ${transcript}\nSymptômes déclarés: ${(call.symptom_summary ?? "non précisé")}\n${callDateIso ? `Date de l'appel (utilise cette année pour les dates du type "mercredi 11 février"): ${callDateIso}\n` : ""}`;
-  const systemContent = (isRestaurant || isSnack) ? analysisPrompt : `${analysisPrompt} ${rdvInstruction}`;
+  const systemContent = (isRestaurant || isSnack || isPatrimoine) ? analysisPrompt : `${analysisPrompt} ${rdvInstruction}`;
   try {
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -5016,6 +5022,17 @@ ${compactPersona}`;
           console.log("🍽️ [Restaurant] Build prompt avec:", { lunchFullToday, dinnerFullToday, lunchPassedForToday, dinnerPassedForToday });
         }
         const isSnackEstablishment = String(establishmentType || "").toLowerCase() === "snack";
+        const patrimoineInstructions = effectiveSector === "patrimoine" ? buildPatrimoineInstructions({
+          cabinetName: garageName,
+          assistantName,
+          conseillerNom: process.env.PATRIMOINE_CONSEILLER_NOM || "votre conseiller",
+          specialisations: [],
+          openingHoursText: garageHoursText || "Contactez-nous pour nos horaires.",
+          cabinetDescription: "",
+          consentRequired,
+          allowTransfer,
+          clientDossiers: [],
+        }) : "";
         const hospitalityInstructions = effectiveSector === "restaurant" ? (isSnackEstablishment ? buildSnackInstructions({
           restaurantName: garageName,
           assistantName,
@@ -5061,8 +5078,12 @@ ${compactPersona}`;
           takeawayDinnerOrderStart,
           takeawayDinnerOrderEnd,
         })) : "";
-        const activeTools = effectiveSector === "restaurant" ? restaurantTools : garageTools;
-        let initialInstructionsText = effectiveSector === "restaurant" ? hospitalityInstructions : buildCompactInstructions(clientInfoLine);
+        const activeTools = (effectiveSector === "restaurant" || effectiveSector === "patrimoine") ? restaurantTools : garageTools;
+        let initialInstructionsText = effectiveSector === "restaurant"
+          ? hospitalityInstructions
+          : effectiveSector === "patrimoine"
+            ? patrimoineInstructions
+            : buildCompactInstructions(clientInfoLine);
         const sessionUpdate = {
           type: "session.update",
           session: {
@@ -7691,6 +7712,7 @@ But: être naturel et mettre le client en confiance.`,
         const finalEstablishmentType = String(startParams.establishmentType || "restaurant").trim().toLowerCase() || "restaurant";
         const finalGarageType = String(startParams.garageType || "").trim().toLowerCase();
         if (finalGarageType === "restaurant" || finalGarageType === "snack") effectiveSector = "restaurant";
+        else if (finalGarageType === "patrimoine") effectiveSector = "patrimoine";
         console.log("🏷️ Secteur effectif:", effectiveSector, "(garageType reçu:", finalGarageType || "non fourni", ")");
         callStartIso = startParams.callStartIso || "";
         console.log("🎬 Stream start:", {
