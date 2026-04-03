@@ -21,9 +21,9 @@ const PORT = process.env.PORT || 8080;
 const ACCOUNT_SECTOR = process.env.ACCOUNT_SECTOR || "garage";
 const HOST = process.env.HOST || "0.0.0.0";
 
-/** Helper: libellé de l'établissement pour les salutations (garage vs restaurant).
+/** Helper: libellé de l'établissement pour les salutations (garage vs restaurant vs patrimoine).
  * @param {string} name - Nom de l'établissement
- * @param {string} [sector] - Secteur effectif ("restaurant" | "garage"), sinon ACCOUNT_SECTOR
+ * @param {string} [sector] - Secteur effectif ("restaurant" | "garage" | "patrimoine"), sinon ACCOUNT_SECTOR
  */
 function getPlaceLabelForGreeting(name, sector) {
   const s = (sector || ACCOUNT_SECTOR);
@@ -32,7 +32,20 @@ function getPlaceLabelForGreeting(name, sector) {
   if (s === "restaurant") {
     return /^restaurant\b/i.test(nom) ? nom : `restaurant ${nom}`;
   }
+  if (s === "patrimoine") {
+    if (/^(cabinet|office)\b/i.test(nom)) return nom;
+    return `cabinet ${nom}`;
+  }
   return /^garage\b/i.test(nom) ? nom : `garage ${nom}`;
+}
+
+/** Phrase d'information enregistrement (avant « Oui je suis d'accord ») — patrimoine ≠ garage. */
+function getConsentRecordingSentence(sector) {
+  const s = sector || ACCOUNT_SECTOR;
+  if (s === "patrimoine") {
+    return "Cet appel peut être enregistré à des fins de qualité de service et de suivi de votre demande auprès du cabinet. ";
+  }
+  return "Cet appel est enregistré pour préparer votre arrivée au garage. ";
 }
 const CALL_ANALYSIS_PROMPT = `Tu es AutoGuru, assistant d'analyse d'appels garages.
 Objectif: produire une analyse JSON fiable, utile au rappel client et à l'accueil atelier.
@@ -1006,7 +1019,7 @@ wss.on("connection", (ws, req) => {
   let takeawayDinnerOrderStart = "18:00";
   let takeawayDinnerOrderEnd = "21:30";
   let tableReservationEnabled = true;
-  let establishmentType = "restaurant"; // restaurant | pizzeria | snack
+  let establishmentType = "restaurant"; // restaurant | pizzeria | snack | patrimoine
   let callStartIso = "";
   let garageHoursText = "";
   let availableAppointmentSlotsLine = "";
@@ -4731,9 +4744,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
             : appointmentMode === "internal"
               ? `Mode rendez-vous: interne (tu peux proposer un créneau, mais tu confirmes UNIQUEMENT après validation explicite du client). RÈGLE ABSOLUE - TARIF vs RDV: Une demande de TARIF (« quel est le tarif », « combien coûte », « le prix de », « c'est combien pour ») n'est PAS une demande de RDV. Tu donnes UNIQUEMENT le tarif, puis "Avez-vous besoin d'autre chose ?". Tu NE lances JAMAIS la procédure RDV dans ce cas. NE répète JAMAIS le montant après l'avoir dit. RÈGLE ABSOLUE - HORAIRES/INFO UNIQUEMENT: Si le client demande UNIQUEMENT les horaires, les tarifs ou une information (sans avoir dit qu'il veut un rendez-vous), tu réponds à sa question puis "Avez-vous besoin d'autre chose ?". Ne dis JAMAIS "Souhaitez-vous prendre rendez-vous ?" ni "Quel jour vous conviendrait le mieux ?" dans ce cas. EXEMPLE: Client "Quel est le tarif des plaquettes ?" → tu donnes le tarif (ex. "cent quarante neuf euros"), puis "Avez-vous besoin d'autre chose ?". UNE SEULE annonce du tarif. Tu NE redis PAS le montant. "Quel jour vous conviendrait le mieux ?" se dit UNIQUEMENT quand le client vient de répondre OUI à "Vous voulez prendre rendez-vous ?". Tu ne confirmes le rendez-vous QUE si le client donne son consentement explicite. CRITIQUE: Si le client décrit un problème, tu DOIS D'ABORD poser des questions (depuis quand, autres symptômes) AVANT de proposer un diagnostic et de demander "Vous voulez prendre rendez-vous ?".${garageClosed ? " IMPORTANT: Si le garage est fermé, tu NE peux PAS prendre de rendez-vous. Tu dis que le garage est fermé et que quelqu'un rappellera." : ""}`
               : "Mode rendez-vous: demande (tu NE confirmes PAS de RDV, tu prends une demande). RÈGLE ABSOLUE - TARIF vs RDV: Une demande de TARIF (« quel est le tarif », « combien coûte », « le prix de », « c'est combien pour », « je voudrais savoir le prix ») n'est PAS une demande de RDV. Tu donnes UNIQUEMENT le tarif (get_garage_pricing), puis « Avez-vous besoin d'autre chose ? ». Tu NE lances JAMAIS la procédure RDV dans ce cas. Une demande de RDV = le client dit qu'il veut PRENDRE rendez-vous, RÉSERVER ou FIXER un créneau. RÈGLE ABSOLUE - TARIF/HORAIRES SEULS: Si le client demande UNIQUEMENT le tarif ou les horaires (sans avoir dit qu'il veut un rendez-vous), appelle get_garage_pricing, donne le tarif (UNE SEULE FOIS, ne répète jamais le montant après), puis « Avez-vous besoin d'autre chose ? ». Ne dis JAMAIS « Souhaitez-vous prendre rendez-vous ? » ni « Quel jour vous conviendrait le mieux ? » ni « Nous allons faire une demande de rendez-vous » dans ce cas — sauf si le client a explicitement demandé un RDV. Ne demande JAMAIS l'heure souhaitée au client : demande uniquement le jour puis « Plutôt le matin ou l'après-midi ? ». Si le client donne une date précise (ou date et heure), dis : « C'est une demande auprès du garage, tout sera confirmé quand le garage vous rappellera ; je prends bien cette date en compte pour la communiquer au garage. » Puis confirmation de la plaque si besoin. Après avoir noté jour/créneau/plaque, dis : « C'est une demande de rendez-vous, le garage vous rappellera pour confirmer. » puis « Avez-vous besoin d'autre chose ? ».";
+        const consentOpeningPatrimoine = "Cet appel peut être enregistré à des fins de qualité de service et de suivi de votre demande auprès du cabinet. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
+        const consentOpeningGarage = "Cet appel est enregistré pour préparer votre arrivée au garage. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.";
+        const consentOpeningQuoted = effectiveSector === "patrimoine" ? consentOpeningPatrimoine : consentOpeningGarage;
         const consentLine =
           consentRequired && !consentGiven
-            ? "RÈGLE ABSOLUE - CONSENTEMENT: Dès le début de l'appel, annonce UNIQUEMENT: 'Cet appel est enregistré pour préparer votre arrivée au garage. Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Puis TU T'ARRÊTES et tu ATTENDS la réponse du client. Tu ne dis RIEN d'autre avant qu'il ait accepté ou refusé. Si le client dit oui je suis d'accord, d'accord ou ok: NE DIS RIEN — la salutation 'Bonjour Monsieur/Madame [nom], en quoi puis-je vous aider ?' est jouée automatiquement. Attends ensuite la question du client. Si le client refuse, tu dis au revoir et tu raccroches. Si le client dit autre chose (ex: il décrit un problème sans avoir accepté), tu réponds UNIQUEMENT: 'Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Tu ne traites aucune autre demande tant qu'il n'a pas accepté ou refusé. Ne demande le consentement QU'UNE SEULE FOIS."
+            ? `RÈGLE ABSOLUE - CONSENTEMENT: Dès le début de l'appel, annonce UNIQUEMENT: '${consentOpeningQuoted}' Puis TU T'ARRÊTES et tu ATTENDS la réponse du client. Tu ne dis RIEN d'autre avant qu'il ait accepté ou refusé. Si le client dit oui je suis d'accord, d'accord ou ok: NE DIS RIEN — la salutation 'Bonjour Monsieur/Madame [nom], en quoi puis-je vous aider ?' est jouée automatiquement. Attends ensuite la question du client. Si le client refuse, tu dis au revoir et tu raccroches. Si le client dit autre chose (ex: il décrit un problème sans avoir accepté), tu réponds UNIQUEMENT: 'Pour continuer, dites : Oui je suis d'accord. Sinon raccrochez si vous refusez.' Tu ne traites aucune autre demande tant qu'il n'a pas accepté ou refusé. Ne demande le consentement QU'UNE SEULE FOIS.`
             : consentRequired && consentGiven
             ? "Consentement enregistrement: déjà donné par le client au début de l'appel. INTERDICTION ABSOLUE: Ne redemande JAMAIS le consentement. Ne dis JAMAIS 'Cet appel est enregistré' ni 'Pour continuer, dites : Oui je suis d'accord' — ces phrases sont INTERDITES, le client a déjà accepté. Réponds normalement aux demandes (tarifs, RDV, devis, etc.)."
             : "Consentement enregistrement: non requis.";
@@ -7856,11 +7872,13 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalTakeawayDinnerOrderStart === "string" && /^\d{1,2}:\d{2}$/.test(String(finalTakeawayDinnerOrderStart).trim())) takeawayDinnerOrderStart = String(finalTakeawayDinnerOrderStart).trim();
         if (typeof finalTakeawayDinnerOrderEnd === "string" && /^\d{1,2}:\d{2}$/.test(String(finalTakeawayDinnerOrderEnd).trim())) takeawayDinnerOrderEnd = String(finalTakeawayDinnerOrderEnd).trim();
         tableReservationEnabled = typeof finalTableReservationEnabled === "string" && finalTableReservationEnabled.trim().toLowerCase() === "true";
-        establishmentType = finalEstablishmentType === "pizzeria"
-          ? "pizzeria"
-          : finalEstablishmentType === "snack"
-            ? "snack"
-            : "restaurant";
+        establishmentType = finalGarageType === "patrimoine" || finalEstablishmentType === "patrimoine"
+          ? "patrimoine"
+          : finalEstablishmentType === "pizzeria"
+            ? "pizzeria"
+            : finalEstablishmentType === "snack"
+              ? "snack"
+              : "restaurant";
         if (establishmentType === "snack") tableReservationEnabled = false;
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
@@ -8006,7 +8024,7 @@ But: être naturel et mettre le client en confiance.`,
                       let greeting;
                       if (consentRequired && !consentGiven) {
                         const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                        const consentText = "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN;
+                        const consentText = getConsentRecordingSentence(effectiveSector) + CONSENT_MAIN;
                         greeting = [baseHello, consentText].filter(Boolean).join(" ");
                       } else {
                         const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
@@ -8110,7 +8128,7 @@ But: être naturel et mettre le client en confiance.`,
               let greeting;
               if (consentRequired && !consentGiven) {
                 const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
-                const consentText = "Cet appel est enregistré pour préparer votre arrivée au garage. " + CONSENT_MAIN;
+                const consentText = getConsentRecordingSentence(effectiveSector) + CONSENT_MAIN;
                 greeting = [baseHello, consentText].filter(Boolean).join(" ");
               } else {
                 const baseHello = `Bonjour. Ici ${assistantName} du ${placePart}.`;
@@ -8137,6 +8155,18 @@ But: être naturel et mettre le client en confiance.`,
             const greetingDelayMs = Number(process.env.GREETING_DELAY_MS ?? "150");
             setTimeout(() => {
               if (effectiveSector === "restaurant") return; // Pas de greeting en restaurant
+              if (effectiveSector === "patrimoine") {
+                const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
+                const variations = [
+                  `Oui allô, bonjour. Ici ${placePart}. Je vous écoute.`,
+                  `Bonjour, ${placePart}. Comment puis-je vous aider ?`,
+                  `Bonjour, vous êtes bien au ${placePart}.`,
+                ];
+                const greeting = variations[Math.floor(Math.random() * variations.length)];
+                enqueueElevenLabsTts(greeting, { interrupt: true });
+                if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+                return;
+              }
               const rawName = String(garageName || "AutoGuru").trim();
               const label = (/^garage\b/i.test(rawName) ? rawName : `Garage ${rawName}`);
               const variations = [

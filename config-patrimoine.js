@@ -134,7 +134,7 @@ export function buildPatrimoineInstructions(ctx) {
       : "";
 
   const consentBlock = consentRequired
-    ? `\n\nRGPD : Avant de collecter des informations personnelles, informe le client que cet appel peut être enregistré à des fins de qualité et demande son accord ("Puis-je enregistrer cet appel pour améliorer notre service ?"). Si refus : continue sans enregistrement, note le refus.`
+    ? `\n\nCONSENTEMENT (déjà géré en ouverture d'appel) : Un message vocal a annoncé que l'appel peut être enregistré pour la qualité du service et le suivi auprès du cabinet, puis a demandé « Oui je suis d'accord » ou le refus. Après accord : ne redemande jamais ce consentement. Ne dis jamais « garage » ni « préparer votre arrivée au garage » — tu représentes un cabinet de gestion de patrimoine.`
     : "";
 
   const transferBlock = allowTransfer
