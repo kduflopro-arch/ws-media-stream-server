@@ -8031,17 +8031,14 @@ But: être naturel et mettre le client en confiance.`,
                       }
                       console.log("👋 Greeting restaurant joué (IA ouvre la conversation).", { callSid });
                     } else {
-                      if (effectiveSector === "patrimoine" && (!consentRequired || consentGiven)) {
-                        // Cabinet sans consentement requis (ou déjà donné) : silence, on attend le client
+                      if (effectiveSector === "patrimoine") {
+                        // Cabinet : pickup humain court — "(Nom du cabinet), oui allo bonjour."
+                        const cabinetLabel = getPlaceLabelForGreeting(garageName, effectiveSector);
+                        const greeting = `${cabinetLabel}, oui allo bonjour.`;
+                        initialAssistantGreetingText = greeting;
                         hasSentInitialGreeting = true;
-                        console.log("🔇 Greeting désactivé (cabinet/patrimoine, pas de consentement requis) — IA en attente client.", { callSid });
-                      } else if (effectiveSector === "patrimoine" && consentRequired && !consentGiven) {
-                        // Cabinet avec consentement requis : jouer uniquement la demande de consentement
-                        const consentText = getConsentRecordingSentence(effectiveSector) + CONSENT_MAIN;
-                        initialAssistantGreetingText = consentText;
-                        hasSentInitialGreeting = true;
-                        enqueuePremiumTts(consentText, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
-                        console.log("🔒 Consentement patrimoine joué (sans greeting complet).", { callSid });
+                        enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+                        console.log("📞 Pickup cabinet patrimoine joué.", { callSid, greeting });
                         if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
                       } else {
                       const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
@@ -8149,19 +8146,15 @@ But: être naturel et mettre le client en confiance.`,
                 ws.__greetingFallbackTimer = null;
                 return;
               }
-              if (effectiveSector === "patrimoine" && (!consentRequired || consentGiven)) {
-                // Cabinet sans consentement requis : silence total, on attend le client
+              if (effectiveSector === "patrimoine") {
+                // Cabinet : pickup humain court — "(Nom du cabinet), oui allo bonjour."
+                const cabinetLabel = getPlaceLabelForGreeting(garageName, effectiveSector);
+                const greeting = `${cabinetLabel}, oui allo bonjour.`;
+                initialAssistantGreetingText = greeting;
                 hasSentInitialGreeting = true;
                 ws.__greetingFallbackTimer = null;
-                console.log("🔇 Greeting fallback désactivé (cabinet/patrimoine) — IA en attente client.", { callSid });
-              } else if (effectiveSector === "patrimoine" && consentRequired && !consentGiven) {
-                // Cabinet avec consentement requis : jouer uniquement la demande de consentement
-                const consentText = getConsentRecordingSentence(effectiveSector) + CONSENT_MAIN;
-                initialAssistantGreetingText = consentText;
-                hasSentInitialGreeting = true;
-                ws.__greetingFallbackTimer = null;
-                enqueuePremiumTts(consentText, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
-                console.log("🔒 Consentement patrimoine (fallback) joué (sans greeting complet).", { callSid });
+                enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+                console.log("📞 Pickup cabinet patrimoine (fallback) joué.", { callSid, greeting });
                 if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
               } else {
               const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
