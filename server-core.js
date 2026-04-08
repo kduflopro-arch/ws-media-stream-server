@@ -2423,9 +2423,15 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
       if (/\b(formidable|fantastique|excellent|excité|excitee)\b/.test(lower)) return "excited";
       return "content";
     };
-    const elevenEmotion = detectElevenLabsEmotion(clean);
+    const elevenEmotionRaw = detectElevenLabsEmotion(clean);
+    const elevenEmotion = (effectiveSector === "patrimoine" && elevenEmotionRaw === "curious")
+      ? "content"
+      : elevenEmotionRaw;
     // ElevenLabs n'a pas d'émotion explicite sur ce endpoint : on influence la prosodie via "style" (0..1).
-    const eleStyleBase = Math.max(0, Math.min(1, ELEVENLABS_STYLE));
+    const eleStyleBaseRaw = Math.max(0, Math.min(1, ELEVENLABS_STYLE));
+    const eleStyleBase = effectiveSector === "patrimoine"
+      ? Math.max(0, Math.min(1, eleStyleBaseRaw + 0.08))
+      : eleStyleBaseRaw;
     const elevenStyleFinal = (() => {
       const deltaByEmotion = {
         apologetic: -0.08,
@@ -3288,7 +3294,7 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const now = nowMs();
     if (!allowWithoutUser) {
       const hasRecentUserSpeech = lastCommittedAt > 0 && (now - lastCommittedAt) <= ASSISTANT_RESPONSE_WINDOW_MS;
-      const noValidUserYet = lastCommittedAt === 0; // aucun transcript valide → première réponse après accueil, on autorise
+      const noValidUserYet = lastCommittedAt === 0 && !(effectiveSector === "patrimoine" && hasSentInitialGreeting); // patrimoine: pas de réponse en rafale après greeting
       const allowTts = hasRecentUserSpeech || noValidUserYet;
       if (!allowTts) {
         if (LOG_TTS) console.log(`[TTS-ENQUEUE] BLOQUÉ: pas de parole utilisateur récente (lastCommittedAt=${lastCommittedAt}, timeSince=${lastCommittedAt > 0 ? now - lastCommittedAt : 'N/A'})`);
@@ -8095,7 +8101,7 @@ But: être naturel et mettre le client en confiance.`,
                       if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
                       }
                     }
-                  } else if (!transferFailed && !rdvNotificationFollowupPlayed && (initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
+                  } else if (!transferFailed && !rdvNotificationFollowupPlayed && effectiveSector !== "patrimoine" && (initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
                     const appointments = clientInfo.appointments || [];
                     if (appointments.length > 0) {
                       const apt = appointments[0];
