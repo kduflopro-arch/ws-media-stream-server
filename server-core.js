@@ -8053,9 +8053,18 @@ But: être naturel et mettre le client en confiance.`,
                       console.log("👋 Greeting restaurant joué (IA ouvre la conversation).", { callSid });
                     } else {
                       if (effectiveSector === "patrimoine") {
-                        // Cabinet patrimoine: greeting court avec le nom du compte.
+                        // Cabinet patrimoine: greeting court avec nom du compte + civilité client si connue.
                         const accountLabel = String(garageName || "le cabinet").trim();
-                        const greeting = `${accountLabel} Oui allo bonjours, en quoi puis-je vous aidez?`;
+                        const clientLabel = (() => {
+                          if (!clientInfo?.name) return "";
+                          const rawName = String(clientInfo.name || "").trim();
+                          if (!rawName) return "";
+                          const parts = rawName.split(/\s+/).filter(Boolean);
+                          const last = String(clientInfo.last_name || "").trim() || parts[parts.length - 1] || rawName;
+                          const civ = clientInfo.gender === "homme" ? "Monsieur " : clientInfo.gender === "femme" ? "Madame " : "";
+                          return `${civ}${last}`;
+                        })();
+                        const greeting = `${accountLabel} Oui allo bonjours${clientLabel ? ` ${clientLabel}` : ""}, en quoi puis-je vous aidez?`;
                         initialAssistantGreetingText = greeting;
                         hasSentInitialGreeting = true;
                         enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
@@ -8169,7 +8178,16 @@ But: être naturel et mettre le client en confiance.`,
               }
               if (effectiveSector === "patrimoine") {
                 const accountLabel = String(garageName || "le cabinet").trim();
-                const greeting = `${accountLabel} Oui allo bonjours, en quoi puis-je vous aidez?`;
+                const clientLabel = (() => {
+                  if (!clientInfo?.name) return "";
+                  const rawName = String(clientInfo.name || "").trim();
+                  if (!rawName) return "";
+                  const parts = rawName.split(/\s+/).filter(Boolean);
+                  const last = String(clientInfo.last_name || "").trim() || parts[parts.length - 1] || rawName;
+                  const civ = clientInfo.gender === "homme" ? "Monsieur " : clientInfo.gender === "femme" ? "Madame " : "";
+                  return `${civ}${last}`;
+                })();
+                const greeting = `${accountLabel} Oui allo bonjours${clientLabel ? ` ${clientLabel}` : ""}, en quoi puis-je vous aidez?`;
                 initialAssistantGreetingText = greeting;
                 hasSentInitialGreeting = true;
                 ws.__greetingFallbackTimer = null;
