@@ -4178,11 +4178,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   // Défaut : barge-in réactif ; sur écho HP fréquent, monter BARGE_IN_THRESHOLD ou les frames via .env.
   // En snack, on monte un peu les seuils pour éviter que le TTS lui-même (écho) coupe les fins de phrases.
   const IS_SNACK_SESSION_EVAL = String(establishmentType || "").toLowerCase() === "snack";
+  const IS_PATRIMOINE_SESSION_EVAL = String(establishmentType || "").toLowerCase() === "patrimoine";
   const TWILIO_SPEECH_THRESHOLD = Number(process.env.BARGE_IN_THRESHOLD ?? (IS_SNACK_SESSION_EVAL ? "12000" : "9800"));
   const BARGE_IN_FRAMES = Number(process.env.BARGE_IN_FRAMES ?? (IS_SNACK_SESSION_EVAL ? "30" : "22")); // ~440ms de parole continue
   /** Frames supplémentaires exigées pour couper le TTS (évite coupures par bruit / écho HP). */
   const BARGE_IN_TTS_EXTRA_FRAMES = Number(
-    process.env.BARGE_IN_TTS_EXTRA_FRAMES ?? (IS_SNACK_SESSION_EVAL ? "18" : "14"),
+    process.env.BARGE_IN_TTS_EXTRA_FRAMES ?? (IS_SNACK_SESSION_EVAL ? "18" : IS_PATRIMOINE_SESSION_EVAL ? "22" : "14"),
   );
   const IS_SNACK_SESSION = IS_SNACK_SESSION_EVAL;
   let twilioSpeechFrames = 0;
