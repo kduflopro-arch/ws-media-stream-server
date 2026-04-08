@@ -1147,7 +1147,7 @@ wss.on("connection", (ws, req) => {
     if (callbackAcceptedByClient) {
       callbackAckSpoken = true;
       const callbackAckText = effectiveSector === "patrimoine"
-        ? "D'accord. Un conseiller vous rappellera. Quel jour et quelle heure précise vous conviennent ?"
+        ? "D'accord. Un conseiller vous rappellera."
         : "Ok, je note : le garage vous rappellera.";
       enqueuePremiumTts(callbackAckText, { interrupt: true, source: "callback_ack_accepted", allowWithoutUser: false });
     }
@@ -1215,6 +1215,10 @@ wss.on("connection", (ws, req) => {
       const pureDevisFlow = devisAcceptedByClient && !assistantAskedForDayOrSlot;
       const rdvRequestedFromWs = !pureDevisFlow && ((rdvAcceptedByClient && !rdvRefusedByClient) || (assistantAskedForDayOrSlot && !rdvRefusedByClient));
       const callbackTypeFromWs = callbackRefusedByClient ? "none" : (rdvRequestedFromWs || modificationRdvByClient || annulationRdvByClient ? "rdv" : "info");
+      // Patrimoine: si l'issue est un rappel "info" (et non refus), forcer le badge callback accepté au finalize.
+      if (effectiveSector === "patrimoine" && callbackTypeFromWs === "info" && !callbackRefusedByClient) {
+        callbackAcceptedByClient = true;
+      }
       console.log("🧾 Finalize:", sidToFinalize?.slice(-8) || "", reason, { devis_requested: devisAcceptedByClient, validation_devis: validationDevisByClient, rdv_requested: rdvRequestedFromWs, callback_type: callbackTypeFromWs, modification_rdv: modificationRdvByClient, annulation_rdv: annulationRdvByClient, transfer_to_garage_status: transferToGarageStatus });
       console.log("📌 [RDV] État badges au finalize:", { rdvAcceptedByClient, rdvRefusedByClient, callbackRefusedByClient, callbackAcceptedByClient, rdvRequestedFromWs, callbackTypeFromWs, assistantAskedForDayOrSlot });
       const lastLow = (lastAssistantText || "").toLowerCase().trim();
