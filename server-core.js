@@ -1147,7 +1147,7 @@ wss.on("connection", (ws, req) => {
     if (callbackAcceptedByClient) {
       callbackAckSpoken = true;
       const callbackAckText = effectiveSector === "patrimoine"
-        ? "D'accord. Un conseiller vous rappellera. À quel moment êtes-vous disponible pour ce rappel ?"
+        ? "D'accord. Un conseiller vous rappellera. Quel jour et quelle heure précise vous conviennent ?"
         : "Ok, je note : le garage vous rappellera.";
       enqueuePremiumTts(callbackAckText, { interrupt: true, source: "callback_ack_accepted", allowWithoutUser: false });
     }
@@ -8229,10 +8229,19 @@ But: être naturel et mettre le client en confiance.`,
               if (effectiveSector === "restaurant") return; // Pas de greeting en restaurant
               if (effectiveSector === "patrimoine") {
                 const accountLabel = String(garageName || "le cabinet").trim();
+                const clientLabel = (() => {
+                  if (!clientInfo?.name) return "";
+                  const rawName = String(clientInfo.name || "").trim();
+                  if (!rawName) return "";
+                  const parts = rawName.split(/\s+/).filter(Boolean);
+                  const last = String(clientInfo.last_name || "").trim() || parts[parts.length - 1] || rawName;
+                  const civ = clientInfo.gender === "homme" ? "Monsieur " : clientInfo.gender === "femme" ? "Madame " : "";
+                  return `${civ}${last}`;
+                })();
                 const variations = [
-                  `${accountLabel} Oui allo bonjours, en quoi puis-je vous aidez?`,
-                  `${accountLabel} Oui allo bonjours, je vous écoute.`,
-                  `${accountLabel} Oui allo bonjours.`,
+                  `${accountLabel} Oui allo bonjours${clientLabel ? ` ${clientLabel}` : ""}, en quoi puis-je vous aidez?`,
+                  `${accountLabel} Oui allo bonjours${clientLabel ? ` ${clientLabel}` : ""}, je vous écoute.`,
+                  `${accountLabel} Oui allo bonjours${clientLabel ? ` ${clientLabel}` : ""}.`,
                 ];
                 const greeting = variations[Math.floor(Math.random() * variations.length)];
                 enqueueElevenLabsTts(greeting, { interrupt: true });
