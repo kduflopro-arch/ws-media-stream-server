@@ -970,7 +970,7 @@ wss.on("connection", (ws, req) => {
       if (clientInfo?.name) {
         const parts = clientInfo.name.split(/\s+/).filter(p => p.trim().length > 0);
         const ln = clientInfo.last_name?.trim() || parts[parts.length - 1] || clientInfo.name;
-        const tt = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : "";
+        const tt = clientInfo.gender === "homme" ? "Monsieur" : clientInfo.gender === "femme" ? "Madame" : (effectiveSector === "patrimoine" ? "Monsieur" : "");
         phrase = `Bonjour ${tt ? tt + " " + ln : ln}. En quoi puis-je vous aider ?`;
       }
       const apt = (clientInfo?.appointments || []).find(a => !a.en_attente_confirmation_garage);
@@ -4222,6 +4222,11 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   const RESTAURANT_COMMIT_SPEECH_WINDOW_MS = Number(process.env.RESTAURANT_COMMIT_SPEECH_WINDOW_MS ?? "5000");
   function requestResponseCreate(reason) {
     if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+    if (ws.__blockNextResponseCreate) {
+      ws.__blockNextResponseCreate = false;
+      console.log("🔇 response.create bloqué (post-consent greeting en cours)");
+      return;
+    }
     const now = nowMs();
     if (ws.__openaiResponseCreateBlockedUntil && now < ws.__openaiResponseCreateBlockedUntil) {
       if (LOG_VERBOSE) {
@@ -6409,9 +6414,10 @@ But: être naturel et mettre le client en confiance.`,
                     const ut = String(userText).toLowerCase().trim();
                     const utNorm = ut.replace(/\s+/g, " ").trim();
                     const acceptsConsent = /^(euh\s+|ben\s+|ah\s+)?(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|je l'accepte|voilà|voila|me convient|je suis d'accord)(\s+oui|\s+merci)?\.?$/i.test(utNorm)
-                      || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|allez|ça marche|accepte|j'accepte|je l'accepte|voilà|voila|je suis d'accord)\b/i.test(ut)
+                      || /\b(oui|ouais|ouai|ok|d'accord|dac|bien sûr|c'est bon|vas[- ]y|ça marche|accepte|j'accepte|je l'accepte|voilà|voila|je suis d'accord)\b/i.test(ut)
                       || /\b(oui\s+)?(je\s+suis\s+d['']?accord|j['']?accepte)\b/i.test(ut)
-                      || /\b(oui\s+)?(je\s+l['']?accepte)\b/i.test(ut);
+                      || /\b(oui\s+)?(je\s+l['']?accepte)\b/i.test(ut)
+                      || /^(allez|vas-y)$/i.test(utNorm); // "allez" seul uniquement, pas "allez-vous"
                     const refusesConsent = /\b(non|nope|non merci|refuse|je refuse|pas d'accord|pas d'acc|ça ne me convient pas|ça ne va pas|je ne veux pas|je n'accepte pas)\b/i.test(ut) && !/^(oui|ouais|ouai|ok|nan)\s*$/i.test(utNorm);
                     if (refusesConsent) {
                       console.log("🛑 Client refuse l'enregistrement (depuis conversation.item.done), message de refus puis raccrochage.", { userText: ut.substring(0, 80) });
@@ -6419,6 +6425,16 @@ But: être naturel et mettre le client en confiance.`,
                     } else if (acceptsConsent) {
                       console.log("✅ Client accepte le consentement (depuis conversation.item.done).", { userText: ut.substring(0, 80) });
                       consentGiven = true;
+                      // Annuler la réponse OpenAI en cours (évite double réponse avec playPostConsentGreeting)
+                      if (ws.__deepgramResponseState?.timer) {
+                        clearTimeout(ws.__deepgramResponseState.timer);
+                        ws.__deepgramResponseState.timer = null;
+                      }
+                      if (openaiWs && openaiWs.readyState === WebSocket.OPEN && responseInProgress) {
+                        try { openaiWs.send(JSON.stringify({ type: "response.cancel" })); } catch (_) {}
+                      }
+                      ws.__blockNextResponseCreate = true;
+                      setTimeout(() => { ws.__blockNextResponseCreate = false; }, 3000);
                       playPostConsentGreeting();
                     }
                   }
