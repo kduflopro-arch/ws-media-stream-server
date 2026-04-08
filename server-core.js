@@ -8020,6 +8020,11 @@ But: être naturel et mettre le client en confiance.`,
                       }
                       console.log("👋 Greeting restaurant joué (IA ouvre la conversation).", { callSid });
                     } else {
+                      if (effectiveSector === "patrimoine") {
+                        // Cabinet : pas de greeting IA — l'IA attend que le client parle en premier
+                        hasSentInitialGreeting = true;
+                        console.log("🔇 Greeting désactivé (cabinet/patrimoine) — IA en attente client.", { callSid });
+                      } else {
                       const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
                       let greeting;
                       if (consentRequired && !consentGiven) {
@@ -8042,6 +8047,7 @@ But: être naturel et mettre le client en confiance.`,
                       const providerName = PREMIUM_TTS_PROVIDER === "minimax" ? "Minimax" : PREMIUM_TTS_PROVIDER === "cartesia" ? "Cartesia" : "ElevenLabs";
                       console.log(`👋 Greeting joué via ${providerName}.`, { callSid, consentRequired });
                       if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
+                      }
                     }
                   } else if (!transferFailed && !rdvNotificationFollowupPlayed && (initialAssistantGreetingText || hasGreetedRecently(callSid)) && PREMIUM_TTS_ENABLED && REALTIME_USE_ELEVEN && (!consentRequired || consentGiven)) {
                     const appointments = clientInfo.appointments || [];
@@ -8124,6 +8130,12 @@ But: être naturel et mettre le client en confiance.`,
                 ws.__greetingFallbackTimer = null;
                 return;
               }
+              if (effectiveSector === "patrimoine") {
+                // Cabinet : pas de greeting — IA attend que le client parle
+                hasSentInitialGreeting = true;
+                ws.__greetingFallbackTimer = null;
+                console.log("🔇 Greeting fallback désactivé (cabinet/patrimoine) — IA en attente client.", { callSid });
+              } else {
               const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
               let greeting;
               if (consentRequired && !consentGiven) {
@@ -8142,6 +8154,7 @@ But: être naturel et mettre le client en confiance.`,
               console.log(`👋 Greeting générique (sans nom client) joué APRÈS délai fallback via ${providerName}.`, { callSid, consentRequired, fallbackDelayMs });
               if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
               ws.__greetingFallbackTimer = null;
+              }
             }, fallbackDelayMs);
           }
         } catch (e) {
