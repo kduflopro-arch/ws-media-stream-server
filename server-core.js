@@ -7848,6 +7848,7 @@ But: être naturel et mettre le client en confiance.`,
         if (typeof finalAssistantVoice === "string" && finalAssistantVoice.trim()) assistantVoice = finalAssistantVoice.trim().toLowerCase();
         if (typeof finalGarageTone === "string") garageTone = finalGarageTone.trim();
         if (typeof finalConsentRequired === "string" && finalConsentRequired.trim()) consentRequired = finalConsentRequired.trim().toLowerCase() === "true";
+        if (effectiveSector === "patrimoine") consentRequired = false;
         if (typeof finalAppointmentMode === "string" && finalAppointmentMode.trim()) {
           const raw = finalAppointmentMode.trim();
           appointmentMode = raw === "internal" ? "request" : raw;
@@ -8048,9 +8049,9 @@ But: être naturel et mettre le client en confiance.`,
                       console.log("👋 Greeting restaurant joué (IA ouvre la conversation).", { callSid });
                     } else {
                       if (effectiveSector === "patrimoine") {
-                        // Cabinet : pickup humain court — "(Nom du cabinet), oui allo bonjour."
-                        const cabinetLabel = getPlaceLabelForGreeting(garageName, effectiveSector);
-                        const greeting = `${cabinetLabel}, oui allo bonjour.`;
+                        // Cabinet patrimoine: greeting court avec le nom du compte.
+                        const accountLabel = String(garageName || "le cabinet").trim();
+                        const greeting = `Bonjour, ${accountLabel}. ${assistantName} à l'appareil.`;
                         initialAssistantGreetingText = greeting;
                         hasSentInitialGreeting = true;
                         enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
@@ -8163,9 +8164,8 @@ But: être naturel et mettre le client en confiance.`,
                 return;
               }
               if (effectiveSector === "patrimoine") {
-                // Cabinet : pickup humain court — "(Nom du cabinet), oui allo bonjour."
-                const cabinetLabel = getPlaceLabelForGreeting(garageName, effectiveSector);
-                const greeting = `${cabinetLabel}, oui allo bonjour.`;
+                const accountLabel = String(garageName || "le cabinet").trim();
+                const greeting = `Bonjour, ${accountLabel}. ${assistantName} à l'appareil.`;
                 initialAssistantGreetingText = greeting;
                 hasSentInitialGreeting = true;
                 ws.__greetingFallbackTimer = null;
@@ -8206,11 +8206,11 @@ But: être naturel et mettre le client en confiance.`,
             setTimeout(() => {
               if (effectiveSector === "restaurant") return; // Pas de greeting en restaurant
               if (effectiveSector === "patrimoine") {
-                const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
+                const accountLabel = String(garageName || "le cabinet").trim();
                 const variations = [
-                  `Oui allô, bonjour. Ici ${placePart}. Je vous écoute.`,
-                  `Bonjour, ${placePart}. Comment puis-je vous aider ?`,
-                  `Bonjour, vous êtes bien au ${placePart}.`,
+                  `Bonjour, ${accountLabel}. ${assistantName} à l'appareil.`,
+                  `Bonjour, ${accountLabel}. Comment puis-je vous aider ?`,
+                  `Bonjour, vous êtes bien chez ${accountLabel}.`,
                 ];
                 const greeting = variations[Math.floor(Math.random() * variations.length)];
                 enqueueElevenLabsTts(greeting, { interrupt: true });
