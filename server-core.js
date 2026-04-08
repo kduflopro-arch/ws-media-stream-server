@@ -8031,10 +8031,18 @@ But: être naturel et mettre le client en confiance.`,
                       }
                       console.log("👋 Greeting restaurant joué (IA ouvre la conversation).", { callSid });
                     } else {
-                      if (effectiveSector === "patrimoine") {
-                        // Cabinet : pas de greeting IA — l'IA attend que le client parle en premier
+                      if (effectiveSector === "patrimoine" && (!consentRequired || consentGiven)) {
+                        // Cabinet sans consentement requis (ou déjà donné) : silence, on attend le client
                         hasSentInitialGreeting = true;
-                        console.log("🔇 Greeting désactivé (cabinet/patrimoine) — IA en attente client.", { callSid });
+                        console.log("🔇 Greeting désactivé (cabinet/patrimoine, pas de consentement requis) — IA en attente client.", { callSid });
+                      } else if (effectiveSector === "patrimoine" && consentRequired && !consentGiven) {
+                        // Cabinet avec consentement requis : jouer uniquement la demande de consentement
+                        const consentText = getConsentRecordingSentence(effectiveSector) + CONSENT_MAIN;
+                        initialAssistantGreetingText = consentText;
+                        hasSentInitialGreeting = true;
+                        enqueuePremiumTts(consentText, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+                        console.log("🔒 Consentement patrimoine joué (sans greeting complet).", { callSid });
+                        if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
                       } else {
                       const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
                       let greeting;
@@ -8141,11 +8149,20 @@ But: être naturel et mettre le client en confiance.`,
                 ws.__greetingFallbackTimer = null;
                 return;
               }
-              if (effectiveSector === "patrimoine") {
-                // Cabinet : pas de greeting — IA attend que le client parle
+              if (effectiveSector === "patrimoine" && (!consentRequired || consentGiven)) {
+                // Cabinet sans consentement requis : silence total, on attend le client
                 hasSentInitialGreeting = true;
                 ws.__greetingFallbackTimer = null;
                 console.log("🔇 Greeting fallback désactivé (cabinet/patrimoine) — IA en attente client.", { callSid });
+              } else if (effectiveSector === "patrimoine" && consentRequired && !consentGiven) {
+                // Cabinet avec consentement requis : jouer uniquement la demande de consentement
+                const consentText = getConsentRecordingSentence(effectiveSector) + CONSENT_MAIN;
+                initialAssistantGreetingText = consentText;
+                hasSentInitialGreeting = true;
+                ws.__greetingFallbackTimer = null;
+                enqueuePremiumTts(consentText, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
+                console.log("🔒 Consentement patrimoine (fallback) joué (sans greeting complet).", { callSid });
+                if (greetOncePerCall) markGreeted(callSid, greetTtlMs);
               } else {
               const placePart = getPlaceLabelForGreeting(garageName, effectiveSector);
               let greeting;
