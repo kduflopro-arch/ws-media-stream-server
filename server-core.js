@@ -7904,6 +7904,7 @@ But: être naturel et mettre le client en confiance.`,
               : "restaurant";
         if (establishmentType === "snack") tableReservationEnabled = false;
         if (typeof finalAllowTransfer === "string" && finalAllowTransfer.trim()) allowTransfer = finalAllowTransfer.trim().toLowerCase() === "true";
+        if (effectiveSector === "patrimoine") allowTransfer = false;
         if (garageClosed) allowTransfer = false; // Sécurité : transfert toujours interdit quand le garage est fermé (horaires ou vacances)
         transferFailed = typeof finalTransferFailed === "string" && finalTransferFailed.trim().toLowerCase() === "true";
         if (typeof finalValidationDevis === "string" && finalValidationDevis.trim().toLowerCase() === "true") validationDevisByClient = true;
@@ -8051,7 +8052,7 @@ But: être naturel et mettre le client en confiance.`,
                       if (effectiveSector === "patrimoine") {
                         // Cabinet patrimoine: greeting court avec le nom du compte.
                         const accountLabel = String(garageName || "le cabinet").trim();
-                        const greeting = `Bonjour, ${accountLabel}. ${assistantName} à l'appareil.`;
+                        const greeting = `${accountLabel} Oui allo bonjours, en quoi puis-je vous aidez?`;
                         initialAssistantGreetingText = greeting;
                         hasSentInitialGreeting = true;
                         enqueuePremiumTts(greeting, { interrupt: true, source: "initial_greeting", allowWithoutUser: true });
@@ -8165,7 +8166,7 @@ But: être naturel et mettre le client en confiance.`,
               }
               if (effectiveSector === "patrimoine") {
                 const accountLabel = String(garageName || "le cabinet").trim();
-                const greeting = `Bonjour, ${accountLabel}. ${assistantName} à l'appareil.`;
+                const greeting = `${accountLabel} Oui allo bonjours, en quoi puis-je vous aidez?`;
                 initialAssistantGreetingText = greeting;
                 hasSentInitialGreeting = true;
                 ws.__greetingFallbackTimer = null;
@@ -8208,9 +8209,9 @@ But: être naturel et mettre le client en confiance.`,
               if (effectiveSector === "patrimoine") {
                 const accountLabel = String(garageName || "le cabinet").trim();
                 const variations = [
-                  `Bonjour, ${accountLabel}. ${assistantName} à l'appareil.`,
-                  `Bonjour, ${accountLabel}. Comment puis-je vous aider ?`,
-                  `Bonjour, vous êtes bien chez ${accountLabel}.`,
+                  `${accountLabel} Oui allo bonjours, en quoi puis-je vous aidez?`,
+                  `${accountLabel} Oui allo bonjours, je vous écoute.`,
+                  `${accountLabel} Oui allo bonjours.`,
                 ];
                 const greeting = variations[Math.floor(Math.random() * variations.length)];
                 enqueueElevenLabsTts(greeting, { interrupt: true });

@@ -161,8 +161,8 @@ export function buildPatrimoineInstructions(ctx) {
     : "";
 
   const transferBlock = allowTransfer
-    ? `\n\nTRANSFERT / HUMAIN\nSi le client exige un conseiller, une décision, un arbitrage, un avis personnalisé, ou si la situation est sensible : propose le transfert vers ${conseillerNom} ou un rappel rapide. Formulation type : « Je vous mets en relation avec l'équipe » ou « ${conseillerNom} ou un collègue vous rappelle dans les meilleurs délais ».`
-    : `\n\nTRANSFERT\nTransfert direct non disponible : note la demande et assure un rappel par ${conseillerNom}.`;
+    ? `\n\nTRANSFERT / HUMAIN\nSi le client exige un conseiller, une décision, un arbitrage, un avis personnalisé, ou si la situation est sensible : propose le transfert vers ${conseillerNom} ou un rappel rapide.`
+    : `\n\nRAPPEL CONSEILLER (PAS DE TRANSFERT)\nLe transfert vers un humain est interdit. Si le client demande un conseiller ou une action humaine, demande systématiquement : « Souhaitez-vous être rappelé par un conseiller ? »\n- Si oui : confirme « D'accord, un conseiller vous rappellera. »\n- Si non : confirme « Très bien, je note que vous ne souhaitez pas être rappelé. »`;
 
   return `═══ IDENTITÉ ═══
 Tu es ${assistantName}, l'assistante vocale d'accueil du cabinet « ${cabinetName} ».
@@ -188,7 +188,7 @@ Tu n'es pas conseillère en investissement financier : tu accueilles, tu informe
 - Maximum 80 caractères par phrase (vise 6 à 12 mots).
 - Une seule idée par phrase. Pas de parenthèses longues. Pas de digression.
 - Pas de reformulation longue du besoin du client.
-- Si question complexe : donne une réponse brève puis propose un transfert/rappel.
+- Si question complexe : donne une réponse brève puis propose un rappel conseiller.
 - Personnalisation : si tu connais le nom du client, utilise-le une seule fois au besoin.
 
 ═══ CONTEXTE CABINET ═══
