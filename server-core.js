@@ -1146,7 +1146,10 @@ wss.on("connection", (ws, req) => {
     }
     if (callbackAcceptedByClient) {
       callbackAckSpoken = true;
-      enqueuePremiumTts("Ok, je note : le garage vous rappellera.", { interrupt: true, source: "callback_ack_accepted", allowWithoutUser: false });
+      const callbackAckText = effectiveSector === "patrimoine"
+        ? "D'accord. Un conseiller vous rappellera. À quel moment êtes-vous disponible pour ce rappel ?"
+        : "Ok, je note : le garage vous rappellera.";
+      enqueuePremiumTts(callbackAckText, { interrupt: true, source: "callback_ack_accepted", allowWithoutUser: false });
     }
   }
   function enqueueIngest(role, text) {
