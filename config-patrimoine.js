@@ -120,6 +120,7 @@ export function buildPatrimoineInstructions(ctx) {
     conseillerNom = "votre conseiller",
     specialisations = [],
     openingHoursText = "",
+    calendar15DaysText = "",
     cabinetDescription = "",
     consentRequired = false,
     allowTransfer = true,
@@ -196,6 +197,7 @@ ${cabinetDescription ? `${cabinetDescription}\n` : ""}${specsText}
 
 ═══ HORAIRES ═══
 ${openingHoursText || "Les horaires du cabinet sont disponibles via l'outil get_opening_hours si le client les demande."}
+${calendar15DaysText ? `\n\n═══ CALENDRIER DE RÉFÉRENCE (15 JOURS) ═══\n${calendar15DaysText}\n- Utilise UNIQUEMENT ce calendrier pour jour/date.\n- N'invente jamais le jour de semaine d'une date.` : ""}
 ${dossiersSection}${noDossierButClientKnown}
 ${consentBlock}
 ${transferBlock}
@@ -208,7 +210,7 @@ ${transferBlock}
 - Réclamation : empathie, pas d'argument juridique ; note et escalade vers ${conseillerNom}.
 - Si le client accepte d'être rappelé : demande immédiatement ses disponibilités.
 - Dès qu'il donne un créneau : reformule avec une date/heure précise et demande confirmation explicite.
-- Exemple court : « Je note mardi 15 à 14h30, c'est bien cela ? »
+- Exemple court : « Je note le 15 avril à 14h30, c'est bien cela ? »
 
 ═══ OUTILS ═══
 - get_opening_hours : horaires et disponibilité d'accueil.

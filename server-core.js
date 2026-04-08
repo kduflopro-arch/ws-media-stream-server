@@ -5058,12 +5058,26 @@ ${compactPersona}`;
             };
           });
         };
+        const buildPatrimoine15DaysCalendar = () => {
+          const tz = process.env.PATRIMOINE_TIMEZONE || "Europe/Paris";
+          const now = new Date();
+          const days = [];
+          for (let i = 0; i < 15; i++) {
+            const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+            const wd = d.toLocaleDateString("fr-FR", { timeZone: tz, weekday: "long" });
+            const dm = d.toLocaleDateString("fr-FR", { timeZone: tz, day: "numeric", month: "long" });
+            const y = d.toLocaleDateString("fr-FR", { timeZone: tz, year: "numeric" });
+            days.push(`${wd} ${dm} ${y}`);
+          }
+          return days.join(" | ");
+        };
         const buildPatrimoineInstructionsPayload = (ci) => buildPatrimoineInstructions({
           cabinetName: garageName,
           assistantName,
           conseillerNom: patrimoineConseillerNom || process.env.PATRIMOINE_CONSEILLER_NOM || "votre conseiller",
           specialisations: patrimoineSpecialisations,
           openingHoursText: garageHoursText || "Contactez-nous pour nos horaires.",
+          calendar15DaysText: buildPatrimoine15DaysCalendar(),
           cabinetDescription: patrimoineCabinetDescription,
           consentRequired,
           allowTransfer,
