@@ -7635,6 +7635,12 @@ But: être naturel et mettre le client en confiance.`,
           }
           if (msg.type === "session.created" || msg.type === "session.updated") {
             console.log("✅ Session OpenAI configurée");
+            // Appliquer la mise à jour client différée si les infos sont arrivées avant l'ouverture du WS
+            if (ws.__pendingClientInfoUpdate && ws.__updatePromptWithClientInfo) {
+              ws.__pendingClientInfoUpdate = false;
+              console.log("🔄 Mise à jour prompt client différée appliquée (session ouverte)");
+              try { ws.__updatePromptWithClientInfo(); } catch (e) { console.warn("updatePromptWithClientInfo (deferred):", e); }
+            }
           }
         } catch (err) {
           console.error("❌ Erreur parsing OpenAI message:", err, data.toString().substring(0, 100));
@@ -7979,6 +7985,11 @@ But: être naturel et mettre le client en confiance.`,
                     } else {
                       console.warn("⚠️ Fonction updatePromptWithClientInfo non disponible");
                     }
+                  } else if (openaiWs && openaiWs.readyState === 0 /* CONNECTING */) {
+                    // Race condition : infos client arrivées avant l'ouverture du WS OpenAI
+                    // On enfile la mise à jour pour qu'elle s'exécute dès session.created/updated
+                    console.log("⏳ OpenAI en cours de connexion — mise à jour prompt client différée");
+                    ws.__pendingClientInfoUpdate = true;
                   } else {
                     console.warn("⚠️ OpenAI pas connecté (état:", openaiWs?.readyState, ")");
                   }
