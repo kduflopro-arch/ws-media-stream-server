@@ -3725,6 +3725,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
   function normalizeFrenchTtsText(input) {
     let t = String(input || "").trim();
     if (!t) return "";
+    // Garde-fou: éviter la lecture "technique" de symboles (>, <, ==, =>, variables)
+    // que certaines voix TTS peuvent verbaliser ("supérieur à", etc.).
+    t = t
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/\b[A-Z_]{2,}\b/g, " ")
+      .replace(/[<>]=?|==|=>|<=|>=/g, " ")
+      .replace(/\{[^}]*\}/g, " ")
+      .replace(/\[[^\]]*\]/g, " ");
     const originalText = t;
     const hasHourPattern = t.match(/\d{1,2}[hH:]\s*\d{1,2}|\d{1,2}\s+heures?\s+\d{1,2}/i);
     const hasHourWords = t.match(/\b(huit|sept|six|cinq|quatre|trois|deux|une)\s+heures?\s+(trois|zéro|zero|\d)/i);
