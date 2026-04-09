@@ -2085,7 +2085,9 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
     const rawTextBeforeNormalization = (text || "").trim();
     const clean = normalizeFrenchTtsText(rawTextBeforeNormalization);
     if (!clean) return;
-    const textToSend = buildCartesiaNaturalTranscript(clean);
+    // Minimax doit recevoir du texte brut: ne jamais injecter de tags Cartesia/SSML,
+    // sinon certains moteurs les lisent littéralement ("speed ratio", "supérieur à", etc.).
+    const textToSend = sanitizeTextForMinimax(clean);
     if (!textToSend) return;
     const normalizedForCompare = clean.toLowerCase().replace(/[.,!?;:]/g, "").trim();
     if (premiumTtsLastText) {
