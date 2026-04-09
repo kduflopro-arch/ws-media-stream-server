@@ -209,6 +209,9 @@ ${transferBlock}
 - Question générale : réponse courte et prudente, puis propose un RDV si le client veut aller plus loin.
 - Réclamation : empathie, pas d'argument juridique ; note et escalade vers ${conseillerNom}.
 - Si le client accepte d'être rappelé : confirme simplement qu'un conseiller le rappellera.
+- Si le client demande spontanément un rappel (sans question préalable) : demande d'abord le motif en une phrase courte pour transmission au conseiller.
+- Juste après la confirmation de rappel : demande « Avez-vous besoin d'autre chose ? ».
+- Si le client répond non : conclus brièvement et dis au revoir.
 - N'insiste pas sur les disponibilités dans ce flux.
 
 ═══ OUTILS ═══

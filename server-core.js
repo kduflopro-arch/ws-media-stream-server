@@ -940,6 +940,8 @@ wss.on("connection", (ws, req) => {
   let lastUserTextPendingIngest = null; // Parole client à enregistrer uniquement quand l'IA a répondu (ingest au prochain conversation.item.done assistant)
   let lastUserMessageText = ""; // Dernier texte client (pour safeguard hangup : ne pas raccrocher si demande devis/RDV)
   let callbackAckSpoken = false; // éviter de répéter "Ok je note..." si la transcription se répète
+  let callbackReasonRequested = false; // patrimoine: on a demandé le motif du rappel
+  let callbackReasonCaptured = false; // patrimoine: le client a donné un motif exploitable
   let cartesiaLaughterCount = 0; // garde-fou pour éviter les non-verbaux trop fréquents
   let userSpeakCount = 0; // Nombre de fois que le client a parlé (conversation.item.done user) → si < 1 au finalize = no_request
   let assistantTurnCount = 0; // Nombre de réponses IA (response.done avec texte) ; si >= 2 on considère que le client a parlé (secours si userSpeakCount reste 0)
@@ -1147,7 +1149,9 @@ wss.on("connection", (ws, req) => {
     if (callbackAcceptedByClient) {
       callbackAckSpoken = true;
       const callbackAckText = effectiveSector === "patrimoine"
-        ? "D'accord. Un conseiller vous rappellera."
+        ? (callbackReasonCaptured
+          ? "Merci, je transmets votre demande. Un conseiller vous rappellera. Avez-vous besoin d'autre chose ?"
+          : "D'accord. Un conseiller vous rappellera. Avez-vous besoin d'autre chose ?")
         : "Ok, je note : le garage vous rappellera.";
       enqueuePremiumTts(callbackAckText, { interrupt: true, source: "callback_ack_accepted", allowWithoutUser: false });
     }
@@ -7387,6 +7391,31 @@ But: être naturel et mettre le client en confiance.`,
             const rdvExplicitPositive = /\b(oui|ouais|ok|d['’]?accord|je veux|prendre rendez-vous|un rendez-vous)\b/i.test(userTextNorm);
             const rdvExplicitNegative = /\b(non|pas de rendez-vous|pas maintenant|je ne veux pas de rendez-vous)\b/i.test(userTextNorm);
             const clientWantsRecallNow = (/\b(rappeler|rappel|rappellera|être rappelé)\b/i.test(userTextNorm)) && (/\b(oui|ouais|ouai|je veux|si je veux|volontiers|d['']?accord)\b/i.test(userTextNorm));
+            const clientRequestsCallbackDirectly = (
+              /\b(je\s+)?(veux|voudrais|souhaite|demande)\s+(être\s+)?rappel[ée]?\b/i.test(userTextNorm) ||
+              /\b(pouvez[- ]?vous|peux[- ]?tu)\s+me\s+rappeler\b/i.test(userTextNorm) ||
+              /\b(je\s+)?(souhaite|veux)\s+un\s+rappel\b/i.test(userTextNorm)
+            );
+            if (effectiveSector === "patrimoine" && callbackReasonRequested && userTextNorm && userTextNorm.trim()) {
+              callbackReasonRequested = false;
+              callbackReasonCaptured = true;
+              callbackAcceptedByClient = true;
+              callbackRefusedByClient = false;
+              maybeSpeakCallbackAck();
+            }
+            if (
+              effectiveSector === "patrimoine" &&
+              clientRequestsCallbackDirectly &&
+              !lastWasCallbackQuestionIntent &&
+              !callbackReasonRequested &&
+              !callbackAcceptedByClient
+            ) {
+              callbackReasonRequested = true;
+              enqueuePremiumTts(
+                "Bien sûr. Pour transmission au conseiller, pouvez-vous préciser brièvement le motif du rappel ?",
+                { interrupt: true, source: "callback_reason_request", allowWithoutUser: false }
+              );
+            }
             if (clientWantsRecallNow) {
               callbackAcceptedByClient = true;
               callbackRefusedByClient = false;
