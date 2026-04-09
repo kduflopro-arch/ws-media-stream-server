@@ -1536,6 +1536,8 @@ wss.on("connection", (ws, req) => {
     const criticalShortPhrases = [
       "non merci",
       "oui merci",
+      "non c'est vrai",
+      "oui c'est vrai",
       "c'est tout",
       "rien d'autre",
       "non c'est tout",
@@ -1645,7 +1647,7 @@ wss.on("connection", (ws, req) => {
           /^\d{1,2}\s+(tacos?|pizzas?|menus?|burgers?)\b/i.test(normalized);
         if (!isCountPeople && !isMenuPlusSizeShort && !isQtyMenuShort && words.some(w => w.length < 2)) return true;
         const strictLenShortSentence =
-          establishmentType === "snack" ? 4 : effectiveSector === "restaurant" ? 5 : 8;
+          establishmentType === "snack" ? 4 : effectiveSector === "restaurant" || effectiveSector === "patrimoine" ? 5 : 8;
         if (NOISE_FILTER_STRICT && t.length < strictLenShortSentence) return true;
       }
     }
@@ -1662,6 +1664,14 @@ wss.on("connection", (ws, req) => {
   function normalizeDeepgramTranscript(text) {
     let t = String(text || "").trim();
     if (!t) return "";
+    if (effectiveSector === "patrimoine") {
+      // Erreurs fréquentes STT téléphone (mulaw 8 kHz) sur vocabulaire conseil / fiscal.
+      t = t.replace(/\bavis\s+de\s+situation\b/gi, "avis d'imposition");
+      t = t.replace(/\bavis\s+imposition\b/gi, "avis d'imposition");
+      t = t.replace(/\bbulletin(s)?\s+de\s+travail\b/gi, "bulletins de salaire");
+      t = t.replace(/\bsalaires?\s+de\s+bulletin\b/gi, "bulletins de salaire");
+      t = t.replace(/\bgestion\s+patrimoine\b/gi, "gestion de patrimoine");
+    }
     if (effectiveSector === "restaurant") {
       // Corrections fréquentes en téléphonie (mulaw 8k) pour la prise de commande.
       t = t.replace(/\b(grand|petit|un|une)?\s*coca\s+et\s+(serra|sera|zera|zéra|zero)\b/gi, (_, size) => `${size ? size + " " : ""}coca zero`);
@@ -4512,17 +4522,34 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
           try {
             const { createDeepgramLiveSession, resolveDeepgramSttLanguage } = await import("./deepgram-client.js");
             const deepgramLang = resolveDeepgramSttLanguage();
-            const deepgramKeyterms = [
+            const isPatrimoineStt = effectiveSector === "patrimoine";
+            // Deepgram Nova-3 : max ~100 keyterms — pour patrimoine, éviter de gaspiller des slots sur resto/snack.
+            const deepgramKeytermsCommon = [
               "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche",
               "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
               "demain", "aujourd'hui", "tomorrow", "today",
               "12h", "13h", "14h", "19h", "20h", "21h", "midi", "soir", "matin", "après-midi",
               "douze heures", "treize heures", "quatorze heures", "dix-neuf heures", "vingt heures",
-              // Tailles snack (lettres isolées souvent mal reconnues)
-              "S", "M", "L", "XL", "XXL", "XS",
               "douze", "treize", "quatorze",
               "treize heures et demie", "quatorze heures et demie",
               "treize heures demi", "quatorze heures demi", "demie",
+              "j'aimerais", "je voudrais", "je souhaite", "pour", "personnes", "people", "guests",
+              "rendez-vous", "rendez vous", "créneau", "rappel", "rappeler", "rappellera", "être rappelé",
+              "oui", "non", "merci", "s'il vous plaît", "svp", "d'accord", "volontiers", "avec plaisir",
+            ];
+            const deepgramKeytermsPatrimoine = [
+              "cabinet", "conseiller", "conseillère", "gestion de patrimoine", "patrimoine",
+              "dossier", "mon dossier", "suivi", "situation", "finaliser", "documents",
+              "avis d'imposition", "avis de situation", "imposition", "fiscal", "fiscale",
+              "bulletins de salaire", "bulletin de salaire", "salaire", "revenus",
+              "assurance-vie", "assurance vie", "PER", "épargne", "retraite",
+              "bilan", "bilan patrimonial", "transmission", "succession", "donation",
+              "placement", "investissement", "OPCVM", "SCPI",
+              "Monsieur", "Madame", "client",
+              "information", "générale", "question", "urgence",
+            ];
+            const deepgramKeytermsRestoSnack = [
+              "S", "M", "L", "XL", "XXL", "XS",
               "réservation", "réserver", "table", "commander", "commande", "emporter", "à emporter", "au comptoir", "sur place",
               "livraison", "à livrer", "delivery", "takeaway", "pickup", "order", "deliver",
               "coca", "coca zero", "coca zéro", "grand coca", "petit coca",
@@ -4530,7 +4557,6 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               "tacos", "taco", "Tacos", "steak", "boeuf", "bœuf", "steak de boeuf", "steak de bœuf",
               "reine", "provençale", "provençal", "jambon", "fromage",
               "reservation", "reserve",
-              "j'aimerais", "je voudrais", "pour", "personnes", "people", "guests",
               ...(String(establishmentType || "").toLowerCase() === "snack"
                 ? [
                     "poulet", "agneau", "merguez", "kebab", "galette", "pain", "tradition", "complet",
@@ -4539,6 +4565,12 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                   ]
                 : []),
             ];
+            const deepgramKeyterms = Array.from(
+              new Set([
+                ...deepgramKeytermsCommon,
+                ...(isPatrimoineStt ? deepgramKeytermsPatrimoine : deepgramKeytermsRestoSnack),
+              ])
+            ).slice(0, 100);
             const deepgramAlreadyOpen = !!deepgramSession;
             const useKeytermForMulti = (process.env.DEEPGRAM_KEYTERM_MULTI ?? "false").trim().toLowerCase() === "true";
             const deepgramKeytermsEffective =
@@ -4547,11 +4579,13 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               const isSnackStt = String(establishmentType || "").toLowerCase() === "snack";
               const snackEp = Number(process.env.DEEPGRAM_SNACK_ENDPOINTING_MS);
               const snackUe = Number(process.env.DEEPGRAM_SNACK_UTTERANCE_END_MS);
+              const patEp = Number(process.env.DEEPGRAM_PATRIMOINE_ENDPOINTING_MS);
+              const patUe = Number(process.env.DEEPGRAM_PATRIMOINE_UTTERANCE_END_MS);
               deepgramSession = createDeepgramLiveSession({
                 language: deepgramLang,
                 model: process.env.DEEPGRAM_MODEL || "nova-3",
                 keyterm: deepgramKeytermsEffective,
-                // Snack : réponses courtes (viande, taille, sauce) — finaliser l’énoncé plus tôt (phrases longues peu utiles).
+                // Snack : réponses courtes — finaliser tôt. Patrimoine : laisser un peu plus de silence (français téléphone 8 kHz).
                 ...(isSnackStt
                   ? {
                       ...(deepgramLang !== "multi"
@@ -4563,7 +4597,14 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
                       utteranceEndMs:
                         Number.isFinite(snackUe) && snackUe >= 1000 ? Math.round(snackUe) : 1000,
                     }
-                  : {}),
+                  : isPatrimoineStt && deepgramLang !== "multi"
+                    ? {
+                        endpointing:
+                          Number.isFinite(patEp) && patEp > 0 ? Math.round(patEp) : 400,
+                        utteranceEndMs:
+                          Number.isFinite(patUe) && patUe >= 1000 ? Math.round(patUe) : 1300,
+                      }
+                    : {}),
               });
               if (deepgramLang === "multi") {
                 console.log(
@@ -4577,17 +4618,28 @@ Pose 1 question à la fois. Ne répète pas "bonjour" si déjà dit dans l'appel
               const DEEPGRAM_ECHO_WORDS = /^(bonjour|menu|salut|allo|allô|bienvenue|voilà|voila|rebonjour|bonsoir|coucou|hello|hi|hey|thanks|thank you|yes|no|ok|okay)$/i;
               const isSnackDg = String(establishmentType || "").toLowerCase() === "snack";
               const DEEPGRAM_MERGE_WINDOW_MS = Number(
-                (isSnackDg ? process.env.DEEPGRAM_SNACK_MERGE_WINDOW_MS : process.env.DEEPGRAM_MERGE_WINDOW_MS) ??
-                  (isSnackDg ? "280" : "500")
-              ); // snack : fusion plus courte → moins d’attente pour phrases courtes
+                (isSnackDg
+                  ? process.env.DEEPGRAM_SNACK_MERGE_WINDOW_MS
+                  : effectiveSector === "patrimoine"
+                    ? process.env.DEEPGRAM_PATRIMOINE_MERGE_WINDOW_MS
+                    : process.env.DEEPGRAM_MERGE_WINDOW_MS) ??
+                  (isSnackDg ? "280" : effectiveSector === "patrimoine" ? "620" : "500")
+              ); // snack : court ; patrimoine : léger délai pour coller les segments STT
               const DEEPGRAM_RESPONSE_DELAY_MS = Number(
-                (isSnackDg ? process.env.DEEPGRAM_SNACK_RESPONSE_DELAY_MS : process.env.DEEPGRAM_RESPONSE_DELAY_MS) ??
-                  (isSnackDg ? "220" : "350")
+                (isSnackDg
+                  ? process.env.DEEPGRAM_SNACK_RESPONSE_DELAY_MS
+                  : effectiveSector === "patrimoine"
+                    ? process.env.DEEPGRAM_PATRIMOINE_RESPONSE_DELAY_MS
+                    : process.env.DEEPGRAM_RESPONSE_DELAY_MS) ??
+                  (isSnackDg ? "220" : effectiveSector === "patrimoine" ? "420" : "350")
               );
               const deepgramLongOrMultiWord = (txt) => {
                 const s = String(txt || "").trim();
                 if (!s) return false;
                 if (isSnackDg) {
+                  return s.length >= 12 || s.split(/\s+/).filter(Boolean).length >= 2;
+                }
+                if (effectiveSector === "patrimoine") {
                   return s.length >= 12 || s.split(/\s+/).filter(Boolean).length >= 2;
                 }
                 return s.length >= 20 || s.split(/\s+/).filter(Boolean).length >= 3;

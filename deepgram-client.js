@@ -7,6 +7,8 @@
  * - interim_results pour barge-in réactif
  * - language=fr par défaut
  * - keyterm (Nova-3) : termes à privilégier (jours, heures, 13h, midi, etc.) — évite "13h" → "trésor"
+ * - Patrimoine (server-core) : DEEPGRAM_PATRIMOINE_ENDPOINTING_MS, DEEPGRAM_PATRIMOINE_UTTERANCE_END_MS,
+ *   DEEPGRAM_PATRIMOINE_MERGE_WINDOW_MS, DEEPGRAM_PATRIMOINE_RESPONSE_DELAY_MS (optionnels)
  * - keywords (Nova-2) : conservé pour rétrocompatibilité
  * - Phrase coupée en 2 : doc "understand-endpointing-interim-results" — concaténer is_final jusqu'à speech_final
  *
