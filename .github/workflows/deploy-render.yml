@@ -1,10 +1,8 @@
-# Déploiement Render à chaque push sur main
-# À configurer : secret RENDER_DEPLOY_HOOK_URL (GitHub → Settings → Secrets → Actions)
-name: Deploy to Render
+# Render : déclenchement automatique désactivé — production WS sur Hetzner uniquement.
+# Réactiver un déploiement Render manuellement : onglet Actions → ce workflow → Run workflow.
+name: Deploy to Render (manuel uniquement)
 
 on:
-  push:
-    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -14,10 +12,10 @@ jobs:
       - name: Trigger Render deploy
         run: |
           if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
-            echo "⚠️ RENDER_DEPLOY_HOOK_URL non défini → GitHub Settings → Secrets and variables → Actions → New repository secret"
+            echo "⚠️ RENDER_DEPLOY_HOOK_URL non défini"
             exit 1
           fi
-          echo "🚀 Déclenchement du déploiement Render..."
+          echo "🚀 Déclenchement manuel du déploiement Render..."
           curl -f -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
           echo ""
-          echo "✅ Demande de déploiement envoyée à Render."
+          echo "✅ Demande envoyée à Render."
