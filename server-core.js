@@ -1140,7 +1140,8 @@ wss.on("connection", (ws, req) => {
   }
   function maybeSpeakCallbackAck() {
     if (callbackAckSpoken) return;
-    if (!consentGiven) return;
+    // Patrimoine (et autres) : consentement désactivé → consentGiven peut rester false ; ne pas bloquer l'ACK rappel.
+    if (consentRequired && !consentGiven) return;
     if (callbackRefusedByClient) {
       callbackAckSpoken = true;
       enqueuePremiumTts("Ok, je note : pas de rappel par le garage.", { interrupt: true, source: "callback_ack_refused", allowWithoutUser: false });
@@ -6547,7 +6548,7 @@ But: être naturel et mettre le client en confiance.`,
                       plateConfirmedByClient = true;
                     }
                   }
-                  if (userText && userText.trim() && consentGiven) {
+                  if (userText && userText.trim() && (consentGiven || !consentRequired)) {
                     const ut = String(userText).toLowerCase().trim().replace(/\s+/g, " ");
                     const isAffirmative = isAffirmativeFr(ut);
                     const looksAffirmative = /\b(oui|ouais|ouai|ok|d['']?accord|volontiers|avec plaisir)\b/i.test(ut);
