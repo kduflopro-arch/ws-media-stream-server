@@ -1099,10 +1099,23 @@ wss.on("connection", (ws, req) => {
     return (
       /\b(je\s+)?(veux|voudrais|souhaite|demande)\s+(être\s+)?rappel[ée]?\b/i.test(t) ||
       /\bj['']?\s*aimerais\s+(être\s+)?rappel/i.test(t) ||
+      /\bj['']?\s*aimerais\s+te\s+rappeler\b/i.test(t) ||
       /\bj['']?\s*aimerai\s+(être\s+)?rappel/i.test(t) ||
       /\b(pouvez[- ]?vous|peux[- ]?tu)\s+me\s+rappeler\b/i.test(t) ||
-      /\b(je\s+)?(souhaite|veux)\s+un\s+rappel\b/i.test(t)
+      /\b(je\s+)?(souhaite|veux)\s+un\s+rappel\b/i.test(t) ||
+      /\b(rappel|rappeler)\b[\s\S]{0,140}\bconseiller\b/i.test(t) ||
+      /\bconseiller\b[\s\S]{0,140}\b(rappel|rappeler)\b/i.test(t)
     );
+  }
+  /** « Oui » + rappel dans une phrase d'accueil + demande (ex. oui bonjour j'aimerais te rappeler…) ≠ réponse courte à une question de rappel. */
+  function clientWantsRecallAffirmationShort(userTextNorm) {
+    const t = String(userTextNorm || "").toLowerCase().replace(/\s+/g, " ").trim();
+    const recallAffirm =
+      /\b(rappeler|rappel|rappellera|être rappelé|rappelé)\b/i.test(t) &&
+      /\b(oui|ouais|ouai|je veux|si je veux|volontiers|d['']?accord)\b/i.test(t);
+    if (!recallAffirm) return false;
+    if (/\b(bonjour|bonsoir|allô|allo|salut)\b/i.test(t) && /\b(rappel|rappeler|conseiller)\b/i.test(t)) return false;
+    return true;
   }
   /** Retourne true si le message assistant indique une modification de RDV (demande pour modifier, nouvelle date, déplacer). */
   function isAssistantModificationRdv(assistantText) {
@@ -6667,7 +6680,7 @@ But: être naturel et mettre le client en confiance.`,
                       const lastWasCallbackQuestionIntentCb = effectiveIntentCb === "callback";
                       const callbackExplicitPositive = /\b(oui|ouais|ok|d['']?accord|je veux|oui je veux|volontiers|avec plaisir|rappeler moi|rappellez moi|rappeler)\b/i.test(userTextNorm);
                       const callbackExplicitNegative = /\b(non|pas besoin|pas de rappel|ne me rappelez pas|je ne veux pas être rappel[ée]?)\b/i.test(userTextNorm);
-                      const clientWantsRecallNow = (/\b(rappeler|rappel|rappellera|être rappelé)\b/i.test(userTextNorm)) && (/\b(oui|ouais|ouai|je veux|si je veux|volontiers|d['']?accord)\b/i.test(userTextNorm));
+                      const clientWantsRecallNow = clientWantsRecallAffirmationShort(userTextNorm);
                       const clientRequestsCallbackDirectly = clientRequestsCallbackDirectlyNorm(userTextNorm);
                       const clientAlreadyStatedCallbackMotif =
                         /\b(rappel|rappeler|être rappelé|rappelé)\b.*\b(pour|concernant|au sujet|motif|question|dossier|ouvrir|fiscal|bilan|transmission|assurance|retraite|patrimoine)\b/i.test(userTextNorm) ||
@@ -7547,7 +7560,7 @@ But: être naturel et mettre le client en confiance.`,
             const callbackExplicitNegative = /\b(non|pas besoin|pas de rappel|ne me rappelez pas|je ne veux pas être rappel[ée]?)\b/i.test(userTextNorm);
             const rdvExplicitPositive = /\b(oui|ouais|ok|d['’]?accord|je veux|prendre rendez-vous|un rendez-vous)\b/i.test(userTextNorm);
             const rdvExplicitNegative = /\b(non|pas de rendez-vous|pas maintenant|je ne veux pas de rendez-vous)\b/i.test(userTextNorm);
-            const clientWantsRecallNow = (/\b(rappeler|rappel|rappellera|être rappelé)\b/i.test(userTextNorm)) && (/\b(oui|ouais|ouai|je veux|si je veux|volontiers|d['']?accord)\b/i.test(userTextNorm));
+            const clientWantsRecallNow = clientWantsRecallAffirmationShort(userTextNorm);
             const clientRequestsCallbackDirectly = clientRequestsCallbackDirectlyNorm(userTextNorm);
             const clientAlreadyStatedCallbackMotif =
               /\b(rappel|rappeler|être rappelé|rappelé)\b.*\b(pour|concernant|au sujet|motif|question|dossier|ouvrir|fiscal|bilan|transmission|assurance|retraite|patrimoine)\b/i.test(userTextNorm) ||
