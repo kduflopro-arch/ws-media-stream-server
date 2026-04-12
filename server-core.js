@@ -6669,6 +6669,9 @@ But: être naturel et mettre le client en confiance.`,
                       const callbackExplicitNegative = /\b(non|pas besoin|pas de rappel|ne me rappelez pas|je ne veux pas être rappel[ée]?)\b/i.test(userTextNorm);
                       const clientWantsRecallNow = (/\b(rappeler|rappel|rappellera|être rappelé)\b/i.test(userTextNorm)) && (/\b(oui|ouais|ouai|je veux|si je veux|volontiers|d['']?accord)\b/i.test(userTextNorm));
                       const clientRequestsCallbackDirectly = clientRequestsCallbackDirectlyNorm(userTextNorm);
+                      const clientAlreadyStatedCallbackMotif =
+                        /\b(rappel|rappeler|être rappelé|rappelé)\b.*\b(pour|concernant|au sujet|motif|question|dossier|ouvrir|fiscal|bilan|transmission|assurance|retraite|patrimoine)\b/i.test(userTextNorm) ||
+                        /\b(pour|concernant)\s+(un|le|la|les|mon|ma|mes|une)\b.*\b(rappel|rappeler)\b/i.test(userTextNorm);
                       const userAffirmativeCb = isAffirmativeFr(userTextNorm);
                       const userNegativeCb = isNegativeFr(userTextNorm);
                       const looksLikeAffirmativeForCallback = /\b(oui|ouais|ouai|ok|d['']?accord|volontiers|avec plaisir)\b/i.test(userTextNorm);
@@ -6687,15 +6690,29 @@ But: être naturel et mettre le client en confiance.`,
                           maybeSpeakCallbackAck();
                         }
                       }
-                      if (
-                        effectiveSector === "patrimoine" &&
-                        clientRequestsCallbackDirectly &&
-                        !lastWasCallbackQuestionIntentCb &&
-                        !callbackReasonRequested &&
-                        !callbackAcceptedByClient
-                      ) {
-                        callbackReasonRequested = true;
-                        // Pas de TTS injecté : l'IA Realtime pose « D'accord, pour quel motif ? » (évite doublon audio).
+                      if (effectiveSector === "patrimoine" && clientRequestsCallbackDirectly && !callbackAcceptedByClient) {
+                        if (clientAlreadyStatedCallbackMotif) {
+                          callbackReasonCaptured = true;
+                          callbackAcceptedByClient = true;
+                          callbackRefusedByClient = false;
+                          maybeSpeakCallbackAck();
+                        } else if (!lastWasCallbackQuestionIntentCb && !callbackReasonRequested) {
+                          callbackReasonRequested = true;
+                          if (ws.__deepgramResponseState?.timer) {
+                            clearTimeout(ws.__deepgramResponseState.timer);
+                            ws.__deepgramResponseState.timer = null;
+                          }
+                          if (openaiWs && openaiWs.readyState === WebSocket.OPEN && responseInProgress) {
+                            try {
+                              openaiWs.send(JSON.stringify({ type: "response.cancel" }));
+                            } catch (_) {}
+                          }
+                          enqueuePremiumTts("D'accord, pour quel motif ?", {
+                            interrupt: true,
+                            source: "callback_reason_request",
+                            allowWithoutUser: false,
+                          });
+                        }
                       }
                       if (clientWantsRecallNow) {
                         callbackAcceptedByClient = true;
@@ -7532,6 +7549,9 @@ But: être naturel et mettre le client en confiance.`,
             const rdvExplicitNegative = /\b(non|pas de rendez-vous|pas maintenant|je ne veux pas de rendez-vous)\b/i.test(userTextNorm);
             const clientWantsRecallNow = (/\b(rappeler|rappel|rappellera|être rappelé)\b/i.test(userTextNorm)) && (/\b(oui|ouais|ouai|je veux|si je veux|volontiers|d['']?accord)\b/i.test(userTextNorm));
             const clientRequestsCallbackDirectly = clientRequestsCallbackDirectlyNorm(userTextNorm);
+            const clientAlreadyStatedCallbackMotif =
+              /\b(rappel|rappeler|être rappelé|rappelé)\b.*\b(pour|concernant|au sujet|motif|question|dossier|ouvrir|fiscal|bilan|transmission|assurance|retraite|patrimoine)\b/i.test(userTextNorm) ||
+              /\b(pour|concernant)\s+(un|le|la|les|mon|ma|mes|une)\b.*\b(rappel|rappeler)\b/i.test(userTextNorm);
             const looksLikeAffirmativeForCallback = /\b(oui|ouais|ouai|ok|d['']?accord|volontiers|avec plaisir)\b/i.test(userTextNorm);
             const looksLikeRefuseForCallback = /\b(non|pas besoin|pas de rappel|ne me rappelez pas)\b/i.test(userTextNorm) && !/\b(oui|ouais|ouai)\b/i.test(userTextNorm);
             if (effectiveSector === "patrimoine" && callbackReasonRequested && userTextNorm && userTextNorm.trim()) {
@@ -7548,14 +7568,29 @@ But: être naturel et mettre le client en confiance.`,
                 maybeSpeakCallbackAck();
               }
             }
-            if (
-              effectiveSector === "patrimoine" &&
-              clientRequestsCallbackDirectly &&
-              !lastWasCallbackQuestionIntent &&
-              !callbackReasonRequested &&
-              !callbackAcceptedByClient
-            ) {
-              callbackReasonRequested = true;
+            if (effectiveSector === "patrimoine" && clientRequestsCallbackDirectly && !callbackAcceptedByClient) {
+              if (clientAlreadyStatedCallbackMotif) {
+                callbackReasonCaptured = true;
+                callbackAcceptedByClient = true;
+                callbackRefusedByClient = false;
+                maybeSpeakCallbackAck();
+              } else if (!lastWasCallbackQuestionIntent && !callbackReasonRequested) {
+                callbackReasonRequested = true;
+                if (ws.__deepgramResponseState?.timer) {
+                  clearTimeout(ws.__deepgramResponseState.timer);
+                  ws.__deepgramResponseState.timer = null;
+                }
+                if (openaiWs && openaiWs.readyState === WebSocket.OPEN && responseInProgress) {
+                  try {
+                    openaiWs.send(JSON.stringify({ type: "response.cancel" }));
+                  } catch (_) {}
+                }
+                enqueuePremiumTts("D'accord, pour quel motif ?", {
+                  interrupt: true,
+                  source: "callback_reason_request",
+                  allowWithoutUser: false,
+                });
+              }
             }
             if (clientWantsRecallNow) {
               callbackAcceptedByClient = true;
