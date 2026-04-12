@@ -1045,7 +1045,10 @@ wss.on("connection", (ws, req) => {
     const rawLower = raw.toLowerCase();
     const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
     const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase();
-    const asksCallback = /\b(rappel|rappeler|rappelé|recontact|recontacter)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("?"));
+    let asksCallback = /\b(rappel|rappeler|rappelé|recontact|recontacter)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("?"));
+    if (effectiveSector === "patrimoine" && /\b(pour quel motif|pour quel sujet|c'est pour quel motif|quel est le motif)\b/.test(target) && target.includes("?")) {
+      asksCallback = true;
+    }
     const asksRdv = (/\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target)) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("?"));
     const asksDevisLast = /\b(devis)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("demande")) && target.includes("?");
     const asksDevisAnywhere = /\b(devis)\b/.test(rawLower) && (rawLower.includes("souhaitez") || rawLower.includes("voulez") || rawLower.includes("demande")) && (rawLower.includes("demande de devis") || rawLower.includes("faire une demande"));
@@ -1068,6 +1071,38 @@ wss.on("connection", (ws, req) => {
       break;
     }
     return "unknown";
+  }
+  /** Dernière question assistant : callback / RDV / devis / need_other / unknown (patrimoine : « pour quel motif » = flux rappel). */
+  function resolveLastAssistantQuestionIntent(assistantText) {
+    const raw = String(assistantText || "");
+    const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
+    const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase().trim();
+    const asksNeedOther = /\b(besoin\s+d'?autre\s+chose|autre\s+chose)\b/.test(target) || /d'?autre\s+chose\s*\?/.test(target);
+    if (asksNeedOther) return "need_other";
+    const asksRdv = /\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target);
+    const asksCallbackRappel = /\b(rappel|rappeler|rappelé|recontact|recontacter)\b/.test(target);
+    const asksCallbackPatrimoineMotif =
+      effectiveSector === "patrimoine" &&
+      /\b(pour quel motif|pour quel sujet|c'est pour quel motif|c'est pour quel sujet|quel est le motif)\b/.test(target);
+    const asksCallback = asksCallbackRappel || asksCallbackPatrimoineMotif;
+    const asksDevis = /\b(devis)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("demande"));
+    if (asksDevis) return "devis";
+    if (asksCallback && !asksRdv) return "callback";
+    if (asksRdv && !asksCallback) return "rdv";
+    if (asksCallback && asksRdv) {
+      return target.lastIndexOf("rappel") >= target.lastIndexOf("rendez-vous") ? "callback" : "rdv";
+    }
+    return "unknown";
+  }
+  function clientRequestsCallbackDirectlyNorm(userTextNorm) {
+    const t = String(userTextNorm || "").toLowerCase().replace(/\s+/g, " ").trim();
+    return (
+      /\b(je\s+)?(veux|voudrais|souhaite|demande)\s+(être\s+)?rappel[ée]?\b/i.test(t) ||
+      /\bj['']?\s*aimerais\s+(être\s+)?rappel/i.test(t) ||
+      /\bj['']?\s*aimerai\s+(être\s+)?rappel/i.test(t) ||
+      /\b(pouvez[- ]?vous|peux[- ]?tu)\s+me\s+rappeler\b/i.test(t) ||
+      /\b(je\s+)?(souhaite|veux)\s+un\s+rappel\b/i.test(t)
+    );
   }
   /** Retourne true si le message assistant indique une modification de RDV (demande pour modifier, nouvelle date, déplacer). */
   function isAssistantModificationRdv(assistantText) {
@@ -6625,23 +6660,7 @@ But: être naturel et mettre le client en confiance.`,
                     // Rappel callback : avec Deepgram, le texte user arrive souvent ici sans repasser par input_audio_transcription.completed
                     {
                       const userTextNorm = ut;
-                      const detectLastQuestionIntentCb = (assistantText) => {
-                        const raw = String(assistantText || "");
-                        const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
-                        const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase().trim();
-                        const asksNeedOther = /\b(besoin\s+d'?autre\s+chose|autre\s+chose)\b/.test(target) || /d'?autre\s+chose\s*\?/.test(target);
-                        if (asksNeedOther) return "need_other";
-                        const asksDevis = /\b(devis)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("demande"));
-                        const asksCallback = /\b(rappel|rappeler|rappelé|recontact|recontacter)\b/.test(target);
-                        const asksRdv = /\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target);
-                        if (asksDevis) return "devis";
-                        if (asksCallback && !asksRdv) return "callback";
-                        if (asksRdv && !asksCallback) return "rdv";
-                        if (asksCallback && asksRdv) {
-                          return target.lastIndexOf("rappel") >= target.lastIndexOf("rendez-vous") ? "callback" : "rdv";
-                        }
-                        return "unknown";
-                      };
+                      const detectLastQuestionIntentCb = (assistantText) => resolveLastAssistantQuestionIntent(assistantText);
                       const lastIntentCb = detectLastQuestionIntentCb(lastAssistantText);
                       const recentIntentCb = getMostRecentAssistantIntent(25000);
                       const effectiveIntentCb = lastIntentCb !== "unknown" ? lastIntentCb : recentIntentCb;
@@ -6649,19 +6668,24 @@ But: être naturel et mettre le client en confiance.`,
                       const callbackExplicitPositive = /\b(oui|ouais|ok|d['']?accord|je veux|oui je veux|volontiers|avec plaisir|rappeler moi|rappellez moi|rappeler)\b/i.test(userTextNorm);
                       const callbackExplicitNegative = /\b(non|pas besoin|pas de rappel|ne me rappelez pas|je ne veux pas être rappel[ée]?)\b/i.test(userTextNorm);
                       const clientWantsRecallNow = (/\b(rappeler|rappel|rappellera|être rappelé)\b/i.test(userTextNorm)) && (/\b(oui|ouais|ouai|je veux|si je veux|volontiers|d['']?accord)\b/i.test(userTextNorm));
-                      const clientRequestsCallbackDirectly = (
-                        /\b(je\s+)?(veux|voudrais|souhaite|demande)\s+(être\s+)?rappel[ée]?\b/i.test(userTextNorm) ||
-                        /\b(pouvez[- ]?vous|peux[- ]?tu)\s+me\s+rappeler\b/i.test(userTextNorm) ||
-                        /\b(je\s+)?(souhaite|veux)\s+un\s+rappel\b/i.test(userTextNorm)
-                      );
+                      const clientRequestsCallbackDirectly = clientRequestsCallbackDirectlyNorm(userTextNorm);
                       const userAffirmativeCb = isAffirmativeFr(userTextNorm);
                       const userNegativeCb = isNegativeFr(userTextNorm);
+                      const looksLikeAffirmativeForCallback = /\b(oui|ouais|ouai|ok|d['']?accord|volontiers|avec plaisir)\b/i.test(userTextNorm);
+                      const looksLikeRefuseForCallback = /\b(non|pas besoin|pas de rappel|ne me rappelez pas)\b/i.test(userTextNorm) && !/\b(oui|ouais|ouai)\b/i.test(userTextNorm);
                       if (effectiveSector === "patrimoine" && callbackReasonRequested && userTextNorm && userTextNorm.trim()) {
-                        callbackReasonRequested = false;
-                        callbackReasonCaptured = true;
-                        callbackAcceptedByClient = true;
-                        callbackRefusedByClient = false;
-                        maybeSpeakCallbackAck();
+                        const refuseMotif = looksLikeRefuseForCallback || /^\s*(non|nan|nope)\b/i.test(userTextNorm.trim());
+                        if (refuseMotif) {
+                          callbackReasonRequested = false;
+                          callbackRefusedByClient = true;
+                          callbackAcceptedByClient = false;
+                        } else {
+                          callbackReasonRequested = false;
+                          callbackReasonCaptured = true;
+                          callbackAcceptedByClient = true;
+                          callbackRefusedByClient = false;
+                          maybeSpeakCallbackAck();
+                        }
                       }
                       if (
                         effectiveSector === "patrimoine" &&
@@ -6671,18 +6695,13 @@ But: être naturel et mettre le client en confiance.`,
                         !callbackAcceptedByClient
                       ) {
                         callbackReasonRequested = true;
-                        enqueuePremiumTts(
-                          "Bien sûr. Pour transmission au conseiller, pouvez-vous préciser brièvement le motif du rappel ?",
-                          { interrupt: true, source: "callback_reason_request", allowWithoutUser: false }
-                        );
+                        // Pas de TTS injecté : l'IA Realtime pose « D'accord, pour quel motif ? » (évite doublon audio).
                       }
                       if (clientWantsRecallNow) {
                         callbackAcceptedByClient = true;
                         callbackRefusedByClient = false;
                         maybeSpeakCallbackAck();
                       }
-                      const looksLikeAffirmativeForCallback = /\b(oui|ouais|ouai|ok|d['']?accord|volontiers|avec plaisir)\b/i.test(userTextNorm);
-                      const looksLikeRefuseForCallback = /\b(non|pas besoin|pas de rappel|ne me rappelez pas)\b/i.test(userTextNorm) && !/\b(oui|ouais|ouai)\b/i.test(userTextNorm);
                       if (lastWasCallbackQuestionIntentCb && !clientWantsRecallNow) {
                         if (callbackExplicitPositive || (userAffirmativeCb && !userNegativeCb) || looksLikeAffirmativeForCallback) {
                           callbackAcceptedByClient = true;
@@ -6691,6 +6710,15 @@ But: être naturel et mettre le client en confiance.`,
                         } else if ((callbackExplicitNegative || (userNegativeCb && !userAffirmativeCb)) && looksLikeRefuseForCallback) {
                           callbackRefusedByClient = true;
                           callbackAcceptedByClient = false;
+                          maybeSpeakCallbackAck();
+                        } else if (
+                          effectiveSector === "patrimoine" &&
+                          userTextNorm.trim().length >= 8 &&
+                          !looksLikeRefuseForCallback &&
+                          !userNegativeCb
+                        ) {
+                          callbackAcceptedByClient = true;
+                          callbackRefusedByClient = false;
                           maybeSpeakCallbackAck();
                         }
                       }
@@ -7476,23 +7504,7 @@ But: être naturel et mettre le client en confiance.`,
               || /\b(oui\s+)?(je\s+l['']?accepte)\b/i.test(userText);
             const userAffirmative = isAffirmativeFr(userTextNorm);
             const userNegative = isNegativeFr(userTextNorm);
-            const detectLastQuestionIntent = (assistantText) => {
-              const raw = String(assistantText || "");
-              const questions = raw.match(/[^?.!\n\r]*\?/g) || [];
-              const target = String(questions.length ? questions[questions.length - 1] : raw).toLowerCase().trim();
-              const asksNeedOther = /\b(besoin\s+d'?autre\s+chose|autre\s+chose)\b/.test(target) || /d'?autre\s+chose\s*\?/.test(target);
-              if (asksNeedOther) return "need_other";
-              const asksDevis = /\b(devis)\b/.test(target) && (target.includes("souhaitez") || target.includes("voulez") || target.includes("demande"));
-              const asksCallback = /\b(rappel|rappeler|rappelé|recontact|recontacter)\b/.test(target);
-              const asksRdv = /\b(rendez-?vous|rdv|créneau)\b/.test(target) || /quel\s*jour|jour\s*vous\s*convient|matin|après-?midi/.test(target);
-              if (asksDevis) return "devis";
-              if (asksCallback && !asksRdv) return "callback";
-              if (asksRdv && !asksCallback) return "rdv";
-              if (asksCallback && asksRdv) {
-                return target.lastIndexOf("rappel") >= target.lastIndexOf("rendez-vous") ? "callback" : "rdv";
-              }
-              return "unknown";
-            };
+            const detectLastQuestionIntent = (assistantText) => resolveLastAssistantQuestionIntent(assistantText);
             const lastIntent = detectLastQuestionIntent(lastAssistantText);
             const recentIntent = getMostRecentAssistantIntent(25000);
             const effectiveIntent = lastIntent !== "unknown" ? lastIntent : recentIntent;
@@ -7519,17 +7531,22 @@ But: être naturel et mettre le client en confiance.`,
             const rdvExplicitPositive = /\b(oui|ouais|ok|d['’]?accord|je veux|prendre rendez-vous|un rendez-vous)\b/i.test(userTextNorm);
             const rdvExplicitNegative = /\b(non|pas de rendez-vous|pas maintenant|je ne veux pas de rendez-vous)\b/i.test(userTextNorm);
             const clientWantsRecallNow = (/\b(rappeler|rappel|rappellera|être rappelé)\b/i.test(userTextNorm)) && (/\b(oui|ouais|ouai|je veux|si je veux|volontiers|d['']?accord)\b/i.test(userTextNorm));
-            const clientRequestsCallbackDirectly = (
-              /\b(je\s+)?(veux|voudrais|souhaite|demande)\s+(être\s+)?rappel[ée]?\b/i.test(userTextNorm) ||
-              /\b(pouvez[- ]?vous|peux[- ]?tu)\s+me\s+rappeler\b/i.test(userTextNorm) ||
-              /\b(je\s+)?(souhaite|veux)\s+un\s+rappel\b/i.test(userTextNorm)
-            );
+            const clientRequestsCallbackDirectly = clientRequestsCallbackDirectlyNorm(userTextNorm);
+            const looksLikeAffirmativeForCallback = /\b(oui|ouais|ouai|ok|d['']?accord|volontiers|avec plaisir)\b/i.test(userTextNorm);
+            const looksLikeRefuseForCallback = /\b(non|pas besoin|pas de rappel|ne me rappelez pas)\b/i.test(userTextNorm) && !/\b(oui|ouais|ouai)\b/i.test(userTextNorm);
             if (effectiveSector === "patrimoine" && callbackReasonRequested && userTextNorm && userTextNorm.trim()) {
-              callbackReasonRequested = false;
-              callbackReasonCaptured = true;
-              callbackAcceptedByClient = true;
-              callbackRefusedByClient = false;
-              maybeSpeakCallbackAck();
+              const refuseMotif = looksLikeRefuseForCallback || /^\s*(non|nan|nope)\b/i.test(userTextNorm.trim());
+              if (refuseMotif) {
+                callbackReasonRequested = false;
+                callbackRefusedByClient = true;
+                callbackAcceptedByClient = false;
+              } else {
+                callbackReasonRequested = false;
+                callbackReasonCaptured = true;
+                callbackAcceptedByClient = true;
+                callbackRefusedByClient = false;
+                maybeSpeakCallbackAck();
+              }
             }
             if (
               effectiveSector === "patrimoine" &&
@@ -7539,18 +7556,12 @@ But: être naturel et mettre le client en confiance.`,
               !callbackAcceptedByClient
             ) {
               callbackReasonRequested = true;
-              enqueuePremiumTts(
-                "Bien sûr. Pour transmission au conseiller, pouvez-vous préciser brièvement le motif du rappel ?",
-                { interrupt: true, source: "callback_reason_request", allowWithoutUser: false }
-              );
             }
             if (clientWantsRecallNow) {
               callbackAcceptedByClient = true;
               callbackRefusedByClient = false;
               maybeSpeakCallbackAck();
             }
-            const looksLikeAffirmativeForCallback = /\b(oui|ouais|ouai|ok|d['']?accord|volontiers|avec plaisir)\b/i.test(userTextNorm);
-            const looksLikeRefuseForCallback = /\b(non|pas besoin|pas de rappel|ne me rappelez pas)\b/i.test(userTextNorm) && !/\b(oui|ouais|ouai)\b/i.test(userTextNorm);
             if (lastWasCallbackQuestionIntent && !clientWantsRecallNow) {
               if (callbackExplicitPositive || (userAffirmative && !userNegative) || looksLikeAffirmativeForCallback) {
                 callbackAcceptedByClient = true;
@@ -7559,6 +7570,15 @@ But: être naturel et mettre le client en confiance.`,
               } else if ((callbackExplicitNegative || (userNegative && !userAffirmative)) && looksLikeRefuseForCallback) {
                 callbackRefusedByClient = true;
                 callbackAcceptedByClient = false;
+                maybeSpeakCallbackAck();
+              } else if (
+                effectiveSector === "patrimoine" &&
+                userTextNorm.trim().length >= 8 &&
+                !looksLikeRefuseForCallback &&
+                !userNegative
+              ) {
+                callbackAcceptedByClient = true;
+                callbackRefusedByClient = false;
                 maybeSpeakCallbackAck();
               }
             }
