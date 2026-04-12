@@ -1144,7 +1144,13 @@ wss.on("connection", (ws, req) => {
     if (consentRequired && !consentGiven) return;
     if (callbackRefusedByClient) {
       callbackAckSpoken = true;
-      enqueuePremiumTts("Ok, je note : pas de rappel par le garage.", { interrupt: true, source: "callback_ack_refused", allowWithoutUser: false });
+      const callbackRefuseAckText =
+        effectiveSector === "patrimoine"
+          ? "Très bien, je note : pas de rappel par un conseiller."
+          : effectiveSector === "restaurant"
+            ? "Ok, je note : pas de rappel par l'établissement."
+            : "Ok, je note : pas de rappel par le garage.";
+      enqueuePremiumTts(callbackRefuseAckText, { interrupt: true, source: "callback_ack_refused", allowWithoutUser: false });
       return;
     }
     if (callbackAcceptedByClient) {
