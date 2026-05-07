@@ -5,8 +5,30 @@ services:
     nodeVersion: "20"
     plan: starter
     buildCommand: npm install
-    startCommand: node server.js
+    startCommand: npm run start:restaurant
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: AUTOGURU_APP_URL
+        value: https://autoguru-ai.vercel.app
+      - key: ACCOUNT_SECTOR
+        value: restaurant
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: RUN_ANALYSIS_SECRET
+        sync: false
+      - key: REALTIME_INGEST_SECRET
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_MESSAGING_SERVICE_SID
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        sync: false
