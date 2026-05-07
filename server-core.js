@@ -106,6 +106,124 @@ const CALL_ANALYSIS_SCHEMA = {
   required: ["symptoms", "summary", "aiConclusion", "probableCauses", "urgency", "appointmentRecommendation", "clientInsights", "appointmentConfirmedDate", "appointmentConfirmedTime", "appointmentConfirmedService", "callOutcome", "rdvIncompleteReason", "callType"],
   additionalProperties: false,
 };
+
+function sendJson(res, status, body) {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(body));
+}
+
+function readJsonBody(req, maxBytes = 16_384) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > maxBytes) {
+        reject(new Error("payload_too_large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (!raw.trim()) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw));
+      } catch {
+        reject(new Error("invalid_json"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function normalizeSmsPhone(phone) {
+  const compact = String(phone || "").replace(/[\s().-]/g, "").trim();
+  if (/^\+\d{8,15}$/.test(compact)) return compact;
+  if (/^0\d{9}$/.test(compact)) return `+33${compact.slice(1)}`;
+  return null;
+}
+
+function publicTwilioError(error) {
+  const message = String(error?.message || "");
+  const code = String(error?.code || "");
+  const status = String(error?.status || "");
+  if (code === "20003" || status === "401" || /\bauthenticate\b/i.test(message)) {
+    return "Twilio refuse l'authentification SMS côté serveur Hetzner.";
+  }
+  return message || "Envoi SMS impossible";
+}
+
+async function sendSmsViaTwilioRest({ to, body, from, messagingServiceSid }) {
+  const accountSid = String(process.env.TWILIO_ACCOUNT_SID || "").trim();
+  const authToken = String(process.env.TWILIO_AUTH_TOKEN || "").trim();
+  if (!accountSid || !authToken) {
+    throw new Error("TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN manquants sur le serveur Hetzner");
+  }
+
+  const params = new URLSearchParams();
+  params.set("To", to);
+  params.set("Body", body);
+  const explicitFrom = String(from || "").trim();
+  const serviceSid = String(messagingServiceSid || process.env.TWILIO_MESSAGING_SERVICE_SID || "").trim();
+  const defaultFrom = String(process.env.TWILIO_PHONE_NUMBER || "").trim();
+  if (explicitFrom) {
+    params.set("From", explicitFrom);
+  } else if (serviceSid) {
+    params.set("MessagingServiceSid", serviceSid);
+  } else if (defaultFrom) {
+    params.set("From", defaultFrom);
+  } else {
+    throw new Error("Aucun expéditeur SMS configuré sur le serveur Hetzner");
+  }
+
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(String(data?.message || response.statusText || "twilio_error"));
+    error.code = data?.code;
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+async function handleSendSms(req, res) {
+  const expectedSecret = process.env.SMS_SEND_SECRET || process.env.RUN_ANALYSIS_SECRET;
+  const authHeader = req.headers.authorization || "";
+  if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
+    return sendJson(res, 401, { error: "Unauthorized" });
+  }
+
+  try {
+    const body = await readJsonBody(req);
+    const to = normalizeSmsPhone(body?.to);
+    const message = String(body?.body || "").trim();
+    if (!to) return sendJson(res, 400, { error: "invalid_to" });
+    if (message.length < 2) return sendJson(res, 400, { error: "message_too_short" });
+    if (message.length > 800) return sendJson(res, 400, { error: "message_too_long" });
+
+    const sms = await sendSmsViaTwilioRest({
+      to,
+      body: message,
+      from: body?.from,
+      messagingServiceSid: body?.messagingServiceSid,
+    });
+    return sendJson(res, 200, { ok: true, sid: sms?.sid || null });
+  } catch (error) {
+    console.error("[send-sms] Erreur:", publicTwilioError(error));
+    return sendJson(res, 500, { error: "send_failed", message: publicTwilioError(error) });
+  }
+}
+
 async function handleRunAnalysis(callId, res) {
   const send = (status, body) => {
     res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
@@ -485,6 +603,15 @@ const server = http.createServer((req, res) => {
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
         res.end(JSON.stringify({ error: "analysis_failed", message: String(err?.message ?? err) }));
+      }
+    });
+    return;
+  }
+  if (req.method === "POST" && (pathnameLower === "/send-sms" || pathnameLower === "/send-sms/")) {
+    handleSendSms(req, res).catch((err) => {
+      console.error("[send-sms] Unhandled rejection:", err?.message ?? err);
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: "send_failed", message: "Envoi SMS impossible" });
       }
     });
     return;
